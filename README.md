@@ -4,7 +4,9 @@ Reusable Celonis Knowledge Model query and export clients.
 
 ## Configuration
 
-The external clients read these environment variables by default:
+The package loads a local `.env` file automatically. Start by copying
+`.env.example` to `.env` and filling in your tenant credentials. The external
+clients read these environment variables by default:
 
 - `CELONIS_URL`: Celonis tenant URL, for example `https://tenant.celonis.cloud`
 - `CELONIS_API_TOKEN`: API token or user key
@@ -42,4 +44,3 @@ project and run:
 uv sync
 uv run pytest
 ```
-

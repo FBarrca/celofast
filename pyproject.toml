@@ -13,6 +13,7 @@ dependencies = [
     "python-core-ems==0.25.dev5",
     "python-core-internal-client==0.25.dev5",
     "pyyaml>=6.0,<7.0",
+    "python-dotenv>=1.0,<2.0",
     "saolapy>=0.3.3,<1.0",
 ]
 
