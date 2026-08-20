@@ -1,0 +1,50 @@
+[project]
+name = "celofast"
+version = "0.1.0"
+description = "Reusable Celonis Knowledge Model and Phoenix clients"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "numpy>=2.0,<3.0",
+    "pandas>=2.2,<3.0",
+    "pydantic>=2.0,<3.0",
+    "pycelonis>=2.12,<3.0",
+    "pycelonis-core>=2.10.2,<3.0",
+    "python-core-ems==0.25.dev5",
+    "python-core-internal-client==0.25.dev5",
+    "pyyaml>=6.0,<7.0",
+    "saolapy>=0.3.3,<1.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0,<9.0",
+    "pytest-asyncio>=0.23,<1.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[[tool.uv.index]]
+name = "celoai"
+url = "https://celonis-prod-867928363078.d.codeartifact.eu-central-1.amazonaws.com/pypi/CeloAI/simple/"
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple/"
+
+[[tool.uv.index]]
+name = "celonis"
+url = "https://pypi.celonis.cloud/"
+explicit = true
+
+[tool.uv.sources]
+python-core-ems = { index = "celoai" }
+python-core-internal-client = { index = "celoai" }
+pycelonis = { index = "celonis" }
+pycelonis-core = { index = "celonis" }
+saolapy = { index = "celonis" }
