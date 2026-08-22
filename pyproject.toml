@@ -1,7 +1,7 @@
 [project]
 name = "celofast"
 version = "0.1.0"
-description = "Reusable Celonis Knowledge Model and Phoenix clients"
+description = "SaolaPy-backed Celonis Knowledge Model query service"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -10,8 +10,6 @@ dependencies = [
     "pydantic>=2.0,<3.0",
     "pycelonis>=2.12,<3.0",
     "pycelonis-core>=2.10.2,<3.0",
-    "python-core-ems==0.25.dev5",
-    "python-core-internal-client==0.25.dev5",
     "pyyaml>=6.0,<7.0",
     "python-dotenv>=1.0,<2.0",
     "saolapy>=0.3.3,<1.0",
@@ -29,10 +27,7 @@ dev = [
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-
-[[tool.uv.index]]
-name = "celoai"
-url = "https://celonis-prod-867928363078.d.codeartifact.eu-central-1.amazonaws.com/pypi/CeloAI/simple/"
+asyncio_mode = "auto"
 
 [[tool.uv.index]]
 name = "pypi"
@@ -44,8 +39,6 @@ url = "https://pypi.celonis.cloud/"
 explicit = true
 
 [tool.uv.sources]
-python-core-ems = { index = "celoai" }
-python-core-internal-client = { index = "celoai" }
 pycelonis = { index = "celonis" }
 pycelonis-core = { index = "celonis" }
 saolapy = { index = "celonis" }

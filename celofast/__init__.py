@@ -1,4 +1,4 @@
-"""Reusable Celonis service clients."""
+"""Reusable Celonis Knowledge Model services."""
 
 from dotenv import load_dotenv
 
@@ -6,18 +6,10 @@ from dotenv import load_dotenv
 # the shell or deployment environment.
 load_dotenv()
 
-from celofast.services.knowledge_model_service import (
-    KnowledgeModel,
-    KnowledgeModelInternalService,
-    KnowledgeModelService,
-    get_phoenix_client,
-    get_semantic_layer_client,
-)
+from celofast.services.clients import get_celonis
+from celofast.services.knowledge_model_service import KnowledgeModelService
 
 __all__ = [
-    "KnowledgeModel",
-    "KnowledgeModelInternalService",
     "KnowledgeModelService",
-    "get_phoenix_client",
-    "get_semantic_layer_client",
+    "get_celonis",
 ]

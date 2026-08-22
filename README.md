@@ -1,6 +1,6 @@
 # celofast
 
-Reusable Celonis Knowledge Model query and export clients.
+SaolaPy-backed Celonis Knowledge Model query service.
 
 ## Configuration
 
@@ -9,31 +9,36 @@ The package loads a local `.env` file automatically. Start by copying
 clients read these environment variables by default:
 
 - `CELONIS_URL`: Celonis tenant URL, for example `https://tenant.celonis.cloud`
-- `CELONIS_API_TOKEN`: API token or user key
-- `CELONIS_KEY_TYPE`: set to `USER_KEY` for a Bearer token; otherwise AppKey is used
+- `OAUTH_CLIENT_ID`: OAuth client ID
+- `OAUTH_CLIENT_SECRET`: OAuth client secret
+- `OAUTH_SCOPES`: space-delimited OAuth scopes, for example `studio integration.data-pools`
 
-Credentials and the base URL can also be passed explicitly to
-`get_semantic_layer_client()` and `get_phoenix_client()`.
+OAuth credentials and the base URL can also be passed explicitly to
+`get_celonis()` and `KnowledgeModelService` can receive an already configured
+pycelonis client for testing or dependency injection.
 
-## Read KM data
+pycelonis obtains and refreshes tokens through the tenant's standard
+`/oauth2/token` endpoint and reads the OAuth variables directly.
+
+## Query a real Knowledge Model with pycelonis
+
+`KnowledgeModelService` uses the OAuth credentials in `.env` to find a
+Knowledge Model from a single `space_id.package_id.knowledge_model_name`
+string, resolve its associated Data Model, and query configured attributes:
 
 ```python
-from saolapy.pql.base import PQL
-from celofast import KnowledgeModel, KnowledgeModelService
+from celofast import KnowledgeModelService
 
-km = KnowledgeModel(root_with_key="ROOT_KEY.KM_KEY")
-service = KnowledgeModelService(km, draft=False)
-frame = await service.export_data_frame(PQL(columns=[...]))
+KNOWLEDGE_MODEL = "SPACE_ID.PACKAGE_ID.KNOWLEDGE_MODEL_NAME"
+ATTRIBUTE_COLUMNS = {
+    "customer_city": '"o_celonis_Customer"."City"',
+    "customer_postal_code": '"o_celonis_Customer"."PostalCode"',
+    "delivery_line_number": '"o_celonis_DeliveryLine"."LineNumber"',
+}
+
+service = KnowledgeModelService(KNOWLEDGE_MODEL)
+frame = service.query(ATTRIBUTE_COLUMNS, limit=10)
 ```
-
-For large results, use `export_chunked()`. It starts an asynchronous Parquet
-export, polls until completion, downloads the chunks sequentially, and returns
-a pandas DataFrame.
-
-
-
-Phoenix is exposed separately through `get_phoenix_client()` for augmented-
-attribute value writes.
 
 ## Tests
 
