@@ -40,6 +40,40 @@ service = KnowledgeModelService(KNOWLEDGE_MODEL)
 frame = service.query(ATTRIBUTE_COLUMNS, limit=10)
 ```
 
+## Read a table configured in a Studio View
+
+`CelonisViewReader` turns a published Studio View table into a validated
+SaolaPy query. It resolves the View, Knowledge Model, Data Model, View
+variables, KPIs, record attributes, and configured filters. When no client is
+passed, it uses the same OAuth-authenticated client factory as the other
+Celofast services:
+
+```python
+from celofast import CelonisViewReader
+
+reader = CelonisViewReader.from_studio(
+    space_id="SPACE_ID",
+    package_id="PACKAGE_ID",
+    view_key="operations-view",
+)
+
+orders = reader.read("Orders")
+events = reader.read("Events", inherit_filters_from=("Orders",))
+```
+
+Query construction is separate from execution when inspection or composition
+is needed:
+
+```python
+query = reader.build_query("Orders")
+orders = reader.execute(query)
+```
+
+Pass `variables={...}` to `from_studio()` to override API-visible View
+variable defaults. An already configured client can still be injected as the
+first argument for tests or applications that manage client lifecycle
+themselves.
+
 ## Tests
 
 After configuring credentials for the Celonis package indexes, install the
