@@ -13,6 +13,7 @@ from saolapy.pql.base import PQL
 
 from celofast.exceptions import QueryValidationError
 from celofast.query import query_to_pql
+from celofast.resources.augmentation_table import AugmentationTableCollection
 from celofast.types import ResourceMode
 
 
@@ -32,6 +33,9 @@ class KnowledgeModelHandle:
         draft: Whether the connector should execute against the Studio draft;
             set to ``False`` for published Apps.  It defaults to ``True`` for
             backwards compatibility with direct construction.
+        augmentation_tables: Optional shared augmentation-table collection.
+            ``CeloFast`` supplies one cached by Data Model ID so KMs resolving
+            to the same Data Model share table handles.
 
     Notes:
         The ``native`` and ``data_model`` properties provide escape hatches to
@@ -44,10 +48,12 @@ class KnowledgeModelHandle:
         data_model: DataModel,
         *,
         draft: bool = True,
+        augmentation_tables: AugmentationTableCollection | None = None,
     ) -> None:
         self._native = knowledge_model
         self._data_model = data_model
         self._draft = draft
+        self._augmentation_tables = augmentation_tables
         self._connector = KnowledgeModelSaolaConnector(
             data_model,
             knowledge_model,
@@ -83,6 +89,25 @@ class KnowledgeModelHandle:
         """
 
         return self._data_model
+
+    @property
+    def augmentation_tables(self) -> AugmentationTableCollection:
+        """Return Data Model-backed augmentation-table output operations.
+
+        Returns:
+            A cached :class:`AugmentationTableCollection` for the Data Model
+            resolved from this Knowledge Model.
+
+        Warning:
+            Augmentation tables are not KM resources. Draft/published mode is
+            used to resolve this handle's Knowledge Model, but mutations made
+            through this collection write to the shared underlying Data Model
+            and can affect every KM or View that consumes it.
+        """
+
+        if self._augmentation_tables is None:
+            self._augmentation_tables = AugmentationTableCollection(self._data_model)
+        return self._augmentation_tables
 
     def build(
         self,

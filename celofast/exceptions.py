@@ -68,6 +68,15 @@ class QueryValidationError(CeloFastError, ValueError):
     """
 
 
+class AugmentationValidationError(CeloFastError, ValueError):
+    """Raised when an augmentation-table operation has invalid local input.
+
+    This covers malformed names, DataFrames, foreign-key declarations, and
+    batch sizes. Native PyCelonis and server-side augmentation errors remain
+    unchanged so callers retain their original types and error details.
+    """
+
+
 class UnresolvedVariableError(QueryValidationError):
     """Raised when executable PQL contains an unbound ``${name}`` placeholder.
 

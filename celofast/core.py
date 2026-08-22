@@ -13,6 +13,7 @@ from celofast.resolution import (
     NativeSpace,
     resolver_for,
 )
+from celofast.resources.augmentation_table import AugmentationTableCollection
 from celofast.resources.knowledge_model import KnowledgeModelHandle
 from celofast.resources.view import ViewHandle
 from celofast.types import ResourceMode
@@ -102,6 +103,7 @@ class CeloFast:
             mode=mode,
         )
         self._km_handles: dict[str, KnowledgeModelHandle] = {}
+        self._augmentation_collections: dict[str, AugmentationTableCollection] = {}
         self._view_handles: dict[
             tuple[str, tuple[tuple[str, str], ...]], ViewHandle
         ] = {}
@@ -171,10 +173,16 @@ class CeloFast:
 
         if key not in self._km_handles:
             native = self._resolver.knowledge_model(key)
+            data_model = self._resolver.data_model(native)
+            augmentation_tables = self._augmentation_collections.get(data_model.id)
+            if augmentation_tables is None:
+                augmentation_tables = AugmentationTableCollection(data_model)
+                self._augmentation_collections[data_model.id] = augmentation_tables
             self._km_handles[key] = KnowledgeModelHandle(
                 native,
-                self._resolver.data_model(native),
+                data_model,
                 draft=self._resolver.draft,
+                augmentation_tables=augmentation_tables,
             )
         return self._km_handles[key]
 

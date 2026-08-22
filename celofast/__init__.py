@@ -1,4 +1,4 @@
-"""PyCelonis-native utilities for reusable KM and Studio View queries."""
+"""PyCelonis-native MLWB input queries and augmentation-table outputs."""
 
 from dotenv import load_dotenv
 
@@ -8,6 +8,7 @@ from celofast.client import get_celonis
 from celofast.core import CeloFast
 from celofast.exceptions import (
     AmbiguousTableError,
+    AugmentationValidationError,
     CeloFastError,
     QueryValidationError,
     ResourceAmbiguityError,
@@ -18,10 +19,17 @@ from celofast.exceptions import (
     ViewContentError,
 )
 from celofast.query import OrderByDefinition, QueryDefinition
+from celofast.resources.augmentation_table import (
+    AugmentationTableCollection,
+    AugmentationTableHandle,
+)
 from celofast.types import ResourceMode
 
 __all__ = [
     "AmbiguousTableError",
+    "AugmentationTableCollection",
+    "AugmentationTableHandle",
+    "AugmentationValidationError",
     "CeloFast",
     "CeloFastError",
     "OrderByDefinition",

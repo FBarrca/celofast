@@ -1,7 +1,7 @@
 [project]
 name = "celofast"
-version = "0.2.1"
-description = "PyCelonis-native utilities for reusable Knowledge Model and Studio View queries"
+version = "0.3.0"
+description = "PyCelonis-native MLWB inputs and augmentation-table outputs"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
