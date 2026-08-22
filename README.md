@@ -13,6 +13,19 @@ objects for the Celonis-specific semantics.
 > [!NOTE]
 >  The Current Augmentation Tables API in Pycelonis is very limited, go to [Augmentation tables](docs/Augmentated_tables.md) to see its what it is, its limitations, and how it differs from Augmented Attributes.
 
+## Installation
+
+Add the package directly from GitHub to a `uv` project with
+[`uv`](https://docs.astral.sh/uv/):
+
+```bash
+uv add "celofast @ git+https://github.com/celonis-content/celofast.git"
+```
+
+The package requires Python 3.13 or later. Its PyCelonis dependencies are
+hosted on the Celonis package index, so configure access to that index before
+installing if your environment does not already have it configured.
+
 ## Configuration
 
 Copy `.env.example` to `.env` and configure:
