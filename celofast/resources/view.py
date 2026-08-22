@@ -1,4 +1,4 @@
-"""Typed Studio View and table handles backed by native PyCelonis models."""
+"""Typed Studio and published View table handles backed by PyCelonis."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from types import MappingProxyType
 import pandas as pd
 from pycelonis.ems.apps.content_node.view.component import Table
 from pycelonis.ems.apps.content_node.view.content import ViewContent
+from pycelonis.ems.apps.content_node.view import PublishedView
 from pycelonis.ems.studio.content_node.view import View
 
 from celofast.exceptions import (
@@ -23,9 +24,11 @@ from celofast.query import (
 )
 from celofast.resources.knowledge_model import KnowledgeModelHandle
 
+NativeView = View | PublishedView
+
 
 class ViewHandle:
-    """Expose typed table components from one Studio draft View.
+    """Expose typed table components from one Studio or published View.
 
     A handle is built from PyCelonis's validated :class:`ViewContent`, so it
     discovers native ``Table`` components in both root components and tab
@@ -34,7 +37,7 @@ class ViewHandle:
     ``Table.get_query()``.
 
     Args:
-        view: Native Studio draft View.
+        view: Native Studio draft or published Apps View.
         content: Typed content parsed by PyCelonis ``ViewContent``.
         knowledge_model: Lazy factory for the KM named by the View metadata.
         variables: Optional View-level exact string bindings.  Published View
@@ -47,7 +50,7 @@ class ViewHandle:
 
     def __init__(
         self,
-        view: View,
+        view: NativeView,
         content: ViewContent,
         knowledge_model: Callable[[], KnowledgeModelHandle],
         *,
@@ -76,12 +79,11 @@ class ViewHandle:
         self._tables = tuple(tables)
 
     @property
-    def native(self) -> View:
-        """Return the underlying native Studio View.
+    def native(self) -> NativeView:
+        """Return the underlying native Studio or Apps View.
 
         Returns:
-            The exact :class:`pycelonis.ems.studio.content_node.view.View`
-            supplied by the package resolver.
+            The exact native View supplied by the package resolver.
         """
 
         return self._native
@@ -92,7 +94,8 @@ class ViewHandle:
 
         Returns:
             The :class:`pycelonis.ems.apps.content_node.view.content.ViewContent`
-            parsed from the View's serialized draft definition.
+            parsed from the View's serialized draft definition or fetched from
+            the published Apps View.
         """
 
         return self._content

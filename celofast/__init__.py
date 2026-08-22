@@ -18,6 +18,7 @@ from celofast.exceptions import (
     ViewContentError,
 )
 from celofast.query import OrderByDefinition, QueryDefinition
+from celofast.types import ResourceMode
 
 __all__ = [
     "AmbiguousTableError",
@@ -26,6 +27,7 @@ __all__ = [
     "OrderByDefinition",
     "QueryDefinition",
     "QueryValidationError",
+    "ResourceMode",
     "ResourceAmbiguityError",
     "ResourceNotFoundError",
     "ResourceResolutionError",

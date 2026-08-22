@@ -13,6 +13,7 @@ from saolapy.pql.base import PQL
 
 from celofast.exceptions import QueryValidationError
 from celofast.query import query_to_pql
+from celofast.types import ResourceMode
 
 
 class KnowledgeModelHandle:
@@ -21,33 +22,52 @@ class KnowledgeModelHandle:
     The handle is intentionally thin: KPI, record-attribute, filter, and
     Knowledge Model variable semantics remain owned by PyCelonis.  CeloFast
     only converts the dictionary contract to SaolaPy ``PQL`` and chooses the
-    draft ``KnowledgeModelSaolaConnector`` with the resolved Data Model.
+    native ``KnowledgeModelSaolaConnector`` with the resolved Data Model.
 
     Args:
-        knowledge_model: Native Studio Knowledge Model object.
+        knowledge_model: Native PyCelonis Knowledge Model object.  In
+            published mode this is a read-only final-layer reference created
+            from the Apps package root key and KM key.
         data_model: Native Data Model resolved from the KM's final content.
+        draft: Whether the connector should execute against the Studio draft;
+            set to ``False`` for published Apps.  It defaults to ``True`` for
+            backwards compatibility with direct construction.
 
     Notes:
         The ``native`` and ``data_model`` properties provide escape hatches to
         PyCelonis APIs not represented by this convenience wrapper.
     """
 
-    def __init__(self, knowledge_model: KnowledgeModel, data_model: DataModel) -> None:
+    def __init__(
+        self,
+        knowledge_model: KnowledgeModel,
+        data_model: DataModel,
+        *,
+        draft: bool = True,
+    ) -> None:
         self._native = knowledge_model
         self._data_model = data_model
+        self._draft = draft
         self._connector = KnowledgeModelSaolaConnector(
             data_model,
             knowledge_model,
-            draft=True,
+            draft=draft,
         )
 
     @property
+    def mode(self) -> ResourceMode:
+        """Return the lifecycle context used for KM exports."""
+
+        return "draft" if self._draft else "published"
+
+    @property
     def native(self) -> KnowledgeModel:
-        """Return the underlying native Studio Knowledge Model.
+        """Return the underlying native PyCelonis Knowledge Model.
 
         Returns:
-            The exact :class:`pycelonis.ems.studio.content_node.knowledge_model.KnowledgeModel`
-            used by the connector.
+            The exact native object used by the connector.  For published
+            Apps this is a read-only final-layer reference; mutation-oriented
+            Studio KM methods are not supported through it.
         """
 
         return self._native
