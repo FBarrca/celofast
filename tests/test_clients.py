@@ -2,7 +2,7 @@ from unittest.mock import sentinel
 
 import pytest
 
-from celofast.services import clients
+from celofast import client
 
 
 def test_get_celonis_uses_oauth_credentials(monkeypatch):
@@ -10,7 +10,7 @@ def test_get_celonis_uses_oauth_credentials(monkeypatch):
     monkeypatch.setenv("OAUTH_CLIENT_ID", "client-id")
     monkeypatch.setenv("OAUTH_CLIENT_SECRET", "client-secret")
     monkeypatch.setenv("OAUTH_SCOPES", "studio integration.data-pools")
-    clients.get_celonis.cache_clear()
+    client.get_celonis.cache_clear()
 
     oauth_calls = []
     client_calls = []
@@ -23,10 +23,10 @@ def test_get_celonis_uses_oauth_credentials(monkeypatch):
         client_calls.append(kwargs)
         return sentinel.celonis
 
-    monkeypatch.setattr(clients, "oauth2", fake_oauth2)
-    monkeypatch.setattr(clients, "pycelonis_get_celonis", fake_get_celonis)
+    monkeypatch.setattr(client, "oauth2", fake_oauth2)
+    monkeypatch.setattr(client, "pycelonis_get_celonis", fake_get_celonis)
 
-    assert clients.get_celonis() is sentinel.celonis
+    assert client.get_celonis() is sentinel.celonis
     assert oauth_calls == [
         ("client-id", "client-secret", "studio integration.data-pools")
     ]
@@ -34,14 +34,14 @@ def test_get_celonis_uses_oauth_credentials(monkeypatch):
         {
             "base_url": "https://example.celonis.cloud",
             "api_token": sentinel.oauth_callback,
-            "key_type": clients.KeyType.BEARER,
+            "key_type": client.KeyType.BEARER,
             "user_agent": "celofast",
             "verify_ssl": True,
             "check_if_outdated": False,
             "permissions": False,
         }
     ]
-    clients.get_celonis.cache_clear()
+    client.get_celonis.cache_clear()
 
 
 def test_get_celonis_reports_missing_oauth_configuration(monkeypatch):
@@ -49,9 +49,9 @@ def test_get_celonis_reports_missing_oauth_configuration(monkeypatch):
     monkeypatch.delenv("OAUTH_CLIENT_ID", raising=False)
     monkeypatch.delenv("OAUTH_CLIENT_SECRET", raising=False)
     monkeypatch.delenv("OAUTH_SCOPES", raising=False)
-    clients.get_celonis.cache_clear()
+    client.get_celonis.cache_clear()
 
     with pytest.raises(RuntimeError, match="OAUTH_CLIENT_ID"):
-        clients.get_celonis()
+        client.get_celonis()
 
-    clients.get_celonis.cache_clear()
+    client.get_celonis.cache_clear()

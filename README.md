@@ -1,83 +1,137 @@
 # celofast
 
-SaolaPy-backed Celonis Knowledge Model query service.
+Celofast is a compact, PyCelonis-native API for reusable Knowledge Model
+queries and table queries configured in Studio Views.
+
+It keeps query definitions as ordinary serializable dictionaries while using
+PyCelonis `ViewContent`, `Table`, `PQL`, and `KnowledgeModelSaolaConnector`
+objects for the Celonis-specific semantics.
 
 ## Configuration
 
-The package loads a local `.env` file automatically. Start by copying
-`.env.example` to `.env` and filling in your tenant credentials. The external
-clients read these environment variables by default:
+Copy `.env.example` to `.env` and configure:
 
-- `CELONIS_URL`: Celonis tenant URL, for example `https://tenant.celonis.cloud`
-- `OAUTH_CLIENT_ID`: OAuth client ID
-- `OAUTH_CLIENT_SECRET`: OAuth client secret
-- `OAUTH_SCOPES`: space-delimited OAuth scopes, for example `studio integration.data-pools`
+- `CELONIS_URL`
+- `OAUTH_CLIENT_ID`
+- `OAUTH_CLIENT_SECRET`
+- `OAUTH_SCOPES`, normally including `studio integration.data-pools`
 
-OAuth credentials and the base URL can also be passed explicitly to
-`get_celonis()` and `KnowledgeModelService` can receive an already configured
-pycelonis client for testing or dependency injection.
+Alternatively, inject an existing PyCelonis client into `CeloFast`.
 
-pycelonis obtains and refreshes tokens through the tenant's standard
-`/oauth2/token` endpoint and reads the OAuth variables directly.
+## Query a Knowledge Model
 
-## Query a real Knowledge Model with pycelonis
-
-`KnowledgeModelService` uses the OAuth credentials in `.env` to find a
-Knowledge Model from a single `space_id.package_id.knowledge_model_name`
-string, resolve its associated Data Model, and query configured attributes:
+Configure the Space and Package once, then select Knowledge Models by their
+exact Studio keys:
 
 ```python
-from celofast import KnowledgeModelService
+from celofast import CeloFast, QueryDefinition
 
-KNOWLEDGE_MODEL = "SPACE_ID.PACKAGE_ID.KNOWLEDGE_MODEL_NAME"
-ATTRIBUTE_COLUMNS = {
-    "customer_city": '"o_celonis_Customer"."City"',
-    "customer_postal_code": '"o_celonis_Customer"."PostalCode"',
-    "delivery_line_number": '"o_celonis_DeliveryLine"."LineNumber"',
-}
-
-service = KnowledgeModelService(KNOWLEDGE_MODEL)
-frame = service.query(ATTRIBUTE_COLUMNS, limit=10)
-```
-
-## Read a table configured in a Studio View
-
-`CelonisViewReader` turns a published Studio View table into a validated
-SaolaPy query. It resolves the View, Knowledge Model, Data Model, View
-variables, KPIs, record attributes, and configured filters. When no client is
-passed, it uses the same OAuth-authenticated client factory as the other
-Celofast services:
-
-```python
-from celofast import CelonisViewReader
-
-reader = CelonisViewReader.from_studio(
+cf = CeloFast(
     space_id="SPACE_ID",
     package_id="PACKAGE_ID",
-    view_key="operations-view",
 )
 
-orders = reader.read("Orders")
-events = reader.read("Events", inherit_filters_from=("Orders",))
+query: QueryDefinition = {
+    "columns": {
+        "Supplier": '"O_CELONIS_VENDOR"."SupplierNumberNameConcat"',
+        "Purchase Order Value": (
+            'KPI("IM_PurchaseDocumentLine_PurchaseDocumentLineValue")'
+        ),
+    },
+    "filters": [
+        'FILTER "O_CELONIS_VENDOR"."Country" = \'DE\';',
+        "FILTER @active_suppliers;",
+    ],
+    "order_by": [
+        {
+            "pql": 'KPI("IM_PurchaseDocumentLine_PurchaseDocumentLineValue")',
+            "ascending": False,
+        }
+    ],
+}
+
+result = cf.km("orders-km").execute(query, limit=100)
 ```
 
-Query construction is separate from execution when inspection or composition
-is needed:
+Filters are native PQL filter statements. KPI expressions, KM record
+attributes, named filters such as `FILTER @active_suppliers;`, and KM variables
+are resolved by Celonis through `KnowledgeModelSaolaConnector`.
+
+Use `km.build(query)` to inspect the native SaolaPy `PQL` without executing it.
+With no `limit`, all matching rows are requested.
+
+## Export and execute a View table
+
+Views are selected by exact Studio key. Tables can be selected by unique
+display name or stable component ID:
 
 ```python
-query = reader.build_query("Orders")
-orders = reader.execute(query)
+view = cf.view("operations-view")
+table = view.table("Supplier Performance")
+
+query = table.to_query()
+result = table.execute(limit=100)
+
+same_table = view.table("table-c63f521e-a290-46be-845f-f101256fc1fd")
 ```
 
-Pass `variables={...}` to `from_studio()` to override API-visible View
-variable defaults. An already configured client can still be injected as the
-first argument for tests or applications that manage client lifecycle
-themselves.
+`to_query()` uses PyCelonis `Table.get_query()` and preserves all configured
+data-source columns, component filters, referenced KM filters, and sorting.
+Tables are discovered both at the View root and inside tabs.
+
+Filters can be composed without changing the View:
+
+```python
+events = view.table("Events").execute(
+    inherit_filters_from=("Orders",),
+    extra_filters=('FILTER "Events"."VALID" = 1;',),
+)
+```
+
+## Template variables
+
+`${name}` placeholders are left intact by `to_query()` and replaced immediately
+before execution. Values are exact strings, not automatic Python-to-PQL
+conversions:
+
+```python
+view = cf.view("operations-view", variables={"days": "30"})
+
+# Execution-level values override View-level values and configured defaults.
+result = view.table("Events").execute(variables={"days": "7"})
+```
+
+These bindings are client-side View/query template replacements. They do not
+override server-managed Knowledge Model variables.
+
+## Native escape hatches
+
+The wrappers expose the resolved SDK resources without repeating lookups:
+
+```python
+km = cf.km("orders-km")
+native_km = km.native
+data_model = km.data_model
+
+view = cf.view("operations-view")
+native_view = view.native
+native_table_component = view.table("Orders").component
+```
+
+Celofast 0.2 targets Studio draft resources. Published Apps resources are not part of this release.
+
+## Run the example
+
+`main.py` contains a hardcoded example for the Inventory Management package,
+covering both a direct KM query and a View table query:
+
+```bash
+uv run python main.py
+```
+
+Only the tenant credentials in `.env` are required.
 
 ## Tests
-
-After configuring credentials for the Celonis package indexes, install the
-project and run:
 
 ```bash
 uv sync

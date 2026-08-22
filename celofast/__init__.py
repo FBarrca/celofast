@@ -1,17 +1,36 @@
-"""Reusable Celofast services for querying Celonis data."""
+"""PyCelonis-native utilities for reusable KM and Studio View queries."""
 
 from dotenv import load_dotenv
 
-# Load local development configuration without overriding variables supplied by
-# the shell or deployment environment.
 load_dotenv()
 
-from celofast.services.clients import get_celonis
-from celofast.services.knowledge_model_service import KnowledgeModelService
-from celofast.studio import CelonisViewReader
+from celofast.client import get_celonis
+from celofast.core import CeloFast
+from celofast.exceptions import (
+    AmbiguousTableError,
+    CeloFastError,
+    QueryValidationError,
+    ResourceAmbiguityError,
+    ResourceNotFoundError,
+    ResourceResolutionError,
+    TableNotFoundError,
+    UnresolvedVariableError,
+    ViewContentError,
+)
+from celofast.query import OrderByDefinition, QueryDefinition
 
 __all__ = [
-    "KnowledgeModelService",
-    "CelonisViewReader",
+    "AmbiguousTableError",
+    "CeloFast",
+    "CeloFastError",
+    "OrderByDefinition",
+    "QueryDefinition",
+    "QueryValidationError",
+    "ResourceAmbiguityError",
+    "ResourceNotFoundError",
+    "ResourceResolutionError",
+    "TableNotFoundError",
+    "UnresolvedVariableError",
+    "ViewContentError",
     "get_celonis",
 ]

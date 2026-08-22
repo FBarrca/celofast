@@ -1,33 +1,59 @@
-"""Query a real Knowledge Model with pycelonis using the credentials in ``.env``."""
+"""Small end-to-end showcase of the CeloFast public API."""
 
-from __future__ import annotations
-
-from celofast import KnowledgeModelService
+from celofast import CeloFast, QueryDefinition
 
 
-KNOWLEDGE_MODEL = (
-    "9f7cc225-132d-49e7-8b0d-b626b1000b41."
-    "c1721b64-5f2c-4311-99ee-8177f0839c92."
-    "test:perspective_celonis_InventoryManagement KM"
-)
-ATTRIBUTE_COLUMNS = {
-    "customer_city": '"o_celonis_Customer"."City"',
-    "customer_postal_code": '"o_celonis_Customer"."PostalCode"',
-    "delivery_line_number": '"o_celonis_DeliveryLine"."LineNumber"',
-}
-
-
-def get_attributes():
-    """Find the configured KM and return ten rows of its attributes."""
-    service = KnowledgeModelService(KNOWLEDGE_MODEL)
-    return service.knowledge_model, service.query(ATTRIBUTE_COLUMNS, limit=10)
+SPACE_ID = "9f7cc225-132d-49e7-8b0d-b626b1000b41"
+PACKAGE_ID = "c1721b64-5f2c-4311-99ee-8177f0839c92"
+KNOWLEDGE_MODEL_KEY = "dm_test_perspective_celonis_inventorymanagement-km"
+VIEW_KEY = "management-dashboard-caro-joan-test-"
+TABLE_NAME = "Supplier Performance"
 
 
 def main() -> None:
-    knowledge_model, dataframe = get_attributes()
-    print(f"Knowledge Model: {knowledge_model.name} ({knowledge_model.root_with_key})")
-    print(dataframe.to_string(index=False))
-    print(f"\nReturned {len(dataframe)} row(s) and {len(dataframe.columns)} attribute(s).")
+    """Run a small live showcase against the hard-coded Studio resources.
+
+    The example demonstrates both supported entry points: a dictionary query
+    executed directly against a Knowledge Model and a typed View table whose
+    native query is exported before execution.  It expects the normal Celonis
+    OAuth settings (``CELONIS_URL``, ``OAUTH_CLIENT_ID``,
+    ``OAUTH_CLIENT_SECRET``, and ``OAUTH_SCOPES``) to be available to
+    :func:`celofast.get_celonis`; Space, Package, KM, View, and table selectors
+    are intentionally kept as readable constants in this file.
+
+    Raises:
+        Exception: Native authentication, resource-resolution, query, and
+            execution errors are allowed to propagate so the showcase exposes
+            the original PyCelonis/SaolaPy diagnostics.
+    """
+    celofast = CeloFast(SPACE_ID, PACKAGE_ID)
+
+    query: QueryDefinition = {
+        "columns": {
+            "Supplier": '"o_celonis_Vendor"."SupplierNumberNameConcat"',
+            "Purchase Order Value": (
+                'KPI("IM_PurchaseDocumentLine_PurchaseDocumentLineValue")'
+            ),
+        },
+        "order_by": [
+            {
+                "pql": 'KPI("IM_PurchaseDocumentLine_PurchaseDocumentLineValue")',
+                "ascending": False,
+            }
+        ],
+    }
+
+    km_result = celofast.km(KNOWLEDGE_MODEL_KEY).execute(query, limit=5)
+    print("Direct Knowledge Model query")
+    print(km_result.to_string(index=False))
+
+    table = celofast.view(VIEW_KEY).table(TABLE_NAME)
+    print("\nQuery exported from the View table")
+    print(table.to_query())
+
+    table_result = table.execute(limit=5)
+    print("\nView table result")
+    print(table_result.to_string(index=False))
 
 
 if __name__ == "__main__":
