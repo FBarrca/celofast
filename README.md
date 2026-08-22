@@ -36,6 +36,19 @@ Copy `.env.example` to `.env` and configure:
 - `OAUTH_SCOPES`, normally including `studio integration.data-pools`
 
 Alternatively, inject an existing PyCelonis client into `CeloFast`.
+### API Key
+THe OAuth key has to have at least the following scopes:
+- integration.data-pools:read
+- integration.data-pools
+- studio
+- studio.packages:read
+In addition the following permissions should be given:
+- Studio -> Grant all **for the specific Space**
+- Data integration -> Grant all **for the specific DM**
+
+> ![DANGER] 
+> For the augmentation feature to work the following feature flag has to be activated:
+> `integration.enable-external-augmentation-api`
 
 ## Query a Knowledge Model
 
