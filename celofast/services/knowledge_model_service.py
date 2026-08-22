@@ -7,25 +7,93 @@ from typing import Any
 
 import pandas as pd
 from celofast.services.clients import get_celonis
-from pycelonis import pql
+from celofast.studio.context import (
+    resolve_knowledge_model_context,
+    resolve_studio_context,
+)
 from pycelonis.pql.data_frame import DataFrame as PyCelonisDataFrame
+from pycelonis.celonis import Celonis
+from pycelonis.ems.data_integration.data_model import DataModel
+from pycelonis.ems.studio.content_node.knowledge_model import KnowledgeModel
 
 from saolapy.pql.base import PQLColumn, PQL
 
 
 class KnowledgeModelService:
-    """Resolve a Knowledge Model and query its associated Data Model.
+    """Query a Knowledge Model resolved from a Studio View or package key."""
 
-    ``knowledge_model`` uses the stable reference format
-    ``space_id.package_id.knowledge_model_name``. Raw PQL columns are supplied
-    as a mapping from output name to PQL expression.
-    """
+    knowledge_model_reference: str
+    celonis: Celonis
+    knowledge_model: KnowledgeModel
+    data_model: DataModel
 
-    def __init__(self, knowledge_model: str, celonis: Any | None = None):
-        self.knowledge_model_reference = knowledge_model
-        self.celonis = celonis or get_celonis()
-        self.knowledge_model = self._find_knowledge_model(knowledge_model)
-        self.data_model = self._find_data_model()
+    def __init__(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError(
+            "Use KnowledgeModelService.from_studio(...) to construct this service."
+        )
+
+    @classmethod
+    def from_studio(
+        cls,
+        celonis: Celonis | None = None,
+        *,
+        space_id: str,
+        package_id: str,
+        view_key: str | None = None,
+        km_key: str | None = None,
+        knowledge_model_key: str | None = None,
+        data_model_id: str | None = None,
+        data_pool_id: str | None = None,
+    ) -> "KnowledgeModelService":
+        """Construct a service from a published Studio View's context.
+
+        Provide exactly one of ``view_key`` or ``km_key``. A View key resolves
+        the Knowledge Model from the View's published metadata. A Knowledge
+        Model key resolves the Knowledge Model directly from the package.
+        """
+        if (view_key is None) == (km_key is None):
+            raise ValueError("Provide exactly one of view_key or km_key.")
+        if km_key is not None and knowledge_model_key is not None:
+            raise ValueError(
+                "knowledge_model_key can only be used with view_key, not km_key."
+            )
+
+        client = get_celonis() if celonis is None else celonis
+        if view_key is not None:
+            context = resolve_studio_context(
+                client,
+                space_id=space_id,
+                package_id=package_id,
+                view_key=view_key,
+                knowledge_model_key=knowledge_model_key,
+                data_model_id=data_model_id,
+                data_pool_id=data_pool_id,
+            )
+        else:
+            assert km_key is not None
+            context = resolve_knowledge_model_context(
+                client,
+                space_id=space_id,
+                package_id=package_id,
+                knowledge_model_key=km_key,
+                data_model_id=data_model_id,
+                data_pool_id=data_pool_id,
+            )
+
+        service = cls.__new__(cls)
+        service.knowledge_model_reference = "{}.{}.{}".format(
+            space_id,
+            package_id,
+            getattr(
+                context.knowledge_model,
+                "name",
+                knowledge_model_key or "<resolved-from-view>",
+            ),
+        )
+        service.celonis = client
+        service.knowledge_model = context.knowledge_model
+        service.data_model = context.data_model
+        return service
 
     def query(self, attribute_columns: Mapping[str, str], limit: int | None = 10) -> pd.DataFrame:
         """Return selected attributes as a pandas DataFrame using SaolaPy."""
@@ -42,42 +110,3 @@ class KnowledgeModelService:
         )
         dataframe = PyCelonisDataFrame.from_pql(query, data_model=self.data_model)
         return dataframe.head(limit) if limit is not None else dataframe.to_pandas()
-
-    def _find_knowledge_model(self, reference: str) -> Any:
-        try:
-            space_id, package_id, knowledge_model_name = reference.split(".", 2)
-        except ValueError as exc:
-            raise ValueError(
-                "knowledge_model must be `space_id.package_id.knowledge_model_name`."
-            ) from exc
-
-        space = self.celonis.studio.get_space(space_id)
-        package = space.get_package(package_id)
-        try:
-            return next(
-                knowledge_model
-                for knowledge_model in package.get_knowledge_models()
-                if knowledge_model.name == knowledge_model_name
-            )
-        except StopIteration as exc:
-            raise LookupError(
-                f"Knowledge Model `{knowledge_model_name}` was not found in package `{package_id}`."
-            ) from exc
-
-    def _find_data_model(self) -> Any:
-        content = self.knowledge_model.get_content()
-        data_model_id = content.data_model_id if content is not None else None
-        if not data_model_id:
-            raise RuntimeError(
-                f"Knowledge Model `{self.knowledge_model_reference}` has no associated data model."
-            )
-
-        try:
-            return next(
-                data_model
-                for data_pool in self.celonis.data_integration.get_data_pools()
-                for data_model in data_pool.get_data_models()
-                if data_model.id == data_model_id
-            )
-        except StopIteration as exc:
-            raise LookupError(f"Data Model `{data_model_id}` was not found.") from exc

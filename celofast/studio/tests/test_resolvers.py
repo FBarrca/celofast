@@ -1,5 +1,8 @@
 import unittest
 from types import SimpleNamespace
+from typing import cast
+
+from pycelonis.ems.studio.content_node.knowledge_model import KnowledgeModel
 
 from celofast.studio import PqlResolutionError
 from celofast.studio.resolvers import (
@@ -34,7 +37,7 @@ class FakeKnowledgeModel:
 
 class ResolverTests(unittest.TestCase):
     def test_chain_resolves_nested_kpi_record_attribute_and_variable(self):
-        km = FakeKnowledgeModel()
+        km = cast(KnowledgeModel, FakeKnowledgeModel())
         chain = ResolverChain(
             [KpiResolver(km), RecordAttributeResolver(km), VariableResolver({"days": 7})]
         )
@@ -58,7 +61,7 @@ class ResolverTests(unittest.TestCase):
 
     def test_missing_kpi_fails_instead_of_broadening_query(self):
         with self.assertRaisesRegex(PqlResolutionError, "could not be resolved"):
-            KpiResolver(FakeKnowledgeModel()).resolve("KPI(unknown)")
+            KpiResolver(cast(KnowledgeModel, FakeKnowledgeModel())).resolve("KPI(unknown)")
 
 
 if __name__ == "__main__":

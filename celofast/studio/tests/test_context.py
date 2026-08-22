@@ -1,6 +1,9 @@
 import json
 import unittest
 from types import SimpleNamespace
+from typing import cast
+
+from pycelonis.celonis import Celonis
 
 from celofast.studio import ContextResolutionError, resolve_studio_context
 from celofast.studio.context import read_view_variables
@@ -53,7 +56,7 @@ class ContextTests(unittest.TestCase):
         celonis, view, knowledge_model, data_model, data_pool = self.make_celonis()
 
         context = resolve_studio_context(
-            celonis,
+            cast(Celonis, celonis),
             space_id="space-id",
             package_id="package-id",
             view_key="input-data",
@@ -70,7 +73,7 @@ class ContextTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ContextResolutionError, "does not identify"):
             resolve_studio_context(
-                celonis,
+                cast(Celonis, celonis),
                 space_id="space-id",
                 package_id="package-id",
                 view_key="input-data",

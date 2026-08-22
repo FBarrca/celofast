@@ -1,7 +1,11 @@
 import json
 import unittest
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import MagicMock, patch
+
+from pycelonis.ems.data_integration.data_model import DataModel
+from pycelonis.ems.studio.content_node.knowledge_model import KnowledgeModel
 
 from celofast.studio import (
     CelonisViewReader,
@@ -84,8 +88,8 @@ class FakeKnowledgeModel:
 
 class ReaderTests(unittest.TestCase):
     def setUp(self):
-        self.km = FakeKnowledgeModel()
-        self.data_model = object()
+        self.km = cast(KnowledgeModel, FakeKnowledgeModel())
+        self.data_model = cast(DataModel, object())
         self.reader = CelonisViewReader(
             view=FakeView(),
             knowledge_model=self.km,

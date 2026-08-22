@@ -4,6 +4,8 @@ import logging
 import re
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
+from pycelonis.ems.studio.content_node.knowledge_model import KnowledgeModel
+
 from .exceptions import PqlResolutionError
 
 LOGGER = logging.getLogger(__name__)
@@ -48,7 +50,7 @@ class KpiResolver:
         re.IGNORECASE,
     )
 
-    def __init__(self, knowledge_model: Any, max_depth: int = 10):
+    def __init__(self, knowledge_model: KnowledgeModel, max_depth: int = 10):
         self.knowledge_model = knowledge_model
         self.max_depth = max_depth
         self._cache: Dict[str, Optional[str]] = {}
@@ -89,7 +91,7 @@ class KpiResolver:
 class RecordAttributeResolver:
     """Expand non-generated Knowledge Model record attributes recursively."""
 
-    def __init__(self, knowledge_model: Any, max_depth: int = 5):
+    def __init__(self, knowledge_model: KnowledgeModel, max_depth: int = 5):
         self.max_depth = max_depth
         self._mappings: List[Tuple[re.Pattern, str]] = []
 
@@ -146,7 +148,7 @@ class ResolverChain:
 
 
 def default_resolver_chain(
-    knowledge_model: Any, variables: Optional[Mapping[str, Any]] = None
+    knowledge_model: KnowledgeModel, variables: Optional[Mapping[str, Any]] = None
 ) -> ResolverChain:
     """Build the same safe resolution order used by the original notebooks."""
 

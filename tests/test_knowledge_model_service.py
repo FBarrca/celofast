@@ -1,5 +1,9 @@
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import MagicMock, patch
+
+import pytest
+from pycelonis.celonis import Celonis
 
 from celofast.services.knowledge_model_service import KnowledgeModelService
 
@@ -11,13 +15,9 @@ def test_query_resolves_km_and_uses_saolapy_data_model():
         root_with_key="package-key.km-key",
         get_content=lambda: SimpleNamespace(data_model_id="data-model-id"),
     )
-    package = SimpleNamespace(get_knowledge_models=lambda: [knowledge_model])
-    space = SimpleNamespace(get_package=lambda package_id: package)
     celonis = SimpleNamespace(
-        studio=SimpleNamespace(get_space=lambda space_id: space),
-        data_integration=SimpleNamespace(
-            get_data_pools=lambda: [SimpleNamespace(get_data_models=lambda: [data_model])]
-        ),
+        studio=SimpleNamespace(),
+        data_integration=SimpleNamespace(),
     )
     expected = object()
     saola_frame = MagicMock()
@@ -27,7 +27,11 @@ def test_query_resolves_km_and_uses_saolapy_data_model():
         "celofast.services.knowledge_model_service.PyCelonisDataFrame.from_pql",
         return_value=saola_frame,
     ) as from_pql:
-        service = KnowledgeModelService("space-id.package-id.Example KM", celonis=celonis)
+        service = object.__new__(KnowledgeModelService)
+        service.knowledge_model_reference = "space-id.package-id.Example KM"
+        service.celonis = cast(Celonis, celonis)
+        service.knowledge_model = knowledge_model
+        service.data_model = data_model
         result = service.query({"city": '"Customer"."City"'}, limit=10)
 
     assert result is expected
@@ -47,3 +51,100 @@ def test_query_rejects_empty_attributes():
         assert str(exc) == "attribute_columns must contain at least one column."
     else:
         raise AssertionError("Expected empty attributes to be rejected")
+
+
+def test_direct_construction_is_rejected():
+    with pytest.raises(TypeError, match="from_studio"):
+        KnowledgeModelService("space-id.package-id.Example KM")
+
+
+def test_from_studio_resolves_context_without_repeating_lookups():
+    client = cast(Celonis, object())
+    knowledge_model = SimpleNamespace(name="Orders KM")
+    data_model = object()
+    context = SimpleNamespace(
+        knowledge_model=knowledge_model,
+        data_model=data_model,
+    )
+
+    with (
+        patch(
+            "celofast.services.knowledge_model_service.get_celonis",
+            return_value=client,
+        ) as get_client,
+        patch(
+            "celofast.services.knowledge_model_service.resolve_studio_context",
+            return_value=context,
+        ) as resolve_context,
+    ):
+        service = KnowledgeModelService.from_studio(
+            space_id="space-id",
+            package_id="package-id",
+            view_key="orders-view",
+        )
+
+    assert service.celonis is client
+    assert service.knowledge_model is knowledge_model
+    assert service.data_model is data_model
+    assert service.knowledge_model_reference == "space-id.package-id.Orders KM"
+    get_client.assert_called_once_with()
+    resolve_context.assert_called_once_with(
+        client,
+        space_id="space-id",
+        package_id="package-id",
+        view_key="orders-view",
+        knowledge_model_key=None,
+        data_model_id=None,
+        data_pool_id=None,
+    )
+
+
+def test_from_studio_can_resolve_knowledge_model_directly():
+    client = cast(Celonis, object())
+    knowledge_model = SimpleNamespace(name="Orders KM")
+    data_model = object()
+    context = SimpleNamespace(
+        knowledge_model=knowledge_model,
+        data_model=data_model,
+    )
+
+    with patch(
+        "celofast.services.knowledge_model_service.resolve_knowledge_model_context",
+        return_value=context,
+    ) as resolve_context:
+        service = KnowledgeModelService.from_studio(
+            client,
+            space_id="space-id",
+            package_id="package-id",
+            km_key="orders-km",
+        )
+
+    assert service.celonis is client
+    assert service.knowledge_model is knowledge_model
+    assert service.data_model is data_model
+    resolve_context.assert_called_once_with(
+        client,
+        space_id="space-id",
+        package_id="package-id",
+        knowledge_model_key="orders-km",
+        data_model_id=None,
+        data_pool_id=None,
+    )
+
+
+def test_from_studio_requires_exactly_one_context_key():
+    with pytest.raises(ValueError, match="exactly one"):
+        KnowledgeModelService.from_studio(
+            cast(Celonis, object()),
+            space_id="space-id",
+            package_id="package-id",
+        )
+
+    with pytest.raises(ValueError, match="exactly one"):
+        KnowledgeModelService.from_studio(
+            cast(Celonis, object()),
+            space_id="space-id",
+            package_id="package-id",
+            view_key="orders-view",
+            km_key="orders-km",
+        )

@@ -1,8 +1,10 @@
 import json
 import unittest
+from typing import cast
 
 from celofast.studio import TableNotFoundError, ViewFormatError
 from celofast.studio.parser import ViewTableParser, load_serialized_content
+from celofast.studio.types import SerializedContentLike
 
 
 class FakeView:
@@ -68,7 +70,7 @@ class ViewTableParserTests(unittest.TestCase):
             serialized_content = "not-json"
 
         with self.assertRaises(ViewFormatError):
-            load_serialized_content(InvalidView())
+            load_serialized_content(cast(SerializedContentLike, InvalidView()))
 
 
 if __name__ == "__main__":

@@ -5,9 +5,10 @@ from typing import Any, Dict, Mapping
 
 from .exceptions import TableNotFoundError, ViewFormatError
 from .models import ViewColumn, ViewFilter, ViewTable
+from .types import StudioContentLike
 
 
-def load_serialized_content(view: Any) -> Dict[str, Any]:
+def load_serialized_content(view: StudioContentLike) -> Dict[str, Any]:
     """Return a View's ``serialized_content`` as a dictionary.
 
     PyCelonis versions expose this either as an object attribute or through
@@ -16,8 +17,9 @@ def load_serialized_content(view: Any) -> Dict[str, Any]:
     """
 
     raw = None
-    if hasattr(view, "json_dict"):
-        payload = view.json_dict()
+    json_dict = getattr(view, "json_dict", None)
+    if callable(json_dict):
+        payload = json_dict()
         if isinstance(payload, Mapping):
             raw = payload.get("serialized_content", payload.get("serializedContent"))
 
@@ -42,7 +44,7 @@ def load_serialized_content(view: Any) -> Dict[str, Any]:
 class ViewTableParser:
     """Extract table definitions from a published Studio View."""
 
-    def __init__(self, view: Any):
+    def __init__(self, view: StudioContentLike):
         self._content = load_serialized_content(view)
 
     def table(self, table_name: str) -> ViewTable:

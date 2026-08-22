@@ -1,6 +1,10 @@
 """Reusable reader for tables configured in published Celonis Studio Views."""
 
-from .context import StudioContext, resolve_studio_context
+from .context import (
+    StudioContext,
+    resolve_knowledge_model_context,
+    resolve_studio_context,
+)
 from .exceptions import (
     CelonisViewReaderError,
     ContextResolutionError,
@@ -18,5 +22,6 @@ __all__ = [
     "StudioContext",
     "TableNotFoundError",
     "ViewFormatError",
+    "resolve_knowledge_model_context",
     "resolve_studio_context",
 ]

@@ -1,15 +1,22 @@
 """Read table components from Celonis Views with the SaolaPy DataFrame API."""
 
-from typing import Any, Iterable, Mapping, Optional, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
+from typing import Any
 
+import pandas as pd
+from pycelonis.celonis import Celonis
+from pycelonis.ems.data_integration.data_model import DataModel
+from pycelonis.ems.studio.content_node.knowledge_model import KnowledgeModel
 from pycelonis.pql.data_frame import DataFrame
 from saolapy.pql.base import PQL, PQLColumn, PQLFilter
 
 from ..services.clients import get_celonis
 from .context import read_view_variables, resolve_studio_context
 from .exceptions import PqlResolutionError, ViewFormatError
+from .models import ViewColumn
 from .parser import ViewTableParser
-from .resolvers import default_resolver_chain
+from .resolvers import ResolverChain, default_resolver_chain
+from .types import StudioViewLike
 
 
 class CelonisViewReader:
@@ -18,33 +25,35 @@ class CelonisViewReader:
     def __init__(
         self,
         *,
-        view: Any,
-        knowledge_model: Any,
-        data_model: Any,
-        variables: Optional[Mapping[str, Any]] = None,
-    ):
+        view: StudioViewLike,
+        knowledge_model: KnowledgeModel,
+        data_model: DataModel,
+        variables: Mapping[str, Any] | None = None,
+    ) -> None:
         self.view = view
         self.knowledge_model = knowledge_model
         self.data_model = data_model
         self.variables = (
             dict(variables) if variables is not None else read_view_variables(view)
         )
-        self.parser = ViewTableParser(view)
-        self.resolver = default_resolver_chain(knowledge_model, self.variables)
+        self.parser: ViewTableParser = ViewTableParser(view)
+        self.resolver: ResolverChain = default_resolver_chain(
+            knowledge_model, self.variables
+        )
 
     @classmethod
     def from_studio(
         cls,
-        celonis: Any | None = None,
+        celonis: Celonis | None = None,
         *,
         space_id: str,
         package_id: str,
         view_key: str,
-        knowledge_model_key: Optional[str] = None,
-        data_model_id: Optional[str] = None,
-        data_pool_id: Optional[str] = None,
-        variables: Optional[Mapping[str, Any]] = None,
-    ):
+        knowledge_model_key: str | None = None,
+        data_model_id: str | None = None,
+        data_pool_id: str | None = None,
+        variables: Mapping[str, Any] | None = None,
+    ) -> "CelonisViewReader":
         """Resolve the required objects from Studio and construct a reader."""
 
         client = get_celonis() if celonis is None else celonis
@@ -57,6 +66,8 @@ class CelonisViewReader:
             data_model_id=data_model_id,
             data_pool_id=data_pool_id,
         )
+        if context.view is None:
+            raise ViewFormatError("The resolved Studio context has no View.")
         return cls(
             view=context.view,
             knowledge_model=context.knowledge_model,
@@ -70,7 +81,7 @@ class CelonisViewReader:
         *,
         inherit_filters_from: Sequence[str] = (),
         extra_filters: Iterable[str] = (),
-    ):
+    ) -> PQL:
         """Build a PQL query from a View table without executing it."""
 
         table = self.parser.table(table_name)
@@ -105,7 +116,7 @@ class CelonisViewReader:
             query += PQLFilter(query=pql)
         return query
 
-    def resolved_filters(self, table_name: str):
+    def resolved_filters(self, table_name: str) -> Iterator[str]:
         """Return resolved filter PQL for a table, without creating a query."""
 
         table = self.parser.table(table_name)
@@ -113,13 +124,20 @@ class CelonisViewReader:
             pql = view_filter.pql
             if view_filter.is_referenced:
                 try:
-                    pql = self.knowledge_model.get_filter(pql.strip()).pql
+                    resolved_pql = self.knowledge_model.get_filter(pql.strip()).pql
                 except Exception as exc:
                     raise PqlResolutionError(
                         "Referenced filter {!r} could not be resolved.".format(
                             view_filter.pql.strip()
                         )
                     ) from exc
+                if not resolved_pql:
+                    raise PqlResolutionError(
+                        "Referenced filter {!r} has no PQL expression.".format(
+                            view_filter.pql.strip()
+                        )
+                    )
+                pql = resolved_pql
             yield self.resolver.resolve(pql)
 
     def read(
@@ -128,7 +146,7 @@ class CelonisViewReader:
         *,
         inherit_filters_from: Sequence[str] = (),
         extra_filters: Iterable[str] = (),
-    ):
+    ) -> pd.DataFrame:
         """Build and execute the PQL query for one configured View table."""
 
         query = self.build_query(
@@ -138,12 +156,12 @@ class CelonisViewReader:
         )
         return self.execute(query)
 
-    def execute(self, query):
+    def execute(self, query: PQL) -> pd.DataFrame:
         """Let SaolaPy validate and execute a generated PQL query."""
 
         return DataFrame.from_pql(query, data_model=self.data_model).to_pandas()
 
-    def _resolve_column_pql(self, column) -> str:
+    def _resolve_column_pql(self, column: ViewColumn) -> str:
         pql = column.pql
         referenced = column.referenced_entity
         if str(referenced.get("type", "")).upper() == "KPI":
@@ -153,11 +171,18 @@ class CelonisViewReader:
                     "KPI-backed column {!r} has no KPI id.".format(column.name)
                 )
             try:
-                pql = self.knowledge_model.get_kpi(kpi_id).pql
+                resolved_pql = self.knowledge_model.get_kpi(kpi_id).pql
             except Exception as exc:
                 raise PqlResolutionError(
                     "KPI {!r} for column {!r} could not be resolved.".format(
                         kpi_id, column.name
                     )
                 ) from exc
+            if not resolved_pql:
+                raise PqlResolutionError(
+                    "KPI {!r} for column {!r} has no PQL expression.".format(
+                        kpi_id, column.name
+                    )
+                )
+            pql = resolved_pql
         return self.resolver.resolve(pql)
