@@ -28,7 +28,7 @@ Alternatively, install it with `pip`:
 pip install "celofast @ git+https://github.com/FbarrCa/celofast.git"
 ```
 
-The package requires Python 3.13 or later. Its PyCelonis dependencies are
+The package requires Python 3.10 or later. Its PyCelonis dependencies are
 hosted on the Celonis package repository and are referenced by verified direct
 artifact URLs in the package metadata, so `pip` does not need a custom index
 configuration. Your environment must still be able to access that repository

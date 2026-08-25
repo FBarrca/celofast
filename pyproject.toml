@@ -3,10 +3,10 @@ name = "celofast"
 version = "0.3.0"
 description = "PyCelonis-native MLWB inputs and augmentation-table outputs"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.10"
 dependencies = [
-    "numpy>=2.0,<3.0",
-    "pandas>=2.2,<3.0",
+    "numpy>=1.23.5,<3.0",
+    "pandas>=1.5.2,<3.0",
     "pydantic>=2.0,<3.0",
     # The Celonis repository exposes package-specific indexes rather than a
     # pip-compatible /simple index. Direct references keep pip from trying
