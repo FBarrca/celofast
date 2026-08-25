@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from typing import NotRequired, TypedDict, cast
+from typing import TypedDict, cast
+
+from typing_extensions import NotRequired
 
 from saolapy.pql.base import OrderByColumn, PQL, PQLColumn, PQLFilter
 
