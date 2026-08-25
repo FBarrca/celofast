@@ -15,17 +15,17 @@ objects for the Celonis-specific semantics.
 
 ## Installation
 
-Install the package from the public [PyPI](https://pypi.org/project/celofast/)
-index with [`uv`](https://docs.astral.sh/uv/):
+Install the package from the `FbarrCa` GitHub repository with
+[`uv`](https://docs.astral.sh/uv/):
 
 ```bash
-uv add celofast
+uv add "celofast @ git+https://github.com/FbarrCa/celofast.git"
 ```
 
 Alternatively, install it with `pip`:
 
 ```bash
-pip install celofast
+pip install "celofast @ git+https://github.com/FbarrCa/celofast.git"
 ```
 
 The package requires Python 3.13 or later. Its PyCelonis dependencies are
