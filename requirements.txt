@@ -1,0 +1,13 @@
+# Public dependencies are resolved from PyPI; Celonis packages are resolved
+# from the Celonis package index below.
+--index-url https://pypi.org/simple/
+--extra-index-url https://pypi.celonis.cloud/
+
+numpy>=2.0,<3.0
+pandas>=2.2,<3.0
+pydantic>=2.0,<3.0
+pycelonis>=2.15.1,<3.0
+pycelonis-core>=2.10.4,<3.0
+pyyaml>=6.0,<7.0
+python-dotenv>=1.0,<2.0
+saolapy>=0.3.3,<1.0
