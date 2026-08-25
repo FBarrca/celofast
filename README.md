@@ -15,16 +15,24 @@ objects for the Celonis-specific semantics.
 
 ## Installation
 
-Add the package directly from GitHub to a `uv` project with
-[`uv`](https://docs.astral.sh/uv/):
+Install the package from the public [PyPI](https://pypi.org/project/celofast/)
+index with [`uv`](https://docs.astral.sh/uv/):
 
 ```bash
-uv add "celofast @ git+https://github.com/celonis-content/celofast.git"
+uv add celofast
+```
+
+Alternatively, install it with `pip`:
+
+```bash
+pip install celofast
 ```
 
 The package requires Python 3.13 or later. Its PyCelonis dependencies are
-hosted on the Celonis package index, so configure access to that index before
-installing if your environment does not already have it configured.
+hosted on the Celonis package repository and are referenced by verified direct
+artifact URLs in the package metadata, so `pip` does not need a custom index
+configuration. Your environment must still be able to access that repository
+and provide credentials if your organization requires them.
 
 ## Configuration
 

@@ -3,11 +3,13 @@
 from celofast import CeloFast, QueryDefinition
 
 
-SPACE_ID = "9f7cc225-132d-49e7-8b0d-b626b1000b41"
-PACKAGE_ID = "c1721b64-5f2c-4311-99ee-8177f0839c92"
+
+
+SPACE_ID = "9df26518-1b95-45d7-ac8e-07d4497de48b"
+PACKAGE_ID = "9832f9de-45be-4edf-b07a-34fd5bb8462a"
 KNOWLEDGE_MODEL_KEY = "dm_test_perspective_celonis_inventorymanagement-km"
-VIEW_KEY = "management-dashboard-caro-joan-test-"
-TABLE_NAME = "Supplier Performance"
+VIEW_KEY = "d4f44e9f_6146_44a1_8587_ba1606616c0a-view"
+TABLE_NAME = "Input"
 
 
 def main() -> None:
@@ -30,17 +32,8 @@ def main() -> None:
 
     query: QueryDefinition = {
         "columns": {
-            "Supplier": '"o_celonis_Vendor"."SupplierNumberNameConcat"',
-            "Purchase Order Value": (
-                'KPI("IM_PurchaseDocumentLine_PurchaseDocumentLineValue")'
-            ),
+            "City": '"o_celonis_Customer"."City"',
         },
-        "order_by": [
-            {
-                "pql": 'KPI("IM_PurchaseDocumentLine_PurchaseDocumentLineValue")',
-                "ascending": False,
-            }
-        ],
     }
 
     km_result = celofast.km(KNOWLEDGE_MODEL_KEY).execute(query, limit=5)
