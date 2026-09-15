@@ -1,13 +1,14 @@
+import ast
 import importlib.util
 import json
 import sys
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, fields
 
 import pytest
 
 from celofast.sdk import Capture, Source
-from celofast.sdk.generate import generate
-from celofast.sdk.objects import Attribute, GenericKnowledgeObject
+from celofast.sdk.generate import _names, generate
+from celofast.sdk.objects import Attribute
 
 
 def load_generated(capture, tmp_path):
@@ -24,6 +25,129 @@ def load_generated(capture, tmp_path):
     finally:
         sys.modules.pop(spec.name, None)
     return module.km, json.loads(files["schema.json"])
+
+
+def test_readable_collision_names_preserve_natural_fields_and_order_independence():
+    ids = ["ID", "ID_ATTRIBUTE", "ID_ATTRIBUTE_1", "NumberName", "number_name", "METADATA"]
+    suffixes = ["attribute"] * len(ids)
+    names = _names(ids, {"id", "metadata"}, suffixes=suffixes)
+    assert names == [
+        "id_attribute_2", "id_attribute", "id_attribute_1",
+        "number_name_attribute_1", "number_name_attribute_2", "metadata_attribute",
+    ]
+    assert _names(ids[::-1], {"id", "metadata"}, suffixes=suffixes) == names[::-1]
+
+
+def test_id_attribute_has_a_readable_name_and_keeps_record_identity(tmp_path):
+    capture = Capture.create(
+        Source(tenant_id="t", space_id="s", package_id="p", key="km", mode="draft"),
+        {"records": [{"id": "Plant", "attributes": [
+            {"id": "ID", "columnType": "STRING", "pql": '"Plant"."ID"'},
+        ]}]},
+    )
+    root, manifest = load_generated(capture, tmp_path)
+    plant = root.records.plant
+    assert plant.id == "Plant"
+    assert plant.id_attribute is plant["ID"]
+    assert plant.id_attribute.pql == '"Plant"."ID"'
+    assert manifest["objects"][-1]["python"] == "km.records.plant.id_attribute"
+
+
+def test_generated_fields_retain_one_object_per_captured_path(tmp_path):
+    capture = Capture.create(
+        Source(tenant_id="t", space_id="s", package_id="p", key="km", mode="draft"),
+        {
+            "records": [{
+                "id": "Plant",
+                "attributes": [{"id": "Country", "columnType": "STRING"}],
+                "newAttributes": [{"id": "Active", "columnType": "BOOLEAN"}],
+                "augmentedAttributes": [{"id": "Count", "columnType": "INTEGER"}],
+            }, {"id": "Empty"}],
+            "kpis": [{"id": "Value", "columnType": "FLOAT"}],
+            "filters": [{"id": "Active", "pql": "FILTER 1 = 1;"}],
+        },
+    )
+    source = generate(capture)["__init__.py"].decode()
+    classes = [node for node in ast.parse(source).body if isinstance(node, ast.ClassDef)]
+    # The source-level API is a set of typed fields, with no generated accessors.
+    assert classes
+    assert all(not any(isinstance(node, ast.FunctionDef) for node in cls.body) for cls in classes)
+    root, _ = load_generated(capture, tmp_path)
+    plant = root.records.plant
+    assert {field.name for field in fields(root.records)} == {"capture", "path", "plant", "empty"}
+    assert {field.name for field in fields(plant)} == {"capture", "path", "country", "active", "count"}
+    assert plant["Active"] is plant.active
+    assert plant["Count"] is plant.count
+    assert [attr.id for attr in plant] == ["Country", "Active", "Count"]
+    assert not hasattr(plant, "attributes")
+    assert not hasattr(plant, "new_attributes")
+    assert not hasattr(plant, "augmented_attributes")
+    assert plant["Country"] is plant.country
+    assert next(iter(plant)) is plant.country
+    assert root.records["Plant"] is plant
+
+    from celofast.sdk.objects import KnowledgeObject, Namespace
+
+    by_path = {}
+
+    def visit(obj):
+        if obj.path in by_path:
+            assert obj is by_path[obj.path]
+            return
+        by_path[obj.path] = obj
+        for field in fields(obj):
+            child = getattr(obj, field.name)
+            if isinstance(child, (KnowledgeObject, Namespace)):
+                assert vars(obj)[field.name] is child
+                assert getattr(obj, field.name) is child
+                assert child.capture is root.capture
+                with pytest.raises(FrozenInstanceError):
+                    setattr(obj, field.name, child)
+                visit(child)
+
+    visit(root)
+    assert len(by_path) == 11
+    assert len(plant) == 3
+    assert len(root.records.empty) == 0
+    assert list(root.records.empty) == []
+    assert not hasattr(root.records.empty, "attributes")
+
+
+def test_reload_retains_stored_records_and_attributes(tmp_path, monkeypatch):
+    source = Source(tenant_id="t", space_id="s", package_id="p", key="km", mode="draft")
+
+    def snapshot(field, value):
+        return Capture.create(source, {"records": [{
+            "id": "Plant",
+            "attributes": [{"id": field, "columnType": "STRING", "pql": value}],
+        }]})
+
+    name = "sdk_stored_fields_fixture"
+    package = tmp_path / name
+    package.mkdir()
+    monkeypatch.syspath_prepend(str(tmp_path))
+    for filename, data in generate(snapshot("Country", "'DE'")).items():
+        (package / filename).write_bytes(data)
+    module = importlib.import_module(name)
+    try:
+        old = module.km
+        old_records = old.records
+        old_plant = old_records.plant
+        old_country = old_plant.country
+        for filename, data in generate(snapshot("Name", "'New plant'")).items():
+            (package / filename).write_bytes(data)
+        importlib.invalidate_caches()
+        new = importlib.reload(module).km
+        assert new.records.plant.name.pql == "'New plant'"
+        assert not hasattr(new.records.plant, "country")
+        assert old.records is old_records
+        assert old.records.plant is old_plant
+        assert old_plant.country is old_country
+        assert old_plant["Country"] is old_country
+        assert old_country.pql == "'DE'"
+        assert not hasattr(old_plant, "name")
+    finally:
+        sys.modules.pop(name, None)
 
 
 def test_module_reload_preserves_old_hierarchy_after_definition_removal(
@@ -72,7 +196,7 @@ def test_module_reload_preserves_old_hierarchy_after_definition_removal(
             new.kpis["Removed"]
         for namespace in (old_namespace, old.kpis):
             assert namespace.value.pql == "41"
-            assert namespace.value.parameters.old_parameter.id == "OldParameter"
+            assert namespace.value.metadata["parameters"][0]["id"] == "OldParameter"
             assert namespace.removed.pql == "1"
     finally:
         sys.modules.pop(name, None)
@@ -134,36 +258,21 @@ def test_every_source_id_and_metadata_survives_unknown_nested_content(tmp_path, 
     capture = Capture.create(source, content)
     root, manifest = load_generated(capture, tmp_path)
 
-    def objects(value, path=()):
-        if isinstance(value, dict):
-            if "id" in value:
-                yield path, value
-            for key, child in value.items():
-                yield from objects(child, (*path, key))
-        elif isinstance(value, list):
-            for index, child in enumerate(value):
-                segment = (
-                    child["id"]
-                    if isinstance(child, dict) and isinstance(child.get("id"), str)
-                    else index
-                )
-                yield from objects(child, (*path, segment))
-
-    expected = dict(objects(capture.to_dict()))
-    actual = {
-        tuple(entry["path"]): entry
-        for entry in manifest["objects"]
-        if entry["id"] is not None
+    assert root.capture.to_dict() == capture.to_dict()
+    assert root.metadata["futureCategory"][0][0]["id"] == "deep"
+    assert root.metadata["customObjects"][0]["payload"]["plain"] is True
+    assert root.records.plant.metadata["identifier"]["id"] == "Identifier"
+    assert root.kpis.value.metadata["parameters"][0]["id"] == "P"
+    assert not hasattr(root.kpis.value, "parameters")
+    for category in ("variables", "activities", "actions", "future_category", "custom_objects"):
+        assert not hasattr(root, category)
+    assert {tuple(entry["path"]) for entry in manifest["objects"]} == {
+        (), ("records", "Plant"),
+        ("records", "Plant", "attributes", "Number"),
+        ("records", "Plant", "newAttributes", "New"),
+        ("records", "Plant", "augmentedAttributes", "Augmented"),
+        ("kpis", "Value"), ("filters", "filters_item"),
     }
-    assert set(actual) == set(expected)
-    for path, entry in actual.items():
-        obj = root
-        for symbol in entry["python"].split(".")[1:]:
-            obj = getattr(obj, symbol)
-        assert obj.id == expected[path]["id"]
-        assert json.loads(json.dumps(obj.metadata, default=dict)) == expected[path]
-    assert root.future_category.item_0.deep.id == "deep"
-    assert root.custom_objects.item_0.metadata["payload"]["plain"] is True
 
 
 def test_names_cannot_shadow_runtime_and_collisions_remain_discoverable(tmp_path):
@@ -196,10 +305,11 @@ def test_names_cannot_shadow_runtime_and_collisions_remain_discoverable(tmp_path
         },
     )
     root, manifest = load_generated(capture, tmp_path)
-    assert {item.id for item in root.records.plant.attributes} == set(ids)
-    assert root.records.plant.attributes["class"].id == "class"
-    assert root.records.plant.attributes["metadata"].pql == "'value'"
-    assert root.namespace.entry.children.nested.id == "Nested"
+    assert {item.id for item in root.records.plant} == set(ids)
+    assert root.records.plant["class"].id == "class"
+    assert root.records.plant["metadata"].pql == "'value'"
+    assert not hasattr(root, "namespace")
+    assert root.metadata["namespace"][0]["children"][0]["id"] == "Nested"
     mappings = [entry["python"] for entry in manifest["objects"]]
     assert len(mappings) == len(set(mappings))
 
@@ -252,21 +362,25 @@ def test_generated_package_imports_offline_with_complete_discoverable_objects(tm
     try:
         spec.loader.exec_module(module)
         km = module.km
+        from typing import get_type_hints
+
+        assert get_type_hints(module)["km"] is type(km)
         plant = km.records.o_celonis_plant
-        attr = plant.attributes.number_name_concat
+        attr = plant.number_name_concat
         assert plant.number_name_concat == attr
         assert isinstance(attr, Attribute)
         assert attr.id == "NumberNameConcat"
         assert attr.column_type == "string"
         assert attr.pql.startswith('\n"Plant"')
         assert attr.metadata["unknown"]["enabled"] is True
-        assert plant.attributes["NumberNameConcat"] == attr
-        assert len(list(plant.attributes)) == 2
-        assert isinstance(km.future_objects.class_, GenericKnowledgeObject)
-        for obj in (km, plant, attr, plant.attributes):
+        assert plant["NumberNameConcat"] == attr
+        assert len(list(plant)) == 2
+        assert not hasattr(km, "future_objects")
+        assert km.metadata["futureObjects"][0]["id"] == "class"
+        for obj in (km, plant, attr, km.records):
             with pytest.raises(FrozenInstanceError):
                 obj.unexpected_mutation = 1
-        assert any(
+        assert not any(
             entry["id"] == "class"
             for entry in json.loads(files["schema.json"])["objects"]
         )
@@ -274,8 +388,8 @@ def test_generated_package_imports_offline_with_complete_discoverable_objects(tm
         sys.modules.pop(spec.name, None)
 
 
-def test_shortcuts_skip_collisions_and_preserve_nested_attribute_types(tmp_path):
-    ids = ["Number", "metadata", "attributes", "NumberName", "number_name", "Shared"]
+def test_flat_fields_disambiguate_collisions_and_preserve_metadata(tmp_path):
+    ids = ["Number", "metadata", "attributes", "NumberName", "number_name", "Shared", "get_attribute"]
     capture = Capture.create(
         Source(tenant_id="t", space_id="s", package_id="p", key="km", mode="draft"),
         {"records": [{
@@ -289,21 +403,77 @@ def test_shortcuts_skip_collisions_and_preserve_nested_attribute_types(tmp_path)
             "augmentedAttributes": [{"id": "Extra", "columnType": "INTEGER", "pql": "1"}],
         }]},
     )
-    root, _ = load_generated(capture, tmp_path)
+    root, manifest = load_generated(capture, tmp_path)
     plant = root.records.plant
-    assert plant.number == plant.attributes.number
-    assert plant.extra == plant.augmented_attributes.extra
+    assert plant.number is plant["Number"]
+    assert plant.extra is plant["Extra"]
     assert plant.metadata["id"] == "Plant"
-    assert plant.attributes["metadata"].pql == "'value'"
-    assert plant.attributes["attributes"].pql == "'value'"
+    assert plant["metadata"].pql == "'value'"
+    assert plant["attributes"].pql == "'value'"
+    assert plant["get_attribute"].pql == "'value'"
+    assert callable(plant.get_attribute)
     assert not hasattr(plant, "number_name")
     assert not hasattr(plant, "shared")
-    assert plant.attributes["Shared"].pql == "'value'"
-    assert plant.new_attributes["Shared"].pql == "'new'"
-    assert plant.nested.parameters.parameter.id == "Parameter"
+    with pytest.raises(KeyError):
+        plant["Shared"]
+    assert plant.get_attribute("Shared", collection="attributes").pql == "'value'"
+    assert plant.get_attribute("Shared", collection="newAttributes").pql == "'new'"
+    assert plant.shared_attribute is plant.get_attribute("Shared", collection="attributes")
+    assert plant.shared_new_attribute is plant.get_attribute("Shared", collection="newAttributes")
+    assert plant.get_attribute("Extra", collection="augmentedAttributes") is plant.extra
+    with pytest.raises(KeyError):
+        plant.get_attribute("Shared", collection="unknown")
+    with pytest.raises(KeyError):
+        plant["missing"]
+    assert plant.nested.metadata["parameters"][0]["id"] == "Parameter"
+    # Every collision still has a typed, stored direct field advertised by the manifest.
+    for entry in manifest["objects"]:
+        if entry["class"].startswith("Attribute["):
+            collection = entry["path"][-2]
+            field_name = entry["python"].removeprefix("km.records.plant.")
+            assert "." not in field_name
+            assert vars(plant)[field_name] is plant.get_attribute(entry["id"], collection=collection)
 
 
-def test_import_and_shortcuts_do_not_load_query_stack(tmp_path):
+def test_flattened_collision_names_are_stable_when_other_fields_are_inserted():
+    source = Source(tenant_id="t", space_id="s", package_id="p", key="km", mode="draft")
+    definition = {"records": [{
+        "id": "Plant",
+        "attributes": [{"id": "Shared", "columnType": "STRING"}],
+        "newAttributes": [{"id": "Shared", "columnType": "INTEGER"}],
+    }]}
+
+    def symbols():
+        manifest = json.loads(generate(Capture.create(source, definition))["schema.json"])
+        return {tuple(entry["path"]): entry["python"] for entry in manifest["objects"] if entry["id"] == "Shared"}
+
+    before = symbols()
+    definition["records"][0]["attributes"].insert(0, {"id": "Inserted"})
+    assert symbols() == before
+
+
+def test_flat_records_preserve_anonymous_attributes_and_skip_unsupported_entries(tmp_path):
+    capture = Capture.create(
+        Source(tenant_id="t", space_id="s", package_id="p", key="km", mode="draft"),
+        {"records": [{
+            "id": "Plant",
+            "attributes": [None, {"pql": "1"}, {"id": "Wrong", "type": "KPI"}],
+            "newAttributes": [{"pql": "2"}, {"id": "Date", "columnType": "DATE"}],
+        }]},
+    )
+    root, _ = load_generated(capture, tmp_path)
+    plant = root.records.plant
+    assert len(plant) == 3
+    assert [attr.id for attr in plant] == [None, None, "Date"]
+    assert [attr.path[-2:] for attr in plant] == [("attributes", 1), ("newAttributes", 0), ("newAttributes", "Date")]
+    assert list(plant)[0] is plant.item_1
+    assert list(plant)[1] is plant.item_0
+    assert plant["Date"] is plant.date
+    with pytest.raises(KeyError):
+        plant["Wrong"]
+
+
+def test_import_and_field_access_do_not_load_query_stack(tmp_path):
     import subprocess
 
     capture = Capture.create(

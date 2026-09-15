@@ -1,32 +1,27 @@
-# Knowledge Models: typed objects and reusable queries
+# Knowledge Models: typed definitions and small queries
 
-[Documentation](index.md) · [Getting started](getting-started.md) · [API reference](api-reference.md)
+[Documentation](index.md) · [Getting started](getting-started.md) · [API reference](api-reference.md) · [Migrating to 0.4](migration-0.4.md)
 
-Celofast generates a typed Python package containing your KM's definitions.
-Import it to explore business objects, inspect their metadata, and use their
-captured definitions in queries over live data.
+A KM handle executes queries and returns pandas DataFrames. Optional generated
+objects provide autocomplete and captured business definitions.
 
-This guide assumes [authentication is configured](getting-started.md#2-configure-authentication).
-Replace the example IDs and KM key with your own. Names such as
-`o_celonis_plant`, `country`, and `active_inventory` are illustrative; the
-generated members depend on your KM's definitions.
+After [configuring authentication](getting-started.md#2-configure-authentication),
+you can query without generation:
 
-## In this guide
+```python
+from celofast import CeloFast
 
-- [Configure and pull](#configure-and-pull)
-- [Explore metadata and select records](#import-explore-and-query)
-- [Compose and inspect queries](#compose-and-reuse-queries)
-- [Apply attribute and raw filters](#attribute-equality-and-raw-filters)
-- [Understand defaults and live execution](#native-execution)
-- [Review drift and refresh a running process](#review-changes-and-check-ci)
-- [Migrate older captures](#connections-and-compatibility)
+cf = CeloFast("SPACE_ID", "PACKAGE_ID", mode="draft")
+km = cf.km("inventory-km")
+plants = km.select({"Plant number": '"Plant"."Number"'}).execute(limit=5)
+```
 
-For an existing PQL dictionary without generation, see
-[Dictionary queries](dictionary-queries.md).
+Replace the IDs, key, and expressions with values from your tenant. The typed
+examples below assume an Inventory KM with the illustrated records and fields.
 
 ## Configure and pull
 
-Add a model to your project's `pyproject.toml`:
+To add autocomplete, register your KM in your application's `pyproject.toml`:
 
 ```toml
 [tool.celofast.knowledge-models.inventory]
@@ -37,32 +32,26 @@ mode = "draft"
 output = "generated/inventory"
 ```
 
-Configure the usual Celofast OAuth environment variables or `.env`, then run:
-
 ```bash
 uv run celofast km pull inventory
 ```
 
-You can also supply everything explicitly:
+Or supply everything explicitly:
 
 ```bash
 uv run celofast km pull --space-id SPACE_ID --package-id PACKAGE_ID --km inventory-km --mode draft --output generated/inventory
 ```
 
-Configured output paths are relative to `pyproject.toml`. An explicit `--output`
-is relative to your current directory. Use `--project path/to/pyproject.toml` to
-select another project file. Draft and published are separate sources; Celofast
-does not fall back between them.
+Configured output paths are relative to `pyproject.toml`; explicit `--output`
+paths are relative to the working directory. `--project path/to/pyproject.toml`
+selects another project configuration. Draft and published sources are separate.
 
 ## Import, explore, and query
 
-Every generated package exports one object named `km`. Give it a useful local
-name when importing:
-
 ```python
-from celofast import CeloFast
 from generated.inventory import km as inventory
 
+km = cf.km(inventory)
 plant = inventory.records.o_celonis_plant
 number = plant.number_formatted
 
@@ -70,225 +59,228 @@ number.id
 number.description
 number.column_type
 number.pql
-number.metadata  # Complete, deeply immutable source definition
+number.metadata
 
-cf = CeloFast(space_id="SPACE_ID", package_id="PACKAGE_ID", mode="draft")
-km = cf.km(inventory)
 result = km.select({"Plant number": number}).execute(limit=100)
 ```
 
-Member names derive from your KM IDs, so the exact available attributes depend
-on your source. Your editor supplies autocomplete. Collections also support
-iteration and exact-ID lookup:
+`inventory` always contains offline definitions. `km` is the cached execution
+handle. Importing generated definitions does not load credentials, contact
+Celonis, or import the PyCelonis query stack.
+
+Generation exposes records, KPIs, filters, and a flat set of fields on each
+record. Attributes from the source's `attributes`, `newAttributes`, and
+`augmentedAttributes` collections all appear directly on the record. There are
+no generated record collection fields or separate attribute-namespace classes.
+Other categories, including variables, activities, actions, KPI parameters, and
+unknown content, remain available through immutable `.metadata` mappings.
 
 ```python
-for attribute in plant.attributes:
+for attribute in plant:
     print(attribute.id, attribute.description)
 
-number = plant.attributes["NumberFormatted"]
+number = plant["NumberFormatted"]
+field_count = len(plant)
+original_attributes = plant.metadata.get("attributes", ())
+variables = inventory.metadata.get("variables", ())
 ```
 
-Generated properties retain precise types where authoritative metadata exists.
-Exact-ID lookup returns the common object type because its key is a runtime
-string. Unknown types use `Any`; unsupported categories remain discoverable as
-generic objects. Capture diagnostics are recorded in `schema.json`.
+Generated fields have precise declared types when metadata provides them;
+unknown types use `Any`. Record iteration and exact-ID lookup return
+`Attribute[Any]`. These declarations do not guarantee pandas dtypes or non-null
+result values. Iteration includes fields without PQL; query expansion skips them.
 
-These types describe captured declarations, not guaranteed pandas dtypes or
-non-null result values. Inspect the DataFrame returned by execution when your
-application depends on its concrete data representation.
+Generated records are frozen dataclasses with explicit business fields. For
+example, a record declaration looks like this:
 
-Records expose direct shortcuts for unambiguous attributes from `attributes`,
-`new_attributes`, and `augmented_attributes`. Shortcuts preserve the original
-attribute type and metadata. Names that collide with record properties or
-other attributes have no shortcut; use their original collection and exact ID.
-For example, an attribute named `metadata` stays accessible through
-`plant.attributes["metadata"]`, while `plant.metadata` describes the record.
+```python
+@dataclass(frozen=True, kw_only=True)
+class RecordsOCelonisPlant(Record):
+    """Plant."""
+
+    country: Attribute[str]
+    plantnumber: Attribute[str]
+```
+
+This is an excerpt from generated source; applications import the ready-built
+`km` object. A private builder constructs the hierarchy once at import. Repeated
+navigation, iteration, and exact-ID lookup retain the same objects:
+
+```python
+assert plant is inventory.records.o_celonis_plant
+assert plant["COUNTRY"] is plant.country  # Use the captured exact ID.
+```
+
+Fields cannot be reassigned. Construction uses memory for the complete captured
+hierarchy upfront; accessing a field does not construct another wrapper.
+
+### Collisions and source collections
+
+Names that normalize to the same Python spelling, or collide with runtime
+members such as `metadata` or `get_attribute`, receive readable suffixes:
+`id_attribute` preserves `plant.id` for the record's own ID, and
+`metadata_attribute` preserves `plant.metadata`. Collisions across source
+collections use suffixes such as `_attribute`, `_new_attribute`, and
+`_augmented_attribute`. A small numeric suffix resolves any remaining overlap;
+natural names of other fields are preserved.
+Every attribute still has a direct typed field; `schema.json` maps each original
+source path to its generated field. For example, `plant["metadata"]` accesses a
+business attribute while `plant.metadata` describes the record.
+
+An exact ID can occur in multiple source collections. `plant["Shared"]` then
+raises `KeyError`. Scope the lookup using the original source collection key:
+
+```python
+original = plant.get_attribute("Shared", collection="attributes")
+added = plant.get_attribute("Shared", collection="newAttributes")
+augmented = plant.get_attribute("Shared", collection="augmentedAttributes")
+```
+
+Missing IDs or no matching attribute in the selected collection also raise
+`KeyError`. The original source path remains on `attribute.path`, and the full
+source collections remain in `plant.metadata`.
 
 ### Select a complete record
 
 ```python
-plant = km.records.o_celonis_plant
 all_plants = km.select(plant)
-active_plants = all_plants.where(km.filters.active_inventory)
+active_plants = all_plants.where(inventory.filters.active_inventory)
 plants = active_plants.where(plant.country.eq("DE")).execute(distinct=True)
 ```
 
-The result is a pandas DataFrame. Whole-record selection includes every captured
-attribute with a non-empty ID and non-empty PQL expression. It expands
-`attributes`, then `new_attributes`, then `augmented_attributes`, preserving the
-definition order within each collection. Other KM object types and attributes
-without PQL are skipped. Column names are exact attribute IDs, such as
-`NumberFormatted`, `Name`, and `Country`; conflicting IDs across collections
-raise `QueryValidationError`. An empty record selection also raises this error.
-
-Expansion retains the original generated attribute objects, including their
-types, PQL, and metadata. For custom output names or a subset of fields, use
-`km.select(plant_number=plant.number_formatted, plant_name=plant.name)`.
+Whole-record selection uses the source collections `attributes`, then `newAttributes`,
+then `augmentedAttributes`, preserving captured order within each collection.
+It includes attributes with non-empty IDs and PQL expressions. Output names
+are exact attribute IDs. Unsupported categories and attributes without PQL
+are skipped; duplicate IDs across collections and empty selections raise
+`QueryValidationError`. Select explicit columns for custom aliases or subsets.
 
 ### Compose and reuse queries
 
-Use generated attributes or KPIs for columns and ordering, and generated filters
-for filtering:
-
 ```python
-value = km.kpis.inventory_value
-base = km.select(plant=km.records.o_celonis_plant.number_formatted, value=value)
-active = base.where(km.filters.active_inventory)
+value = inventory.kpis.inventory_value
+base = km.select(plant=plant.number_formatted, value=value)
+active = base.where(inventory.filters.active_inventory)
 largest = active.order_by(value.desc())
 
 native_pql = largest.build()
 result = largest.execute(limit=100)
 query_dict = largest.to_query()
-# The existing execution API accepts the same definition.
 result = km.execute(query_dict, limit=100)
 ```
 
 | Operation | Behavior |
 | --- | --- |
-| `km.select(plant)` | Select every queryable record attribute in captured order, with exact attribute IDs as column names. |
-| `km.select(**columns)` | Select expressions with keyword output names. |
-| `km.select({"Plant number": number})` | Select with arbitrary string output names. A mapping and keywords can be combined; duplicate names are rejected. |
-| `query.where(*filters)` | Append generated filters, attribute predicates, or raw PQL filters, combined with AND. |
-| `query.order_by(*expressions)` | Replace sorting. Plain expressions ascend; attributes and KPIs support `.asc()` and `.desc()`. No arguments clears sorting. |
-| `query.build(variables=...)` | Compile native PQL without requesting query data. |
-| `query.to_query()` | Return an independent dictionary retaining captured objects and their defaults. |
-| `query.execute(...)` | Fetch a pandas DataFrame; accepts `variables`, `limit`, `offset`, and `distinct`. Omitting `limit` requests all matching rows. |
+| `km.select(record)` | Expand all queryable record attributes. |
+| `km.select(**columns)` | Select with keyword output names. |
+| `km.select({"Plant number": number})` | Select with arbitrary string output names. Mappings and keywords may be combined; duplicates fail. |
+| `query.where(*filters)` | Append generated filters, equality predicates, or complete raw `FILTER ...;` statements, combined with AND. |
+| `query.order_by(*expressions)` | Replace sorting. Plain expressions ascend; `.asc()` and `.desc()` choose direction. No arguments clears sorting. |
+| `query.build(variables=...)` | Compile native PQL without exporting data. |
+| `query.to_query()` | Return an independent Python dictionary retaining captured objects and their source information. |
+| `query.execute(...)` | Fetch a DataFrame; accepts `variables`, `limit`, `offset`, and `distinct`. |
 
-Composition is immutable: adding filters or changing sorting leaves the base
-query unchanged. Columns and filters can combine generated objects with raw PQL
-strings. Raw filters must be complete `FILTER ...;` statements. Repeated `where()`
-calls append conditions; repeated `order_by()` calls replace the sorting.
+Queries are immutable: composing a branch leaves its base unchanged. Columns,
+filters, and sorting can mix generated objects and raw PQL strings. `to_query()`
+is not necessarily JSON serializable; use plain-string definitions when you
+need JSON configuration. See [Dictionary queries](dictionary-queries.md).
 
-For pagination, supply an ordering appropriate for your data and pass
-`limit`/`offset` to execution. Each call queries live data, so concurrent data
-changes can still move rows between pages. `distinct=True` requests distinct
-result rows; it does not define a primary key for your business objects.
+Omitting `limit` requests all matching rows; use `limit=100` for a preview.
+For pagination, choose suitable ordering and pass `limit`/`offset`. Data is live,
+so concurrent changes can move rows between pages. `distinct=True` requests
+distinct result rows without defining business-object identity.
 
 ### Attribute equality and raw filters
 
 ```python
 query = (
     km.select(plant)
-    .where(km.filters.active_inventory)
     .where(plant.country.eq("DE"))
     .where('FILTER "Plant"."Active" = 1;')
 )
-plants = query.execute(limit=100, offset=0, distinct=True)
+plants = query.execute(limit=100)
 ```
 
-`attribute.eq(value)` returns an immutable predicate. It accepts strings, finite
-numbers, booleans (encoded as 1/0), dates, and datetimes. `eq(None)` uses `IS NULL`.
-The generated attribute's declared type is checked by static type checkers.
-Strings use PQL escaping for quotes and backslashes; literal text is never
-treated as a `${variable}` replacement. Datetimes use millisecond precision;
-timezone-aware values are converted to UTC, and finer precision is rejected.
-See Celonis's [string literals](https://help.celonis.com/pql46/en/string) and
-[date constants](https://help.celonis.com/pql47/en/date) for the native syntax.
+`.eq(value)` accepts strings, finite numbers, booleans, dates, datetimes, and
+`None` (`IS NULL`). It escapes strings and encodes booleans as 1/0. Datetimes
+use millisecond precision; timezone-aware values convert to UTC, and finer
+precision is rejected. Static type checkers check the declared attribute type.
 
-Attribute defaults and explicit `variables=` overrides are applied to the
-attribute expression before the Python literal is added. Use repeated `where()`
-calls to combine predicates with AND; Python `and`/`or` on a predicate raises
-`QueryValidationError`. Other comparisons can be written as raw PQL filters.
-
-`to_query()` retains captured objects, so its result is not necessarily JSON
-serializable. It preserves the same variable-default behavior as direct dictionary
-execution. `build()` and `execute()` use the existing native compilation path.
+The attribute expression is bound before adding the encoded literal. Literal
+`${name}` text is never treated as a variable replacement. Combine predicates
+with repeated `where()` calls; Python `and`/`or` on a predicate raises
+`QueryValidationError`. Write other comparisons as raw PQL filters.
 
 ### Validation and errors
 
-The builder raises `QueryValidationError` for empty selections, duplicate column
-names, invalid filter objects, unsupported KM object types, and incompatible
-captured sources. Limits and offsets must be non-negative integers, excluding
-booleans; `distinct` must be a boolean.
+Builder and dictionary queries share one compiler and execution path. Local
+checks reject invalid shapes and categories, empty expressions, duplicate names,
+incompatible captured sources, and invalid bindings or execution options.
+Limits/offsets must be non-negative integers, excluding booleans; `distinct`
+must be a boolean. Each execution compiles once and uses the native connector.
 
-Local PQL checks reject malformed filter statements, unclosed quotes or comments,
-unbalanced delimiters, extra statements, and missing operands. `build()` also
-checks the PQL after variable replacement. These are structural checks, not a
-complete PQL parser: function signatures, KM references, and the remaining
-grammar are resolved by Celonis during execution. The native KM connector has no
-standalone validation service for these expressions.
-
-During builder execution, native query-resolution errors and server errors
-explicitly reporting syntax, parsing, or unknown-filter failures become
-`QueryValidationError`, preserving the native error chain as the cause. Unrelated
-export, permission, and connection failures retain their native exceptions.
-The existing dictionary API retains its validation and native error behavior.
+Celonis validates PQL grammar and dependencies during execution. `build()` does
+not prove that a query is valid PQL. Native PyCelonis/SaolaPy errors propagate
+unchanged with their original cause chains in both query styles.
 
 ### Connections and compatibility
 
-`cf.km(inventory)` returns a connected copy of the generated root, preserving
-its precise type and autocomplete. The imported `inventory` remains offline
-and unchanged. Connect before calling its query methods or accessing `native`,
-`data_model`, or `augmentation_tables`.
+`cf.km(inventory)` and `cf.km(inventory.key)` return the same cached
+`KnowledgeModelHandle`. Generated roots have no connection state, query methods,
+or native-resource properties. Use `km.native`, `km.data_model`, and
+`km.augmentation_tables` for the corresponding resources.
 
-Binding checks tenant, Space, Package, KM key, lifecycle, and Data Model on every
-lookup. Connected copies share a cached native handle while keeping their own
-captured definitions. Builder columns, filters, and sorting also reject generated
-objects from another source or Data Model. String-key selection still returns
-the cached handle, which supports both `select()` and dictionary queries.
+Passing a generated root checks tenant, Space, Package, KM key, lifecycle, and
+Data Model. Compilation also checks captured columns, filters, predicates, and
+ordering; record selection checks source identity before expansion. A handle
+with missing provenance retrieves it when typed objects first need verification.
+Unverified or mismatched sources are rejected. Handles never store your imported
+root, so queries can retain independent captures from the same source.
 
-Existing `cf.km(inventory).build(query_dict)` and `.execute(query_dict)` calls
-continue to work. The returned generated object is now a connected copy rather
-than the handle returned by `cf.km(inventory.key)`; callers must not rely on those
-two results having the same object identity or concrete type.
-
-Regenerate older packages with `celofast km pull` to get direct attribute
-shortcuts and source attribute order. Older captures sorted record attributes
-by ID; their original order cannot be recovered without pulling again. Attribute
-reordering now changes the fingerprint and is reported by `--check`.
-Older runtime-v1/v2 packages still import with this runtime; newly generated
-runtime-v3 packages require the updated Celofast runtime. Review generation
-diffs, including symbols that conflict with new API method names.
+The flat record API uses runtime-v5 packages. Regenerate older packages with
+`celofast km pull`, then restart Python. Replace `plant.attributes.country` with
+`plant.country`, `for attribute in plant.attributes` with `for attribute in plant`,
+and `plant.attributes["COUNTRY"]` with `plant["COUNTRY"]`. Use `get_attribute`
+with a collection key when an ID is ambiguous. Older runtime packages are rejected
+at import with a regeneration message.
 
 ## Native execution
 
 ### Captured input defaults
 
-Studio stores KM input-variable definitions separately from the final layer's
-`variables` collection. Pull captures these by key, including type, scope, and
-default value:
+Pull retains Studio input-variable definitions for inspection:
 
 ```python
 inventory.input_variables["im_consideredfuturemonths"]["defaultValue"]
 ```
 
-This mapping is deeply immutable and included in `capture.json`, integrity checks,
-and `--check` drift reports. Regeneration and module reload expose updated defaults;
-existing objects retain their old snapshot. Packages generated before this feature
-return `None`; a newly captured KM without inputs returns an empty mapping.
-
-These are declared defaults, not current View input values. Generated expressions
-use captured string defaults to bind their inline placeholders; explicit
-`variables=` entries take precedence. The final layer and Studio metadata are separate
-reads of the selected lifecycle, not an atomic snapshot. Package-level bindings
-are a different category and are not included in `input_variables`.
+This immutable mapping is included in captures, integrity checks, and drift
+reports. It describes declared defaults, not current View input values.
+An empty mapping means no inputs; `None` means no input snapshot was supplied.
+The final layer and Studio input metadata are separate reads, not an atomic
+snapshot. Package-level bindings are a separate category.
 
 ### Query behavior
 
-Every query uses PyCelonis's `KnowledgeModelSaolaConnector`. Generated objects
-supply their stored `.pql` expressions to native `pql.PQLColumn`, `pql.PQLFilter`,
-and `pql.OrderByColumn` objects. No captured layer or custom query environment is
-sent. Celonis handles parsing, dependency resolution, and execution errors.
+Generated objects supply captured `.pql` expressions. All inline `${name}`
+placeholders require explicit exact-string bindings, for generated and raw PQL:
 
-Generated metadata stays fixed until regeneration. Execution uses live data and
-resolves referenced KPIs, filters, and variables from the connected KM in the
-selected draft/published mode. Capturing a definition does not freeze its
-transitive dependencies. To call a KM KPI with its native filter/parameter
-semantics, supply the appropriate `KPI(...)` expression as a raw PQL string.
+```python
+query = km.select(value="1 + ${days}")
+result = query.execute(variables={"days": "7"}, limit=100)
+```
 
-Generated expressions bind inline variable placeholders using captured KM variable
-values, then Studio input defaults, then explicit `variables=` overrides. Binding
-uses exact string replacement, with no automatic quoting or type conversion.
-Missing or null defaults require an explicit binding and fail locally if absent.
-This binds only the submitted expression: references such as `KPI(...)` still
-resolve through the live KM and do not receive these textual overrides.
-Raw-string query templates retain their existing explicit-binding behavior.
-Other generated categories remain inspectable and cannot be used as columns or
-filters. Mutable View inputs are not automatically supplied to these queries.
+Missing bindings raise `UnresolvedVariableError` even if captured metadata has a
+default. Bindings are textual PQL fragments: they do not automatically quote
+Python values, update View controls, or override server-managed KM variables.
+Use `.eq()` when comparing an attribute with a Python value.
 
-Importing a generated package is offline. It does not load credentials, fetch
-definitions, or import the PyCelonis query stack. The package contains business
-metadata and PQL, so apply the repository permissions appropriate for that KM.
+Execution uses `KnowledgeModelSaolaConnector` against live data. Captured
+expressions stay fixed until regeneration and reload, while referenced cloud
+dependencies resolve in the connected KM's selected lifecycle. No captured
+layer is uploaded. To invoke a KPI's native parameter/filter semantics, use
+its raw `KPI(...)` expression. Explicit textual bindings only affect submitted
+expressions; they do not propagate into cloud dependencies.
 
 ## Review changes and check CI
 
@@ -296,32 +288,20 @@ metadata and PQL, so apply the repository permissions appropriate for that KM.
 uv run celofast km pull inventory --check
 ```
 
-Check retrieves the cloud definition and compares it with the generated package
-without modifying files. Differences include object additions/removals, changed
-fields, generated declarations, and local edits. Each line is labeled `structure`,
-`symbols`, `type`, `definition`, `metadata`, or `files`. Symbol renames show both
-names, including renames caused by a new naming collision. Documentation changes
-also count as drift.
+Check reads the cloud definition without changing files. Full captured metadata
+still counts as drift, including categories with no generated navigation.
+Reports label structure, symbols, types, definitions, metadata, and file changes.
+Exit **0** means up to date/success, **1** means drift, and **2** means failure.
 
-| Exit status | Meaning |
-| --- | --- |
-| 0 | Package matches, or pull completed successfully |
-| 1 | Check found differences |
-| 2 | Configuration, retrieval, generation, or installation failed |
-
-Run pull to regenerate, then review the diff. Keep application code outside the
-generated directory. Celofast refuses to replace unrelated files and restores
-the previous package if replacement fails. Generated imports verify that their
-declarations, captured content, and runtime API version agree.
-
-The package contains `__init__.py`, `capture.json`, `schema.json`, and `py.typed`.
-Include all four files when distributing or committing it.
+Pull regenerates the package; review the diff. Keep application code outside
+the generated directory. Celofast refuses to replace unrelated files and restores
+the previous package if replacement fails. Keep all four files together:
+`__init__.py`, `capture.json`, `schema.json`, and `py.typed`.
+Generated imports check the runtime version and capture integrity.
 
 ### Reload in a running Python process
 
-Pull updates the files on disk. Python keeps already imported modules cached;
-importing the same package again does not adopt the new capture. Restart the
-process or reload explicitly:
+Restart Python after pulling, or reload explicitly:
 
 ```python
 import importlib
@@ -333,46 +313,14 @@ inventory = inventory_sdk.km
 km = cf.km(inventory)
 ```
 
-Existing objects such as `old_inventory` keep their captured definitions and
-hierarchy, including objects removed by the new generation. The new `inventory`
-reflects the latest pull. Referenced cloud dependencies still follow the native
-execution semantics described above.
+Existing definitions and queries retain their old capture. New objects use the
+reloaded capture. Referenced cloud dependencies still resolve live. Generated
+packages contain business metadata and PQL; use appropriate repository access.
 
 ## Native PQL tools
 
-Query construction and DataFrame execution use `import pycelonis.pql as pql`.
-`handle.build(query)` returns a `pql.PQL`, whose columns, filters, and orderings
-are native PyCelonis objects. Celofast validates the dictionary shape and captured
-object categories; Celonis resolves PQL semantics and dependencies.
-
-For diagnostics and filter parsing of **Data Model expressions**, use the
-upstream tools directly with the handle's Data Model:
-
-```python
-import pycelonis.pql as pql
-from pycelonis.pql.pql_debugger import PQLDebugger
-from pycelonis.pql.pql_parser import PQLParser
-from pycelonis.service.pql_language.service import PqlQueryType
-
-handle = cf.km(inventory)
-dm = handle.data_model
-column = pql.PQLColumn(name="Number", query=number.pql)
-errors = PQLDebugger.debug(
-    dm.client, dm.id, column.query, PqlQueryType.DIMENSION
-)
-conditions = PQLParser.convert_filter_to_expressions(
-    dm.client, dm.id, f"FILTER {column.query} IS NOT NULL;"
-)
-```
-
-These tools call Celonis and require a connection. In pinned PyCelonis 2.15.1,
-`PQLDebugger` and `PQLParser` live in their submodules, rather than being exported
-as `pql.PQLDebugger` or `pql.PQLParser`. The language service does not validate KM
-KPIs/variables in their captured context; the native KM connector skips query
-verification for that reason. Use `handle.execute(query)` to resolve KM
-expressions through the native connector and receive upstream
-resolution/export errors.
-Do not send unresolved KM expressions to the Data Model debugger as a substitute.
-
-Local `variables=` bindings remain an explicit text-template convenience; they
-are not a PQL parser.
+`km.build(query)` returns native `pycelonis.pql.PQL` for inspection. PyCelonis's
+`PQLDebugger` and `PQLParser` live in their respective `pycelonis.pql` submodules
+in the pinned dependency. They operate on Data Model expressions, not captured
+KM context. Use KM execution to resolve KM references and inspect native error
+chains; do not use a Data Model debugger as a substitute for KM resolution.

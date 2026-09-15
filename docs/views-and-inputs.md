@@ -153,8 +153,8 @@ Reading a control does not automatically inject it into a typed KM query. Use
 the returned value explicitly when that is the intended application behavior:
 
 ```python
-# km is a connected generated Inventory KM.
-plant = km.records.o_celonis_plant
+# inventory contains generated definitions; km = cf.km(inventory).
+plant = inventory.records.o_celonis_plant
 country = input_view.input_box("Country").get()
 
 query = km.select(plant)

@@ -1,51 +1,42 @@
-"""Small end-to-end showcase of the CeloFast public API."""
+"""Read live Inventory KM records and a configured View table.
 
-from celofast import CeloFast, QueryDefinition
+Generate the offline definitions before the first run or after KM changes:
+    uv run celofast km pull inventory
+    uv run python main.py
+"""
+
+from celofast import CeloFast
+from generated.inventory import km as inventory
 
 
-
-
-SPACE_ID = "9df26518-1b95-45d7-ac8e-07d4497de48b"
-PACKAGE_ID = "9832f9de-45be-4edf-b07a-34fd5bb8462a"
-KNOWLEDGE_MODEL_KEY = "dm_test_perspective_celonis_inventorymanagement-km"
+VIEW_SPACE_ID = "9df26518-1b95-45d7-ac8e-07d4497de48b"
+VIEW_PACKAGE_ID = "9832f9de-45be-4edf-b07a-34fd5bb8462a"
 VIEW_KEY = "d4f44e9f_6146_44a1_8587_ba1606616c0a-view"
-TABLE_NAME = "Input"
+TABLE_ID = "table-94060354-64b4-4a25-a990-fc5c02d9c837"
 
 
 def main() -> None:
-    """Run a small live showcase against the hard-coded Studio resources.
-
-    The example demonstrates both supported entry points: a dictionary query
-    executed directly against a Knowledge Model and a typed View table whose
-    native query is exported before execution.  It expects the normal Celonis
-    OAuth settings (``CELONIS_URL``, ``OAUTH_CLIENT_ID``,
-    ``OAUTH_CLIENT_SECRET``, and ``OAUTH_SCOPES``) to be available to
-    :func:`celofast.get_celonis`; Space, Package, KM, View, and table selectors
-    are intentionally kept as readable constants in this file.
-
-    Raises:
-        Exception: Native authentication, resource-resolution, query, and
-            execution errors are allowed to propagate so the showcase exposes
-            the original PyCelonis/SaolaPy diagnostics.
-    """
-    celofast = CeloFast(SPACE_ID, PACKAGE_ID)
-
-    query: QueryDefinition = {
-        "columns": {
-            "City": '"o_celonis_Customer"."City"',
-        },
-    }
-
-    km_result = celofast.km(KNOWLEDGE_MODEL_KEY).execute(query, limit=5)
-    print("Direct Knowledge Model query")
+    """Use offline fields with a live handle; propagate native query errors."""
+    source = inventory.capture.source
+    celofast = CeloFast(source.space_id, source.package_id, mode=source.mode)
+    km = celofast.km(inventory)
+    plant = inventory.records.o_celonis_plant
+    query = (
+        km.select(plant)
+        .where(plant.country.eq("DE"))
+        .order_by(plant.plantnumber.asc())
+    )
+    km_result = query.execute(limit=5, distinct=True)
+    print(f"Inventory plants in Germany ({len(km_result)} rows)")
     print(km_result.to_string(index=False))
 
-    table = celofast.view(VIEW_KEY).table(TABLE_NAME)
+    view_connection = CeloFast(VIEW_SPACE_ID, VIEW_PACKAGE_ID)
+    table = view_connection.view(VIEW_KEY).table(TABLE_ID)
     print("\nQuery exported from the View table")
     print(table.to_query())
 
     table_result = table.execute(limit=5)
-    print("\nView table result")
+    print(f"\nView table result ({len(table_result)} rows)")
     print(table_result.to_string(index=False))
 
 

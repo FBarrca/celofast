@@ -25,9 +25,9 @@ help identify the actual resources selected by your application.
 | --- | --- |
 | `ModuleNotFoundError` for `generated.inventory` | Run the configured pull and make its output importable from the application's working directory or package. |
 | `SDKCompatibilityError` on import | Include all four generated files and use a compatible Celofast runtime. Regenerate rather than editing generated files. |
-| Missing `plant.country` shortcut | Inspect `plant.attributes` and use its exact ID. Colliding names have no shortcut; old packages may need regeneration. |
+| Missing `plant.country` field | Iterate over `plant` and use `plant["ExactID"]`. Colliding field names have suffixes listed in `schema.json`; ambiguous IDs need `get_attribute(..., collection="attributes")`. Regenerate older packages. |
 | Unknown collection member | Generated names come from your captured IDs. Use iteration/autocomplete or `collection["ExactID"]`; absent IDs raise `KeyError`. |
-| `Connect this model with cf.km(model) first` | Keep the returned connected copy: `km = cf.km(inventory)`. The imported `inventory` remains offline. |
+| Missing `inventory.select` or `km.records` | Read fields from the generated `inventory`; call query methods on `km = cf.km(inventory)`. See the [0.4 migration guide](migration-0.4.md). |
 | `QueryValidationError` about source or Data Model | Connect to the matching tenant, Space, Package, lifecycle, and Data Model. Do not mix expressions from other sources. |
 | Cloud edits are missing after pull | Restart Python or reload the generated module, then reconnect the new root. Existing objects retain their previous capture. |
 | Whole-record columns appear ID-sorted | Pull again: older captures sorted attribute lists by ID. New captures preserve definition order. |
@@ -42,13 +42,13 @@ and [reload instructions](knowledge-model-sdk.md#reload-in-a-running-python-proc
 | --- | --- |
 | Empty selection / no queryable attributes | Select at least one expression. Whole-record attributes need non-empty IDs and PQL. |
 | Duplicate output name or record attribute ID | Use explicit aliases for the intended fields. |
-| `UnresolvedVariableError` | Supply the missing exact string binding. Raw strings need explicit bindings; generated expressions can use captured string defaults. |
+| `UnresolvedVariableError` | Supply the missing exact string binding. Both raw and generated expressions require explicit bindings; captured defaults are metadata only. |
 | `eq()` rejects a value | Use a supported scalar/date or `None`. Numbers must be finite; datetimes need millisecond precision. |
 | Python `and`/`or` on predicates raises an error | Chain `.where(...)` calls, or pass several filters to one call, to combine them with AND. |
 | Invalid raw filter | Supply a complete `FILTER condition;` statement. Check quotes, comments, parentheses, and operands. |
 | Invalid pagination | Use non-negative integers for `limit` and `offset`, and a boolean for `distinct`. Booleans are not valid limits. |
-| `QueryValidationError` during builder execution | Inspect its native cause. The builder converts recognized server query errors; local checks are not a full PQL parser. |
-| Native execution/export error | Inspect the exception chain for source resolution, syntax, permission, or service failures. Dictionary/View execution preserves native errors. |
+| `QueryValidationError` before export | Check the query shape, captured source, bindings, and execution options. PQL grammar is validated by Celonis during execution. |
+| Native execution/export error | Inspect the exception chain for source resolution, syntax, permission, or service failures. Builder, dictionary, and View execution preserve native errors. |
 
 Inspect the exact PQL after binding without exporting data:
 

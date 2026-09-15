@@ -12,7 +12,7 @@ import sys
 import pytest
 
 from celofast import CeloFast
-from celofast.sdk import KPI, Capture, KnowledgeModel
+from celofast.sdk import KPI, Attribute, Capture, KnowledgeModel
 from celofast.sdk.capture import retrieve
 from celofast.sdk.package import write_package
 
@@ -58,7 +58,7 @@ def test_live_pull_import_and_captured_attribute_query(live_context, tmp_path):
         spec.loader.exec_module(module)
         assert module.km.capture == capture
         record = module.km.records[path[1]]
-        attribute = record.attributes[path[3]]
+        attribute = record[path[3]]
         result = cf.km(module.km).execute({"columns": {"Anchor": attribute}}, limit=1)
         assert len(result) == 1
         assert list(result.columns) == ["Anchor"]

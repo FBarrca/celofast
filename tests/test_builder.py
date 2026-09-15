@@ -35,21 +35,21 @@ def model_fixture(tmp_path, mode="draft"):
 @pytest.mark.parametrize("mode", ["draft", "published"])
 def test_connected_generated_query_uses_native_execution(tmp_path, mode):
     model, handle = model_fixture(tmp_path, mode)
-    km = model._connect(handle)
-    assert type(km) is type(model)
-    assert model._handle is None
+    km = handle
     assert km is not model
+    assert not hasattr(model, "_handle")
+    assert not hasattr(model, "select")
     assert km.native is handle.native
     assert km.data_model is handle.data_model
     assert km.augmentation_tables is handle.augmentation_tables
     query = (
-        km.select(plant=km.records.plant.number, value=km.kpis.value)
-        .where(km.filters.active)
-        .order_by(km.kpis.value.desc(), km.records.plant.number)
+        km.select(plant=model.records.plant.number, value=model.kpis.value)
+        .where(model.filters.active)
+        .order_by(model.kpis.value.desc(), model.records.plant.number)
     )
     assert isinstance(query, Query)
     with patch("celofast.resources.knowledge_model.pql.DataFrame.from_pql") as from_pql:
-        compiled = query.build()
+        compiled = query.build(variables={"days": "30"})
         from_pql.assert_not_called()
         assert [c.name for c in compiled.columns] == ["plant", "value"]
         assert compiled.columns[1].query == "1 + 30"
@@ -63,7 +63,7 @@ def test_connected_generated_query_uses_native_execution(tmp_path, mode):
         assert from_pql.call_args.args[0].columns[1].query == "1 + 7"
         from_pql.return_value.to_pandas.assert_called_once_with(limit=10, offset=2, distinct=True)
         assert result is from_pql.return_value.to_pandas.return_value
-    assert km.build(query.to_query()).columns[1].query == "1 + 30"
+    assert km.build(query.to_query(), variables={"days": "30"}).columns[1].query == "1 + 30"
     with patch.object(handle, "execute") as execute:
         km.execute(query.to_query(), limit=3)
         assert execute.call_args.kwargs["limit"] == 3
@@ -118,11 +118,10 @@ def test_query_rejects_invalid_shapes_and_categories(tmp_path):
     for build_invalid in invalid:
         with pytest.raises(QueryValidationError):
             build_invalid()
-    with pytest.raises(RuntimeError, match=r"cf.km"):
-        model.select(value="1")
+    assert not hasattr(model, "select")
 
 
-@pytest.mark.parametrize("difference", ["tenant_id", "key", "mode", "data_model"])
+@pytest.mark.parametrize("difference", ["tenant_id", "space_id", "package_id", "key", "mode", "data_model"])
 def test_query_rejects_foreign_objects_in_every_position(tmp_path, difference):
     model, handle = model_fixture(tmp_path)
     source = model.capture.source
@@ -140,22 +139,73 @@ def test_query_rejects_foreign_objects_in_every_position(tmp_path, difference):
     for build_invalid in (
         lambda: handle.select(value=column),
         lambda: handle.select(value="1").where(filter_),
+        lambda: handle.select(value="1").where(column.eq("DE")),
         lambda: handle.select(value="1").order_by(kpi.desc()),
     ):
+        query = build_invalid()
         with pytest.raises(QueryValidationError, match="different"):
-            build_invalid()
+            query.build(variables={"days": "30"})
+        with pytest.raises(QueryValidationError, match="different"):
+            handle.build(query.to_query(), variables={"days": "30"})
 
 
-def test_connections_keep_independent_snapshots(tmp_path):
+def test_queries_keep_independent_snapshots(tmp_path):
     model, handle = model_fixture(tmp_path)
-    old = model._connect(handle)
+    old = handle.select(value=model.kpis.value)
     layer = model.capture.to_dict()
     layer["kpis"][0]["pql"] = "99"
     updated = Capture.create(model.capture.source, layer)
     new_dir = tmp_path / "new"
     new_dir.mkdir()
     new_model, _ = load_generated(updated, new_dir)
-    new = new_model._connect(handle)
-    assert old._handle is new._handle
-    assert old.select(value=old.kpis.value).build().columns[0].query == "1 + 30"
-    assert new.select(value=new.kpis.value).build().columns[0].query == "99"
+    new = handle.select(value=new_model.kpis.value)
+    assert old.build(variables={"days": "30"}).columns[0].query == "1 + 30"
+    assert new.build().columns[0].query == "99"
+
+
+@pytest.mark.parametrize("dictionary", [False, True])
+def test_execution_compiles_once_and_exports_once(tmp_path, dictionary):
+    from celofast.query import query_to_pql
+
+    model, handle = model_fixture(tmp_path)
+    query = handle.select(value=model.kpis.value).where(model.filters.active)
+    with (
+        patch("celofast.resources.knowledge_model.query_to_pql", wraps=query_to_pql) as compile_query,
+        patch("celofast.resources.knowledge_model.pql.DataFrame.from_pql") as from_pql,
+    ):
+        if dictionary:
+            result = handle.execute(query.to_query(), variables={"days": "7"}, limit=10)
+        else:
+            result = query.execute(variables={"days": "7"}, limit=10)
+        compile_query.assert_called_once()
+        from_pql.assert_called_once()
+        from_pql.return_value.to_pandas.assert_called_once_with(limit=10, offset=None, distinct=False)
+        assert result is from_pql.return_value.to_pandas.return_value
+
+
+@pytest.mark.parametrize("dictionary", [False, True])
+def test_native_exception_identity_and_chain_survive(tmp_path, dictionary):
+    _, handle = model_fixture(tmp_path)
+    query = handle.select(value="1")
+    cause = ValueError("upstream cause")
+    error = RuntimeError("upstream export")
+    error.__cause__ = cause
+    with patch("celofast.resources.knowledge_model.pql.DataFrame.from_pql", side_effect=error):
+        with pytest.raises(RuntimeError) as caught:
+            if dictionary:
+                handle.execute(query.to_query())
+            else:
+                query.execute()
+    assert caught.value is error
+    assert caught.value.__cause__ is cause
+
+
+@pytest.mark.parametrize("dictionary", [False, True])
+def test_invalid_captured_path_has_same_local_error(tmp_path, dictionary):
+    model, handle = model_fixture(tmp_path)
+    invalid = Attribute(model.capture, ("records", "missing"))
+    with pytest.raises(QueryValidationError, match="captured query object"):
+        if dictionary:
+            handle.build({"columns": {"value": invalid}})
+        else:
+            handle.select(value=invalid)

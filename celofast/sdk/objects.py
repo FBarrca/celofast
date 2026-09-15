@@ -3,25 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar
-
-from typing_extensions import Self
 
 from celofast.sdk.capture import Capture
 from celofast.types import ResourceMode
 
 if TYPE_CHECKING:
-    import pandas as pd
-    import pycelonis.pql as pql
-    from pycelonis.ems.data_integration.data_model import DataModel
-    from pycelonis.ems.studio.content_node.knowledge_model import (
-        KnowledgeModel as NativeKnowledgeModel,
-    )
-    from celofast.builder import Query
     from celofast.expressions import Predicate
-    from celofast.resources.augmentation_table import AugmentationTableCollection
-    from celofast.resources.knowledge_model import KnowledgeModelHandle
 
 T = TypeVar("T")
 Path = tuple[str | int, ...]
@@ -93,40 +82,61 @@ class KnowledgeObject:
 
 
 @dataclass(frozen=True)
-class GenericKnowledgeObject(KnowledgeObject):
-    """A captured definition with no category-specific executable behavior."""
-
-
-@dataclass(frozen=True)
 class Record(KnowledgeObject):
     """Captured record definition, not a materialized data row."""
 
+    # None supports manually constructed records; generated records always
+    # declare their stored fields, including an empty tuple for empty records.
+    _members: ClassVar[tuple[tuple[str | None, str], ...] | None] = None
+
+    def __iter__(self) -> Iterator[Attribute[Any]]:
+        """Iterate all attributes in their captured collection and field order."""
+        if self._members is not None:
+            for _, name in self._members:
+                yield getattr(self, name)
+            return
+        for collection in ("attributes", "newAttributes", "augmentedAttributes"):
+            for index, item in enumerate(self.metadata.get(collection) or ()):
+                if isinstance(item, Mapping) and item.get("type") in (None, "ATTRIBUTE"):
+                    yield Attribute(self.capture, (*self.path, collection, index))
+
+    def __len__(self) -> int:
+        """Count all attributes, including those without a query expression."""
+        if self._members is not None:
+            return len(self._members)
+        return sum(1 for _ in self)
+
+    def __getitem__(self, source_id: str) -> Attribute[Any]:
+        """Look up an exact source ID; missing or ambiguous IDs raise KeyError."""
+        return self.get_attribute(source_id)
+
+    def get_attribute(
+        self, source_id: str, *, collection: str | None = None
+    ) -> Attribute[Any]:
+        """Look up an ID, optionally scoped to an original capture collection.
+
+        Collection keys are attributes, newAttributes, or augmentedAttributes.
+        Generated records return their stored attribute objects.
+        """
+        matches = [
+            attribute for attribute in self
+            if attribute.id == source_id
+            and (collection is None or attribute.path[-2] == collection)
+        ]
+        if len(matches) != 1:
+            raise KeyError(source_id)
+        return matches[0]
+
     def _query_attributes(self) -> Iterator[Attribute[Any]]:
         """Yield queryable attributes in each captured collection's order."""
-        for key, name in (
-            ("attributes", "attributes"),
-            ("newAttributes", "new_attributes"),
-            ("augmentedAttributes", "augmented_attributes"),
-        ):
-            namespace = getattr(self, name, None)
-            if isinstance(namespace, Namespace):
-                attributes = iter(namespace)
-            else:
-                attributes = (
-                    Attribute(self.capture, (*self.path, key, index))
-                    for index, item in enumerate(self.metadata.get(key) or ())
-                    if isinstance(item, Mapping)
-                    and item.get("type") in (None, "ATTRIBUTE")
-                )
-            for attribute in attributes:
-                if (
-                    isinstance(attribute, Attribute)
-                    and isinstance(attribute.id, str)
-                    and attribute.id.strip()
-                    and isinstance(attribute.pql, str)
-                    and attribute.pql.strip()
-                ):
-                    yield attribute
+        for attribute in self:
+            if (
+                isinstance(attribute.id, str)
+                and attribute.id.strip()
+                and isinstance(attribute.pql, str)
+                and attribute.pql.strip()
+            ):
+                yield attribute
 
 
 @dataclass(frozen=True)
@@ -142,7 +152,7 @@ class _Sortable(KnowledgeObject, Generic[T]):
 
 @dataclass(frozen=True)
 class Sort:
-    """An ordering that retains the captured expression and its defaults."""
+    """An ordering that retains the captured expression and its source."""
 
     expression: _Sortable[Any]
     ascending: bool = True
@@ -170,71 +180,8 @@ class Filter(KnowledgeObject):
 
 
 @dataclass(frozen=True)
-class Variable(KnowledgeObject, Generic[T]):
-    """Captured variable definition and default, independent of input state."""
-
-
-@dataclass(frozen=True)
 class KnowledgeModel(KnowledgeObject):
-    """Root of one complete generated KM capture."""
-
-    _handle: KnowledgeModelHandle | None = field(
-        default=None, kw_only=True, compare=False, repr=False
-    )
-
-    def _connect(self, handle: KnowledgeModelHandle) -> Self:
-        """Return a connected copy, preserving this generated root's type."""
-        handle.bind(self)
-        return replace(self, _handle=handle)
-
-    def _connection(self) -> KnowledgeModelHandle:
-        if self._handle is None:
-            raise RuntimeError("Connect this model with cf.km(model) first.")
-        return self._handle
-
-    @property
-    def native(self) -> NativeKnowledgeModel:
-        return self._connection().native
-
-    @property
-    def data_model(self) -> DataModel:
-        return self._connection().data_model
-
-    @property
-    def augmentation_tables(self) -> AugmentationTableCollection:
-        return self._connection().augmentation_tables
-
-    def select(
-        self,
-        columns: Record | Mapping[str, str | Attribute[Any] | KPI[Any]] | None = None,
-        /,
-        **named_columns: str | Attribute[Any] | KPI[Any],
-    ) -> Query:
-        """Select a complete record, a mapping, or named output columns."""
-        return self._connection().select(columns, **named_columns)
-
-    def build(
-        self,
-        query: Mapping[str, object],
-        *,
-        variables: Mapping[str, str] | None = None,
-    ) -> pql.PQL:
-        """Compile an existing dictionary query without executing it."""
-        return self._connection().build(query, variables=variables)
-
-    def execute(
-        self,
-        query: Mapping[str, object],
-        *,
-        variables: Mapping[str, str] | None = None,
-        limit: int | None = None,
-        offset: int | None = None,
-        distinct: bool = False,
-    ) -> pd.DataFrame:
-        """Execute an existing dictionary query through the shared handle."""
-        return self._connection().execute(
-            query, variables=variables, limit=limit, offset=offset, distinct=distinct
-        )
+    """Offline root of captured KM query definitions and metadata."""
 
     @property
     def input_variables(self) -> Mapping[str, Any] | None:

@@ -293,16 +293,15 @@ def test_generated_model_binding_checks_each_source_and_shares_native_handle(mod
         initial = cf.km("orders-km") if raw_first else None
         handle = cf.km(KnowledgeModel(capture))
         if initial is not None:
-            assert handle._handle is initial
-        assert cf.km("orders-km") is handle._handle
+            assert handle is initial
+        assert cf.km("orders-km") is handle
         changed = Capture.create(source, {"dataModelId": "dm-id", "kpis": [{"id": "new", "pql": "1"}]})
         changed_model = cf.km(KnowledgeModel(changed))
-        assert changed_model._handle is handle._handle
-        assert changed_model.capture is changed
-        assert handle.capture is capture
-        assert cf.km(KnowledgeModel(capture))._handle is handle._handle
+        assert changed_model is handle
+        assert not hasattr(handle, "capture")
+        assert cf.km(KnowledgeModel(capture)) is handle
         assert handle.mode == mode
-        assert handle._handle._source == capture.source
+        assert handle._source == capture.source
         assert retrieve.call_args.kwargs["mode"] == mode
         assert retrieve.call_count == 1
         other_source = source.model_copy(update={"tenant_id": "other-tenant"})
@@ -317,3 +316,28 @@ def test_generated_model_binding_checks_each_source_and_shares_native_handle(mod
         )
         with pytest.raises(QueryValidationError, match="lifecycle"):
             cf.km(KnowledgeModel(Capture.create(wrong_mode, {"dataModelId": "dm-id"})))
+
+
+@pytest.mark.parametrize("record", [False, True])
+def test_string_handle_recovers_provenance_only_when_typed_objects_need_it(record):
+    from celofast.sdk import Attribute, Capture, Record, Source
+
+    client, *_ = make_client()
+    source = Source(tenant_id="tenant", space_id="space-id", package_id="package-id",
+                    key="orders-km", mode="draft")
+    capture = Capture.create(source, {"dataModelId": "dm-id", "records": [
+        {"id": "Order", "attributes": [{"id": "ID", "pql": "1"}]}]})
+    cf = CeloFast("space-id", "package-id", client=cast(Celonis, client))
+    with patch("celofast.core.retrieve", return_value=capture) as retrieve:
+        handle = cf.km("orders-km")
+        handle.build({"columns": {"raw": "1"}})
+        retrieve.assert_not_called()
+        if record:
+            handle.select(Record(capture, ("records", "Order"))).build()
+        else:
+            attr = Attribute(capture, ("records", "Order", "attributes", "ID"))
+            handle.build({"columns": {"typed": attr}})
+        retrieve.assert_called_once()
+        assert handle._source == source
+        handle.build({"columns": {"raw": "1"}})
+        assert retrieve.call_count == 1

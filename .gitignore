@@ -12,3 +12,6 @@ wheels/
 # Local environment configuration
 .env
 .celofast-validation/
+
+# Tenant-specific definitions used by main.py; regenerate with celofast km pull.
+/generated/inventory/

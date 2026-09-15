@@ -19,6 +19,7 @@ process it in Python, and write results to an augmentation table when needed.
 | TAA/V2, legacy RAA/V1, Annotation Builder, and migration | [Detailed augmentation reference](Augmentated_tables%20copy.md) |
 | Method signatures and return values | [API reference](api-reference.md) |
 | Common failures and their next steps | [Troubleshooting](troubleshooting.md) |
+| Upgrade existing KM applications to 0.4 | [Migration guide](migration-0.4.md) |
 | Local tests, code layout, and documentation maintenance | [Development](development.md) |
 
 ## The objects you work with
@@ -27,9 +28,9 @@ process it in Python, and write results to an augmentation table when needed.
 | --- | --- | --- |
 | `CeloFast` | A connection scoped to one Space, Package, and lifecycle | `cf = CeloFast("SPACE_ID", "PACKAGE_ID")` |
 | Generated `inventory` | A local, immutable snapshot of KM definitions | `from generated.inventory import km as inventory` |
-| Connected generated `km` | Those same typed definitions plus access to execution | `km = cf.km(inventory)` |
-| Record | A business-object definition, not one data row | `plant = km.records.o_celonis_plant` |
-| Attribute or KPI | A captured expression and its metadata | `plant.country`, `km.kpis.inventory_value` |
+| KM handle `km` | A cached connection for query execution | `km = cf.km(inventory)` |
+| Record | A business-object definition, not one data row | `plant = inventory.records.o_celonis_plant` |
+| Attribute or KPI | A captured expression and its metadata | `plant.country`, `inventory.kpis.inventory_value` |
 | `Query` | An immutable selection, filters, and ordering | `km.select(plant).where(plant.country.eq("DE"))` |
 | pandas DataFrame | The materialized query result | `query.execute()` |
 | View table handle | A table component whose query comes from View configuration | `cf.view("operations-view").table("Orders")` |
@@ -72,7 +73,8 @@ definitions. See [KM execution semantics](knowledge-model-sdk.md#query-behavior)
 to each other. Use matching Space and Package IDs for the selected context.
 
 **Defaults and current user input.** Captured KM defaults, View template
-bindings, and a user's current control values are separate sources. Reading a
+bindings, and a user's current control values are separate sources. KM queries
+require explicit `variables=` bindings; captured defaults are metadata only. Reading a
 control does not automatically apply its value to every KM query. See
 [View values and query bindings](views-and-inputs.md#values-and-query-bindings).
 
@@ -85,5 +87,5 @@ the columns and filters you need.
 
 All three execute through the native Knowledge Model connector. A generated
 query's `to_query()` bridges to the dictionary API while retaining its captured
-objects and variable defaults. Only dictionaries containing plain values such
+objects and source information. Only dictionaries containing plain values such
 as PQL strings can be serialized directly to JSON.

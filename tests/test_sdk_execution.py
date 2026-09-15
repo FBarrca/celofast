@@ -11,7 +11,7 @@ from celofast.sdk.objects import (
     KPI,
     Attribute,
     Filter,
-    GenericKnowledgeObject,
+    KnowledgeObject,
     KnowledgeModel,
 )
 
@@ -77,18 +77,17 @@ def test_generated_queries_use_native_connector(mode):
     assert compiled.order_by_columns[0].query == attribute.pql
 
 
-def test_generated_variables_use_captured_values_or_explicit_overrides():
+def test_generated_variables_require_explicit_bindings():
     capture, attribute = setup_capture(expression='"Plant"."Value" + ${days}')
-    handle = KnowledgeModelHandle(MagicMock(), SimpleNamespace(id="dm"))
+    handle = KnowledgeModelHandle(MagicMock(), SimpleNamespace(id="dm"), source=capture.source)
     query = {"columns": {"value": attribute}, "order_by": [{"pql": attribute}]}
-    compiled = handle.build(query)
-    assert compiled.columns[0].query == '"Plant"."Value" + 30'
-    assert compiled.order_by_columns[0].query == '"Plant"."Value" + 30'
+    with pytest.raises(QueryValidationError, match="days"):
+        handle.build(query)
     compiled = handle.build(query, variables={"days": "7"})
     assert compiled.columns[0].query == '"Plant"."Value" + 7'
 
 
-def test_input_defaults_bind_columns_filters_and_ordering_without_mutating_capture():
+def test_explicit_bindings_apply_to_every_position_without_mutating_capture():
     capture, _ = setup_capture(expression='"Plant"."Value" + ${days} + ${months}')
     layer = capture.to_dict()
     layer["filters"][0]["pql"] = 'FILTER "Plant"."Value" > ${months};'
@@ -101,13 +100,15 @@ def test_input_defaults_bind_columns_filters_and_ordering_without_mutating_captu
         },
     )
     attribute = Attribute(capture, ("records", 0, "attributes", 0))
-    handle = KnowledgeModelHandle(MagicMock(), SimpleNamespace(id="dm"))
+    handle = KnowledgeModelHandle(MagicMock(), SimpleNamespace(id="dm"), source=capture.source)
     query = {
         "columns": {"value": attribute},
         "filters": [Filter(capture, ("filters", 0))],
         "order_by": [{"pql": attribute}],
     }
-    compiled = handle.build(query, variables={"days": "7"})
+    with pytest.raises(QueryValidationError, match="months"):
+        handle.build(query, variables={"days": "7"})
+    compiled = handle.build(query, variables={"days": "7", "months": "12"})
     assert compiled.columns[0].query == '"Plant"."Value" + 7 + 12'
     assert compiled.order_by_columns[0].query == compiled.columns[0].query
     assert compiled.filters[0].query == 'FILTER "Plant"."Value" > 12;'
@@ -125,7 +126,7 @@ def test_missing_input_default_fails_before_execution_and_raw_strings_stay_expli
         },
     )
     attribute = Attribute(capture, ("records", 0, "attributes", 0))
-    handle = KnowledgeModelHandle(MagicMock(), SimpleNamespace(id="dm"))
+    handle = KnowledgeModelHandle(MagicMock(), SimpleNamespace(id="dm"), source=capture.source)
     with pytest.raises(QueryValidationError, match="missing"):
         handle.build({"columns": {"value": attribute}})
     assert (
@@ -143,9 +144,9 @@ def test_missing_input_default_fails_before_execution_and_raw_strings_stay_expli
 
 def test_generated_query_rejects_wrong_categories():
     capture, attribute = setup_capture()
-    handle = KnowledgeModelHandle(MagicMock(), SimpleNamespace(id="dm"))
+    handle = KnowledgeModelHandle(MagicMock(), SimpleNamespace(id="dm"), source=capture.source)
     for query in (
-        {"columns": {"one": GenericKnowledgeObject(capture, ())}},
+        {"columns": {"one": KnowledgeObject(capture, ())}},
         {"columns": {"one": attribute}, "filters": [attribute]},
     ):
         with pytest.raises(QueryValidationError):
@@ -159,3 +160,20 @@ def test_bind_rejects_different_data_model():
     )
     with pytest.raises(QueryValidationError, match="Data Model"):
         handle.bind(KnowledgeModel(capture))
+
+
+def test_unverified_source_rejects_generated_expressions():
+    capture, attribute = setup_capture()
+    handle = KnowledgeModelHandle(MagicMock(), SimpleNamespace(id="dm"))
+    with pytest.raises(QueryValidationError, match="unverified"):
+        handle.build({"columns": {"value": attribute}})
+
+
+def test_provenance_retrieval_rejects_changed_data_model():
+    capture, attribute = setup_capture()
+    current = Capture.create(capture.source, {"dataModelId": "changed"})
+    handle = KnowledgeModelHandle(MagicMock(), SimpleNamespace(id="dm"),
+                                  capture_loader=lambda: current)
+    with pytest.raises(QueryValidationError, match="Connected KM targets a different Data Model"):
+        handle.build({"columns": {"value": attribute}})
+    assert handle._source is None

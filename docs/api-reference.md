@@ -3,7 +3,8 @@
 [Documentation](index.md) · [KM guide](knowledge-model-sdk.md)
 
 This is a compact reference to Celofast's public workflows. Examples use
-`cf` for a `CeloFast` instance, `km` for a connected KM, and `query` for a builder
+`cf` for a `CeloFast` instance, `inventory` for offline generated definitions, `km` for an execution handle,
+and `query` for a builder
 query. `/` in a signature marks a positional-only argument; `*` marks the
 start of keyword-only arguments.
 
@@ -18,7 +19,7 @@ from celofast import CeloFast, Query, QueryDefinition, get_celonis
 | `get_celonis(base_url=None)` | Cached OAuth-authenticated PyCelonis client. Uses environment/`.env` when no URL is supplied. |
 | `CeloFast(space_id, package_id, *, mode="draft", client=None)` | A package-scoped connection. Mode is `draft` or `published`. |
 | `cf.km("exact-key")` | Cached `KnowledgeModelHandle`. |
-| `cf.km(generated_root)` | Connected copy with the root's precise generated type. Validates source and Data Model; leaves the original root unchanged. |
+| `cf.km(generated_root)` | Same cached `KnowledgeModelHandle` as a key lookup. Validates source and Data Model; never attaches or mutates the definitions. |
 | `cf.view("exact-key", *, variables=None)` | A View handle, cached for that key and set of bindings. |
 
 `cf.client`, `cf.space`, and `cf.package` expose the native resources.
@@ -31,9 +32,11 @@ Source: [core.py](../celofast/core.py), [client.py](../celofast/client.py).
 
 | Object / member | Behavior |
 | --- | --- |
-| `km.records`, `km.kpis`, `km.filters`, etc. | Collections generated from the source definition. Available members depend on the capture. |
-| `plant.attributes` | Canonical attribute collection with iteration and exact-ID lookup. |
-| `plant.country` | Typed shortcut for an unambiguous attribute. |
+| `inventory.records`, `inventory.kpis`, `inventory.filters` | Collections generated from the source definition. Available members depend on the capture. |
+| `plant.country` | Stored typed attribute directly on the record. Colliding Python names receive suffixes. |
+| `iter(plant)`, `len(plant)` | All captured attributes, in source collection and field order; iteration returns `Attribute[Any]`. |
+| `plant["SourceID"]` | Exact-ID lookup returning the stored `Attribute[Any]`; absent or ambiguous IDs raise `KeyError`. |
+| `plant.get_attribute(source_id, *, collection=None)` | Exact-ID lookup, optionally scoped to `attributes`, `newAttributes`, or `augmentedAttributes`. |
 | `collection["SourceID"]` | Exact-ID lookup; raises `KeyError` when absent or ambiguous. Static return type is the common object type. |
 | `attribute.eq(value)` | Immutable equality predicate. `None` means `IS NULL`. |
 | `attribute.asc()` / `.desc()` | Immutable sorting descriptor; also supported by KPIs. |
@@ -43,8 +46,8 @@ Source: [core.py](../celofast/core.py), [client.py](../celofast/client.py).
 | `inventory.key`, `.mode`, `.capture` | KM identity, lifecycle, and underlying capture. |
 
 Records represent definitions, not rows. They can be expanded by `select(record)`.
-Other captured categories remain inspectable even when they have no executable
-behavior. The available value types and equality encoding are explained in the
+Other captured categories remain available through `inventory.metadata` or an
+individual object's `.metadata`; they have no generated navigation. The available value types and equality encoding are explained in the
 [KM guide](knowledge-model-sdk.md#attribute-equality-and-raw-filters).
 
 Source: [objects.py](../celofast/sdk/objects.py),
@@ -63,7 +66,7 @@ Source: [objects.py](../celofast/sdk/objects.py),
 
 Named columns accept raw PQL strings, generated attributes, or generated KPIs.
 Whole-record selection uses exact attribute IDs as aliases and captured order
-within `attributes`, `new_attributes`, and `augmented_attributes`, in that
+within source collections `attributes`, `newAttributes`, and `augmentedAttributes`, in that
 collection order. Attributes need a non-empty ID and PQL expression.
 
 Limits and offsets must be non-negative integers, excluding booleans.
@@ -82,7 +85,7 @@ Source: [builder.py](../celofast/builder.py).
 `QueryDefinition` has required `columns` and optional `filters`/`order_by`.
 `OrderByDefinition` has required `pql` and optional `ascending=True`.
 See [Dictionary queries](dictionary-queries.md) for complete examples and
-the validation differences from the builder.
+the shared validation and explicit-binding contract.
 
 Source: [query.py](../celofast/query.py),
 [knowledge_model.py](../celofast/resources/knowledge_model.py).
@@ -161,7 +164,7 @@ common base; `QueryValidationError` and `AugmentationValidationError` also
 subclass `ValueError`. Generated import compatibility errors use
 `celofast.sdk.loading.SDKCompatibilityError`, an `ImportError` subclass.
 
-Native execution errors are not all converted to `CeloFastError`. The builder
-wraps recognized query errors and preserves their cause chain; dictionary and
-View execution retain native errors. Use the
+Builder, dictionary, and View execution preserve native exception types and
+cause chains. Celofast validates local query contracts and source identity;
+Celonis validates PQL syntax and semantics. Use the
 [troubleshooting table](troubleshooting.md) to identify the failing layer.

@@ -123,20 +123,21 @@ From the application directory, run:
 uv run celofast km pull inventory
 ```
 
-Then import and connect the generated root:
+Then import the offline definitions and obtain an execution handle:
 
 ```python
 from generated.inventory import km as inventory
 
-    km = cf.km(inventory)
-    plant = km.records.o_celonis_plant
-    plants = km.select(plant).execute(limit=5)
+km = cf.km(inventory)
+plant = inventory.records.o_celonis_plant
+plants = km.select(plant).execute(limit=5)
 ```
 
 Run from a directory where `generated` is importable, or package that directory
 with your application. Use your editor's autocomplete to select your actual
-record name. The import itself is offline; `cf.km(inventory)` validates and
-connects the capture.
+record name. The import itself is offline; `cf.km(inventory)` validates its source and returns
+the same handle as `cf.km(inventory.key)`. Use `inventory` for fields and `km`
+for queries. Inline `${name}` placeholders require explicit `variables=` bindings.
 
 Continue with the [KM guide](knowledge-model-sdk.md) for filters, column names,
 metadata, variables, and refreshing captures.

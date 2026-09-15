@@ -5,10 +5,8 @@ from celofast.sdk.objects import (
     KPI,
     Attribute,
     Filter,
-    GenericKnowledgeObject,
     KnowledgeModel,
     Record,
-    Variable,
 )
 
 __all__ = [
@@ -17,9 +15,7 @@ __all__ = [
     "Capture",
     "CaptureError",
     "Filter",
-    "GenericKnowledgeObject",
     "KnowledgeModel",
     "Record",
     "Source",
-    "Variable",
 ]

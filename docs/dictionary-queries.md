@@ -65,10 +65,10 @@ result = km.execute(restored_query, limit=100)
 ```
 
 Generated attributes and predicates are Python objects. A builder's
-`to_query()` retains them to preserve source metadata and captured defaults;
+`to_query()` retains them to preserve source metadata;
 it does not turn them into JSON. Replacing an object with `.pql` makes it a raw
-string and changes its template-binding behavior. Do so only when you also
-intend to manage the necessary bindings yourself.
+string and discards source validation for that expression. Explicit bindings
+are required for placeholders in both forms.
 
 ## Bind raw template variables
 
@@ -89,10 +89,9 @@ literal encoding. `variables=` is not a parameterized query interface. It does
 not automatically quote or escape user-provided text, and it does not update
 server-managed KM variables or View controls.
 
-Raw PQL placeholders need explicit bindings. Missing values raise
-`UnresolvedVariableError`. Generated objects instead use their captured string
-defaults before explicit overrides, as described in the
-[KM variable guide](knowledge-model-sdk.md#query-behavior).
+Raw and generated PQL placeholders need explicit bindings. Missing values raise
+`UnresolvedVariableError`, even when captured metadata contains a default. See
+[KM execution semantics](knowledge-model-sdk.md#query-behavior).
 
 ## Mix generated objects with existing dictionaries
 
@@ -102,11 +101,11 @@ After [pulling a KM](knowledge-model-sdk.md#configure-and-pull):
 from generated.inventory import km as inventory
 
 km = cf.km(inventory)
-plant = km.records.o_celonis_plant
+plant = inventory.records.o_celonis_plant
 
 result = km.execute({
     "columns": {
-        "Plant": plant.attributes.number_formatted,
+        "Plant": plant.number_formatted,
         "Live KPI": 'KPI("inventory_value")',
     },
     "filters": [plant.country.eq("DE")],
@@ -119,11 +118,13 @@ semantics. Capturing a definition does not freeze the dependencies it refers to.
 
 ## Validation and native errors
 
-The dictionary API validates the definition's shape, expressions, variables,
-and execution options. It preserves native PyCelonis/SaolaPy execution errors.
-It does not apply the builder's additional local PQL structure checks or
-per-expression source checks. Use the [query builder](knowledge-model-sdk.md)
-when you want those checks.
+The builder and dictionary API share compilation, explicit variable binding,
+source checks, and execution. They reject invalid shapes, object categories,
+empty expressions, incompatible sources, and invalid execution options locally.
+Captured objects are checked against the connected KM and Data Model at compilation.
+
+Celonis validates PQL syntax and semantics. Native PyCelonis/SaolaPy execution
+errors propagate unchanged with their cause chains.
 
 Inspect the query sent to PyCelonis with `km.build(query, variables=...)`.
 For deeper failures, see [Troubleshooting](troubleshooting.md).

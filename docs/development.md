@@ -30,7 +30,7 @@ uv run pytest tests/test_builder.py tests/test_record_queries.py tests/test_sdk_
 | [core.py](../celofast/core.py), [resolution.py](../celofast/resolution.py) | Package scope, lifecycle selection, lookup and caches. |
 | [sdk](../celofast/sdk) | Capture, immutable objects, generation, package integrity, and drift reporting. |
 | [builder.py](../celofast/builder.py), [expressions.py](../celofast/expressions.py) | Immutable composition and attribute equality predicates. |
-| [query.py](../celofast/query.py), [pql_validation.py](../celofast/pql_validation.py) | Dictionary compilation, binding, and builder structure checks. |
+| [query.py](../celofast/query.py) | Shared query validation, explicit binding, and native PQL compilation. |
 | [resources](../celofast/resources) | KM, View, control, and augmentation-table handles. |
 | [cli.py](../celofast/cli.py) | `celofast km pull` and `--check`. |
 | [tests](../tests) | Local tests and opt-in cloud checks. |
@@ -88,6 +88,15 @@ without removing the original findings.
 Application-generated KM packages contain `__init__.py`, `capture.json`,
 `schema.json`, and `py.typed`. Keep all four together. Change definitions in the
 source KM, pull again, and review the diff rather than editing generated files.
+
+The generator emits frozen dataclasses with typed fields for records and
+root collections. Each record declares one flat set of business fields. A private
+builder wires one object per captured path; the shared Record API handles
+iteration and exact-ID lookup over those same fields. Keep construction separate from class
+declarations so the generated API is easy to scan. Generated navigation needs no
+properties or constructor-binding defaults; stored children preserve the old
+hierarchy when a package is reloaded. Generator version 7 uses
+runtime API version 5; regenerate packages after upgrading.
 
 Run `uv run celofast km pull inventory --check` in an application that has that
 KM configured to verify drift. This is a cloud read and needs its credentials;

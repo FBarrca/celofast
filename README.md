@@ -4,9 +4,9 @@
 augmentation tables.**
 
 Celofast is a Python library for the inputs and outputs of Machine Learning
-Workbench (MLWB) apps. Use typed Knowledge Model (KM) objects to build reusable
-queries, execute tables configured in Views, read View controls, and write
-results back to the KM's Data Model. Execution uses PyCelonis.
+Workbench (MLWB) apps. Query Knowledge Models (KMs), read configured View tables
+and controls, and write results back through augmentation tables. Optional typed
+KM definitions provide autocomplete. Execution uses PyCelonis.
 
 ## Choose your starting point
 
@@ -36,6 +36,22 @@ PyCelonis client. Follow [Getting started](docs/getting-started.md) for both pat
 
 ## Query a Knowledge Model
 
+After [configuring authentication](docs/getting-started.md#2-configure-authentication),
+select a KM by its exact key. No generation is required:
+
+```python
+from celofast import CeloFast
+
+cf = CeloFast(space_id="SPACE_ID", package_id="PACKAGE_ID")
+km = cf.km("inventory-km")
+plants = km.select({"Plant number": '"Plant"."Number"'}).execute(limit=5)
+```
+
+Replace the IDs, KM key, and PQL expression with values from your tenant.
+Existing dictionaries also work with `km.execute(query_definition)`.
+
+## Add optional typed definitions
+
 Register your KM in your application's `pyproject.toml`, replacing the IDs and
 key with your own:
 
@@ -63,11 +79,11 @@ from generated.inventory import km as inventory
 
 cf = CeloFast(space_id="SPACE_ID", package_id="PACKAGE_ID")
 km = cf.km(inventory)
-plant = km.records.o_celonis_plant
+plant = inventory.records.o_celonis_plant
 
 plants = (
     km.select(plant)
-    .where(km.filters.active_inventory)
+    .where(inventory.filters.active_inventory)
     .where(plant.country.eq("DE"))
     .execute(distinct=True)
 )
@@ -88,10 +104,12 @@ native_pql = german_plants.build()
 query_definition = german_plants.to_query()
 ```
 
-The base query stays unchanged. Generated definitions stay fixed until you pull
+The base query stays unchanged. `inventory` contains offline definitions; `km`
+is the execution handle. Generated definitions stay fixed until you pull
 and reload them; query data and referenced cloud dependencies remain live.
-See the [KM guide](docs/knowledge-model-sdk.md) for sorting, defaults, drift
-checks, source validation, and migration from older captures.
+See the [KM guide](docs/knowledge-model-sdk.md) for sorting, explicit variable
+bindings, and source validation. Upgrading? Follow the
+[0.4 migration guide](docs/migration-0.4.md).
 
 ## Reuse a View table
 
@@ -127,5 +145,16 @@ uv run pytest
 ```
 
 Read [Development](docs/development.md) for repository structure, documentation
-checks, and the opt-in live tests. The sample `main.py` uses tenant-specific
-resource constants; replace them before running it against your tenant.
+checks, and the opt-in live tests.
+
+The sample `main.py` uses tenant-specific resources. Its Inventory KM is
+configured in `pyproject.toml`; update that configuration and the sample's
+Space, Package, View, and table constants when using another tenant. Generate its
+local definitions, then run the sample:
+
+```bash
+uv run celofast km pull inventory
+uv run python main.py
+```
+
+The generated sample package is ignored by Git and must be pulled in each checkout.

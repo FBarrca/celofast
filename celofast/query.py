@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, TypedDict, cast
 
 from typing_extensions import NotRequired
@@ -13,6 +13,7 @@ import pycelonis.pql as pql
 from celofast.exceptions import QueryValidationError, UnresolvedVariableError
 from celofast.expressions import Predicate
 from celofast.sdk.objects import Attribute, Filter, KPI
+from celofast.sdk.capture import Capture
 
 
 class OrderByDefinition(TypedDict):
@@ -116,6 +117,14 @@ def validate_variables(
 
 
 def validate_query(query: Mapping[str, object]) -> _PQLQuery:
+    """Validate query shape and captured objects without interpreting PQL grammar."""
+    try:
+        return _validate_query(query)
+    except (KeyError, IndexError, AttributeError, TypeError) as exc:
+        raise QueryValidationError("Unknown or invalid captured query object.") from exc
+
+
+def _validate_query(query: Mapping[str, object]) -> _PQLQuery:
     """Validate and copy a mapping into the public query contract.
 
     Args:
@@ -247,6 +256,7 @@ def query_to_pql(
     query: Mapping[str, object],
     *,
     variables: Mapping[str, str] | None = None,
+    validate_capture: Callable[[Capture], None] | None = None,
 ) -> pql.PQL:
     """Compile a dictionary query into a native PyCelonis :class:`pql.PQL`.
 
@@ -255,6 +265,8 @@ def query_to_pql(
             filters/orderings.
         variables: Optional exact string bindings for ``${name}`` placeholders
             in columns, filters, and ordering expressions.
+        validate_capture: Source validation supplied by the connected KM handle.
+            Standalone compilation has no connected source to compare against.
 
     Returns:
         A new PyCelonis ``pql.PQL`` with ``pql.PQLColumn``, ``pql.PQLFilter``, and
@@ -269,30 +281,14 @@ def query_to_pql(
     definition = validate_query(query)
     original = cast(Mapping[str, Any], query)
 
+    bindings = validate_variables(variables)
+
     def bind(expression: str, value: object) -> str:
         if isinstance(value, Predicate):
             return value.render(bind(cast(str, value.attribute.pql), value.attribute))
-        if isinstance(value, (Attribute, KPI, Filter)):
-            # Inline PQL inputs are not resolved by the native connector.
-            # Reuse textual binding with this object's captured defaults.
-            bindings = {
-                item["id"]: item["value"]
-                for item in value.capture.definition.get("variables", ()) or ()
-                if isinstance(item, Mapping)
-                and isinstance(item.get("id"), str)
-                and isinstance(item.get("value"), str)
-            }
-            bindings.update(
-                {
-                    key: item["defaultValue"]
-                    for key, item in (value.capture.input_variables or {}).items()
-                    if isinstance(item, Mapping)
-                    and isinstance(item.get("defaultValue"), str)
-                }
-            )
-            bindings.update(validate_variables(variables))
-            return bind_variables(expression, bindings)
-        return bind_variables(expression, variables)
+        if isinstance(value, (Attribute, KPI, Filter)) and validate_capture is not None:
+            validate_capture(value.capture)
+        return bind_variables(expression, bindings)
 
     return pql.PQL(
         columns=[

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
@@ -15,7 +15,7 @@ from celofast.exceptions import QueryValidationError
 from celofast.query import query_to_pql
 from celofast.resources.augmentation_table import AugmentationTableCollection
 from celofast.types import ResourceMode
-from celofast.sdk.capture import Source
+from celofast.sdk.capture import Capture, Source
 from celofast.sdk.objects import KnowledgeModel as CapturedKnowledgeModel
 from celofast.sdk.objects import Attribute, KPI, Record
 
@@ -40,6 +40,9 @@ class KnowledgeModelHandle:
         augmentation_tables: Optional shared augmentation-table collection.
             ``CeloFast`` supplies one cached by Data Model ID so KMs resolving
             to the same Data Model share table handles.
+        source: Verified KM identity, if available from native content.
+        capture_loader: Lazy provenance retrieval used when typed expressions
+            require verification and native content omitted the source.
 
     Notes:
         The ``native`` and ``data_model`` properties provide escape hatches to
@@ -54,12 +57,14 @@ class KnowledgeModelHandle:
         draft: bool = True,
         augmentation_tables: AugmentationTableCollection | None = None,
         source: Source | None = None,
+        capture_loader: Callable[[], Capture] | None = None,
     ) -> None:
         self._native = knowledge_model
         self._data_model = data_model
         self._draft = draft
         self._augmentation_tables = augmentation_tables
         self._source = source
+        self._capture_loader = capture_loader
         self._connector = KnowledgeModelSaolaConnector(
             data_model,
             knowledge_model,
@@ -68,15 +73,21 @@ class KnowledgeModelHandle:
 
     def bind(self, model: CapturedKnowledgeModel) -> KnowledgeModelHandle:
         """Validate the generated model source and return this native handle."""
-        if self._source is None or model.capture.source != self._source:
+        self._validate_capture(model.capture)
+        return self
+
+    def _validate_capture(self, capture: Capture) -> None:
+        if self._source is None and self._capture_loader is not None:
+            current = self._capture_loader()
+            if current.definition.get("dataModelId") != self._data_model.id:
+                raise QueryValidationError("Connected KM targets a different Data Model.")
+            self._source = current.source
+        if self._source is None or capture.source != self._source:
             raise QueryValidationError(
                 "Generated model belongs to a different KM source or the source is unverified."
             )
-        if model.capture.definition.get("dataModelId") != self._data_model.id:
-            raise QueryValidationError(
-                "Generated model targets a different Data Model."
-            )
-        return self
+        if capture.definition.get("dataModelId") != self._data_model.id:
+            raise QueryValidationError("Generated model targets a different Data Model.")
 
     def select(
         self,
@@ -168,7 +179,9 @@ class KnowledgeModelHandle:
             'Supplier'
         """
 
-        return query_to_pql(query, variables=variables)
+        return query_to_pql(
+            query, variables=variables, validate_capture=self._validate_capture
+        )
 
     def execute(
         self,

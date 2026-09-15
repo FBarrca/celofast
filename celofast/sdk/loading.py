@@ -8,7 +8,7 @@ from pathlib import Path
 
 from celofast.sdk.capture import Capture
 
-RUNTIME_API_VERSION = 3
+RUNTIME_API_VERSION = 5
 
 
 class SDKCompatibilityError(ImportError):
@@ -17,17 +17,12 @@ class SDKCompatibilityError(ImportError):
 
 def capture_digest(capture: Capture) -> str:
     """Hash both provenance and definitions to bind declarations to their data."""
-    exclude = (
-        {"input_variables_json"} if capture.input_variables_json is None else set()
-    )
-    return hashlib.sha256(
-        capture.model_dump_json(exclude=exclude).encode("utf-8")
-    ).hexdigest()
+    return hashlib.sha256(capture.model_dump_json().encode("utf-8")).hexdigest()
 
 
 def load_capture(path: Path, *, runtime_api: int, digest: str) -> Capture:
     """Load offline and fail clearly for stale code, data, or runtime versions."""
-    if runtime_api not in (1, 2, RUNTIME_API_VERSION):
+    if runtime_api != RUNTIME_API_VERSION:
         raise SDKCompatibilityError(
             "Generated KM runtime is incompatible. Upgrade Celofast or rerun celofast km pull."
         )

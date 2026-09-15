@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TypeVar, overload
 
 from pycelonis.celonis import Celonis
 
@@ -21,8 +20,6 @@ from celofast.types import ResourceMode
 from celofast.sdk.capture import Source, retrieve
 from celofast.exceptions import QueryValidationError
 from celofast.sdk.objects import KnowledgeModel as CapturedKnowledgeModel
-
-_KM = TypeVar("_KM", bound=CapturedKnowledgeModel)
 
 
 class CeloFast:
@@ -155,32 +152,11 @@ class CeloFast:
         """
         return self._resolver.package
 
-    @overload
-    def km(self, key: str) -> KnowledgeModelHandle: ...
+    def km(self, key: str | CapturedKnowledgeModel) -> KnowledgeModelHandle:
+        """Return one cached execution handle by exact key or offline definitions.
 
-    @overload
-    def km(self, key: _KM) -> _KM: ...
-
-    def km(
-        self, key: str | CapturedKnowledgeModel
-    ) -> KnowledgeModelHandle | CapturedKnowledgeModel:
-        """Select a native model by its generated root or exact key.
-
-        Args:
-            key: A generated ``km`` root or an exact Knowledge Model key.
-                Display names and package variables are not accepted as keys.
-
-        Returns:
-            String keys return a cached :class:`KnowledgeModelHandle`.
-            Generated roots return a connected copy retaining their precise
-            generated type and captured definitions. Copies share the native
-            handle and are source-checked on every lookup.
-
-        Raises:
-            ResourceNotFoundError: If no KM with ``key`` exists in the Package.
-            ResourceAmbiguityError: If the Package returns multiple matching
-                KMs.
-            ResourceResolutionError: If the KM has no accessible Data Model.
+        Generated roots validate the tenant, Space, Package, lifecycle, KM key,
+        and Data Model. They remain offline and are never attached to the handle.
         """
 
         model = key if isinstance(key, CapturedKnowledgeModel) else None
@@ -222,23 +198,16 @@ class CeloFast:
                 draft=self._resolver.draft,
                 augmentation_tables=augmentation_tables,
                 source=source,
-            )
-        handle = self._km_handles[key]
-        if model is not None:
-            if handle._source is None:
-                # Older native content models may omit tenant provenance.
-                current = retrieve(
-                    handle.native,
+                capture_loader=lambda: retrieve(
+                    native,
                     space_id=self._resolver.space_id,
                     package_id=self._resolver.package_id,
                     mode=self.mode,
-                )
-                if current.definition.get("dataModelId") != handle.data_model.id:
-                    raise QueryValidationError(
-                        "Connected KM targets a different Data Model."
-                    )
-                handle._source = current.source
-            return model._connect(handle)
+                ),
+            )
+        handle = self._km_handles[key]
+        if model is not None:
+            handle.bind(model)
         return handle
 
     def view(

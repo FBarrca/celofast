@@ -164,7 +164,7 @@ def test_check_reports_symbol_renames_and_field_categories(tmp_path):
         "files",
     }
     assert any(
-        "symbols/km.records.plant.attributes.number -> " in change.path
+        "symbols/km.records.plant.number -> " in change.path
         for change in changes
     )
     assert any(
@@ -201,3 +201,16 @@ def test_directory_disguised_as_generated_file_is_protected(tmp_path, location):
     with pytest.raises(CaptureError):
         write_package(capture("changed"), target)
     assert kept.read_text() == "keep this"
+
+
+def test_metadata_only_categories_still_report_drift(tmp_path):
+    target = tmp_path / "inventory"
+    original = capture()
+    layer = original.to_dict()
+    layer["activities"] = [{"id": "Review", "description": "Before"}]
+    write_package(Capture.create(original.source, layer), target)
+    before = files(target)
+    layer["activities"][0]["description"] = "After"
+    changes = write_package(Capture.create(original.source, layer), target, check=True)
+    assert any(change.path.endswith("activities.Review.description") for change in changes)
+    assert files(target) == before

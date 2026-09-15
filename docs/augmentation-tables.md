@@ -23,9 +23,10 @@ explain how to use Celofast's table API.
 
 ## Understand the destination
 
-An augmentation table is a **Data Model resource**. A generated KM's
-`augmented_attributes` collection contains captured attribute definitions;
-it is not the table's storage or a row-writing API. Creating a table does not
+An augmentation table is a **Data Model resource**. A generated record exposes
+captured augmented attributes directly alongside its other fields. Their source
+definitions remain in `record.metadata["augmentedAttributes"]`; they do not expose
+the table's storage or a row-writing API. Creating a table does not
 automatically create a corresponding attribute in the KM.
 
 ```text
