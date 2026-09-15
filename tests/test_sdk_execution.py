@@ -7,7 +7,13 @@ from pycelonis.pql.saola_connector import KnowledgeModelSaolaConnector
 from celofast import QueryValidationError
 from celofast.resources.knowledge_model import KnowledgeModelHandle
 from celofast.sdk import Capture, Source
-from celofast.sdk.objects import KPI, Attribute, Filter, GenericKnowledgeObject, KnowledgeModel
+from celofast.sdk.objects import (
+    KPI,
+    Attribute,
+    Filter,
+    GenericKnowledgeObject,
+    KnowledgeModel,
+)
 
 
 def setup_capture(mode="draft", expression='"Plant"."Number"'):
@@ -43,7 +49,6 @@ def setup_capture(mode="draft", expression='"Plant"."Number"'):
     return capture, Attribute[str](capture, ("records", 0, "attributes", 0))
 
 
-
 @pytest.mark.parametrize("mode", ["draft", "published"])
 def test_generated_queries_use_native_connector(mode):
     capture, attribute = setup_capture(mode)
@@ -72,15 +77,68 @@ def test_generated_queries_use_native_connector(mode):
     assert compiled.order_by_columns[0].query == attribute.pql
 
 
-def test_generated_variables_use_native_resolution_or_explicit_overrides():
+def test_generated_variables_use_captured_values_or_explicit_overrides():
     capture, attribute = setup_capture(expression='"Plant"."Value" + ${days}')
     handle = KnowledgeModelHandle(MagicMock(), SimpleNamespace(id="dm"))
     query = {"columns": {"value": attribute}, "order_by": [{"pql": attribute}]}
     compiled = handle.build(query)
-    assert compiled.columns[0].query == attribute.pql
-    assert compiled.order_by_columns[0].query == attribute.pql
+    assert compiled.columns[0].query == '"Plant"."Value" + 30'
+    assert compiled.order_by_columns[0].query == '"Plant"."Value" + 30'
     compiled = handle.build(query, variables={"days": "7"})
     assert compiled.columns[0].query == '"Plant"."Value" + 7'
+
+
+def test_input_defaults_bind_columns_filters_and_ordering_without_mutating_capture():
+    capture, _ = setup_capture(expression='"Plant"."Value" + ${days} + ${months}')
+    layer = capture.to_dict()
+    layer["filters"][0]["pql"] = 'FILTER "Plant"."Value" > ${months};'
+    capture = Capture.create(
+        capture.source,
+        layer,
+        input_variables={
+            "days": {"defaultValue": "3"},
+            "months": {"defaultValue": "12"},
+        },
+    )
+    attribute = Attribute(capture, ("records", 0, "attributes", 0))
+    handle = KnowledgeModelHandle(MagicMock(), SimpleNamespace(id="dm"))
+    query = {
+        "columns": {"value": attribute},
+        "filters": [Filter(capture, ("filters", 0))],
+        "order_by": [{"pql": attribute}],
+    }
+    compiled = handle.build(query, variables={"days": "7"})
+    assert compiled.columns[0].query == '"Plant"."Value" + 7 + 12'
+    assert compiled.order_by_columns[0].query == compiled.columns[0].query
+    assert compiled.filters[0].query == 'FILTER "Plant"."Value" > 12;'
+    assert "${months}" in attribute.pql
+    assert capture.input_variables["days"]["defaultValue"] == "3"
+
+
+def test_missing_input_default_fails_before_execution_and_raw_strings_stay_explicit():
+    capture, _ = setup_capture(expression="${missing}")
+    capture = Capture.create(
+        capture.source,
+        capture.to_dict(),
+        input_variables={
+            "missing": {"defaultValue": None},
+        },
+    )
+    attribute = Attribute(capture, ("records", 0, "attributes", 0))
+    handle = KnowledgeModelHandle(MagicMock(), SimpleNamespace(id="dm"))
+    with pytest.raises(QueryValidationError, match="missing"):
+        handle.build({"columns": {"value": attribute}})
+    assert (
+        handle.build({"columns": {"value": attribute}}, variables={"missing": "5"})
+        .columns[0]
+        .query
+        == "5"
+    )
+    with pytest.raises(QueryValidationError, match="days"):
+        handle.build(
+            {"columns": {"generated": attribute, "raw": "${days}"}},
+            variables={"missing": "5"},
+        )
 
 
 def test_generated_query_rejects_wrong_categories():

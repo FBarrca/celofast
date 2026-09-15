@@ -109,8 +109,9 @@ and `--check` drift reports. Regeneration and module reload expose updated defau
 existing objects retain their old snapshot. Packages generated before this feature
 return `None`; a newly captured KM without inputs returns an empty mapping.
 
-These are declared defaults for inspection, not current View input values or
-automatic execution overrides. The final layer and Studio metadata are separate
+These are declared defaults, not current View input values. Generated expressions
+use captured string defaults to bind their inline placeholders; explicit
+`variables=` entries take precedence. The final layer and Studio metadata are separate
 reads of the selected lifecycle, not an atomic snapshot. Package-level bindings
 are a different category and are not included in `input_variables`.
 
@@ -127,8 +128,12 @@ selected draft/published mode. Capturing a definition does not freeze its
 transitive dependencies. To call a KM KPI with its native filter/parameter
 semantics, supply the appropriate `KPI(...)` expression as a raw PQL string.
 
-Generated expressions preserve variable placeholders for native resolution by
-default. Explicit `variables=` provides the existing textual template overrides.
+Generated expressions bind inline variable placeholders using captured KM variable
+values, then Studio input defaults, then explicit `variables=` overrides. Binding
+uses exact string replacement, with no automatic quoting or type conversion.
+Missing or null defaults require an explicit binding and fail locally if absent.
+This binds only the submitted expression: references such as `KPI(...)` still
+resolve through the live KM and do not receive these textual overrides.
 Raw-string query templates retain their existing explicit-binding behavior.
 Other generated categories remain inspectable and cannot be used as columns or
 filters. Mutable View inputs are not automatically supplied to these queries.

@@ -268,15 +268,33 @@ def query_to_pql(
     original = cast(Mapping[str, Any], query)
 
     def bind(expression: str, value: object) -> str:
-        # Generated PQL leaves KM variables for the native connector unless
-        # the caller explicitly supplies template overrides.
-        if variables is None and isinstance(value, (Attribute, KPI, Filter)):
-            return expression
+        if isinstance(value, (Attribute, KPI, Filter)):
+            # Inline PQL inputs are not resolved by the native connector.
+            # Reuse textual binding with this object's captured defaults.
+            bindings = {
+                item["id"]: item["value"]
+                for item in value.capture.definition.get("variables", ()) or ()
+                if isinstance(item, Mapping)
+                and isinstance(item.get("id"), str)
+                and isinstance(item.get("value"), str)
+            }
+            bindings.update(
+                {
+                    key: item["defaultValue"]
+                    for key, item in (value.capture.input_variables or {}).items()
+                    if isinstance(item, Mapping)
+                    and isinstance(item.get("defaultValue"), str)
+                }
+            )
+            bindings.update(validate_variables(variables))
+            return bind_variables(expression, bindings)
         return bind_variables(expression, variables)
 
     return pql.PQL(
         columns=[
-            pql.PQLColumn(name=alias, query=bind(expression, original["columns"][alias]))
+            pql.PQLColumn(
+                name=alias, query=bind(expression, original["columns"][alias])
+            )
             for alias, expression in definition["columns"].items()
         ],
         filters=[
