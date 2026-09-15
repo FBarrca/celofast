@@ -1,8 +1,28 @@
-# Capture a Knowledge Model as Python
+# Knowledge Models: typed objects and reusable queries
+
+[Documentation](index.md) · [Getting started](getting-started.md) · [API reference](api-reference.md)
 
 Celofast generates a typed Python package containing your KM's definitions.
 Import it to explore business objects, inspect their metadata, and use their
 captured definitions in queries over live data.
+
+This guide assumes [authentication is configured](getting-started.md#2-configure-authentication).
+Replace the example IDs and KM key with your own. Names such as
+`o_celonis_plant`, `country`, and `active_inventory` are illustrative; the
+generated members depend on your KM's definitions.
+
+## In this guide
+
+- [Configure and pull](#configure-and-pull)
+- [Explore metadata and select records](#import-explore-and-query)
+- [Compose and inspect queries](#compose-and-reuse-queries)
+- [Apply attribute and raw filters](#attribute-equality-and-raw-filters)
+- [Understand defaults and live execution](#native-execution)
+- [Review drift and refresh a running process](#review-changes-and-check-ci)
+- [Migrate older captures](#connections-and-compatibility)
+
+For an existing PQL dictionary without generation, see
+[Dictionary queries](dictionary-queries.md).
 
 ## Configure and pull
 
@@ -20,14 +40,13 @@ output = "generated/inventory"
 Configure the usual Celofast OAuth environment variables or `.env`, then run:
 
 ```bash
-celofast km pull inventory
+uv run celofast km pull inventory
 ```
 
 You can also supply everything explicitly:
 
 ```bash
-celofast km pull --space-id SPACE_ID --package-id PACKAGE_ID \
-  --km inventory-km --mode draft --output generated/inventory
+uv run celofast km pull --space-id SPACE_ID --package-id PACKAGE_ID --km inventory-km --mode draft --output generated/inventory
 ```
 
 Configured output paths are relative to `pyproject.toml`. An explicit `--output`
@@ -73,6 +92,10 @@ Generated properties retain precise types where authoritative metadata exists.
 Exact-ID lookup returns the common object type because its key is a runtime
 string. Unknown types use `Any`; unsupported categories remain discoverable as
 generic objects. Capture diagnostics are recorded in `schema.json`.
+
+These types describe captured declarations, not guaranteed pandas dtypes or
+non-null result values. Inspect the DataFrame returned by execution when your
+application depends on its concrete data representation.
 
 Records expose direct shortcuts for unambiguous attributes from `attributes`,
 `new_attributes`, and `augmented_attributes`. Shortcuts preserve the original
@@ -135,6 +158,11 @@ Composition is immutable: adding filters or changing sorting leaves the base
 query unchanged. Columns and filters can combine generated objects with raw PQL
 strings. Raw filters must be complete `FILTER ...;` statements. Repeated `where()`
 calls append conditions; repeated `order_by()` calls replace the sorting.
+
+For pagination, supply an ordering appropriate for your data and pass
+`limit`/`offset` to execution. Each call queries live data, so concurrent data
+changes can still move rows between pages. `distinct=True` requests distinct
+result rows; it does not define a primary key for your business objects.
 
 ### Attribute equality and raw filters
 
@@ -265,7 +293,7 @@ metadata and PQL, so apply the repository permissions appropriate for that KM.
 ## Review changes and check CI
 
 ```bash
-celofast km pull inventory --check
+uv run celofast km pull inventory --check
 ```
 
 Check retrieves the cloud definition and compares it with the generated package
@@ -302,6 +330,7 @@ import generated.inventory as inventory_sdk
 old_inventory = inventory_sdk.km
 inventory_sdk = importlib.reload(inventory_sdk)
 inventory = inventory_sdk.km
+km = cf.km(inventory)
 ```
 
 Existing objects such as `old_inventory` keep their captured definitions and
@@ -340,9 +369,10 @@ These tools call Celonis and require a connection. In pinned PyCelonis 2.15.1,
 `PQLDebugger` and `PQLParser` live in their submodules, rather than being exported
 as `pql.PQLDebugger` or `pql.PQLParser`. The language service does not validate KM
 KPIs/variables in their captured context; the native KM connector skips query
-verification for that reason. Use `handle.execute(query)` to resolve KM expressions through the native
-connector and receive upstream resolution/export errors.
+verification for that reason. Use `handle.execute(query)` to resolve KM
+expressions through the native connector and receive upstream
+resolution/export errors.
 Do not send unresolved KM expressions to the Data Model debugger as a substitute.
 
 Local `variables=` bindings remain an explicit text-template convenience; they
-are not a PQL parser. The former captured-layer transport adapter was removed.
+are not a PQL parser.
