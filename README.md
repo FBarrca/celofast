@@ -156,6 +156,49 @@ result = view.table("Events").execute(variables={"days": "7"})
 These bindings are client-side View/query template replacements. They do not
 override server-managed Knowledge Model variables.
 
+## Read View input components
+
+Variable-backed View controls have explicit component handles. Components are
+selected by exact ID or unique display name, just like tables:
+
+```python
+view = cf.view("input-data")
+
+search = view.input_box("Search")
+search.get()                 # current effective string value
+search.placeholder
+search.input_type
+search.variable_key
+search.default_value
+search.details()             # definition + assigned/effective values
+
+material_group = view.dropdown("Material group")
+material_group.get()         # current single or multiple selection
+material_group.selection_mode
+material_group.options(limit=100)
+material_group.attribute_pql
+```
+
+The available typed collections are `view.input_boxes`, `view.dropdowns`,
+`view.selectors`, `view.date_pickers`, and `view.checkboxes`. The combined
+`view.controls` collection still contains instances of those concrete handle
+types. Date pickers return `datetime.date` values and checkboxes return
+booleans.
+
+Input bindings are read from the component's `onChange.update.variables`
+configuration and must reference a definition in
+`view.km.native.input_variable_definitions`. Current effective values are read
+from Package Manager with the View as the state-owning node and the Knowledge
+Model as its `refNodeId`. `get()` presents one component value, although the
+upstream Package Manager read operation returns all values for the node.
+Dropdown and selector `options()` calls are separate distinct Knowledge Model
+queries over their configured data-source attribute.
+
+Properties backed by already loaded View or KM metadata perform no request.
+Methods such as `get()` and `options()` perform server requests. The original
+PyCelonis component remains available through each handle's `component`
+property, and its serialized settings are exposed through `settings`.
+
 ## Write MLWB output to augmentation tables
 
 The Knowledge Model handle exposes augmentation-table operations for its

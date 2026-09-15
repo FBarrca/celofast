@@ -6,9 +6,9 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from types import MappingProxyType
 
 import pandas as pd
+from pycelonis.ems.apps.content_node.view import PublishedView
 from pycelonis.ems.apps.content_node.view.component import Table
 from pycelonis.ems.apps.content_node.view.content import ViewContent
-from pycelonis.ems.apps.content_node.view import PublishedView
 from pycelonis.ems.studio.content_node.view import View
 
 from celofast.exceptions import (
@@ -23,6 +23,15 @@ from celofast.query import (
     validate_variables,
 )
 from celofast.resources.knowledge_model import KnowledgeModelHandle
+from celofast.resources.view_input import (
+    CheckboxHandle,
+    DatePickerHandle,
+    DropdownHandle,
+    InputBoxHandle,
+    SelectorHandle,
+    ViewInputHandle,
+    ViewInputValueClient,
+)
 
 NativeView = View | PublishedView
 
@@ -77,6 +86,14 @@ class ViewHandle:
         for tab in content.tabs:
             tables.extend(self._table_handles(tab.components, tab_name=tab.name))
         self._tables = tuple(tables)
+        self._input_definitions: Mapping[str, object] | None = None
+        self._input_value_client = ViewInputValueClient(self)
+
+        controls: list[ViewInputHandle] = []
+        controls.extend(self._control_handles(content.components, tab_name=None))
+        for tab in content.tabs:
+            controls.extend(self._control_handles(tab.components, tab_name=tab.name))
+        self._controls = tuple(controls)
 
     @property
     def native(self) -> NativeView:
@@ -132,7 +149,7 @@ class ViewHandle:
         return self._variables
 
     @property
-    def tables(self) -> tuple["ViewTableHandle", ...]:
+    def tables(self) -> tuple[ViewTableHandle, ...]:
         """Return all typed table components in stable content order.
 
         Returns:
@@ -143,7 +160,73 @@ class ViewHandle:
 
         return self._tables
 
-    def table(self, name_or_id: str) -> "ViewTableHandle":
+    @property
+    def input_definitions(self) -> Mapping[str, object]:
+        """Return KM input-variable definitions indexed by their exact keys."""
+
+        return self._input_definitions_by_key
+
+    @property
+    def _input_definitions_by_key(self) -> Mapping[str, object]:
+        if self._input_definitions is None:
+            definitions: dict[str, object] = {}
+            for definition in self.km.native.input_variable_definitions or []:
+                if definition is None or not definition.key:
+                    continue
+                if definition.key in definitions:
+                    raise QueryValidationError(
+                        f"Knowledge Model input variable {definition.key!r} is duplicated."
+                    )
+                definitions[definition.key] = definition
+            self._input_definitions = MappingProxyType(definitions)
+        return self._input_definitions
+
+    @property
+    def controls(self) -> tuple[ViewInputHandle, ...]:
+        """Return all supported variable-backed controls in content order."""
+
+        return self._controls
+
+    @property
+    def input_boxes(self) -> tuple[InputBoxHandle, ...]:
+        return tuple(c for c in self._controls if isinstance(c, InputBoxHandle))
+
+    @property
+    def dropdowns(self) -> tuple[DropdownHandle, ...]:
+        return tuple(
+            c
+            for c in self._controls
+            if isinstance(c, DropdownHandle) and not isinstance(c, SelectorHandle)
+        )
+
+    @property
+    def selectors(self) -> tuple[SelectorHandle, ...]:
+        return tuple(c for c in self._controls if isinstance(c, SelectorHandle))
+
+    @property
+    def date_pickers(self) -> tuple[DatePickerHandle, ...]:
+        return tuple(c for c in self._controls if isinstance(c, DatePickerHandle))
+
+    @property
+    def checkboxes(self) -> tuple[CheckboxHandle, ...]:
+        return tuple(c for c in self._controls if isinstance(c, CheckboxHandle))
+
+    def input_box(self, name_or_id: str) -> InputBoxHandle:
+        return self._control(name_or_id, InputBoxHandle, "input box")
+
+    def dropdown(self, name_or_id: str) -> DropdownHandle:
+        return self._control(name_or_id, DropdownHandle, "dropdown", exclude=SelectorHandle)
+
+    def selector(self, name_or_id: str) -> SelectorHandle:
+        return self._control(name_or_id, SelectorHandle, "selector")
+
+    def date_picker(self, name_or_id: str) -> DatePickerHandle:
+        return self._control(name_or_id, DatePickerHandle, "date picker")
+
+    def checkbox(self, name_or_id: str) -> CheckboxHandle:
+        return self._control(name_or_id, CheckboxHandle, "checkbox")
+
+    def table(self, name_or_id: str) -> ViewTableHandle:
         """Find one table by exact component ID or exact display name.
 
         Lookup checks IDs first, then display names.  An ID is always
@@ -188,12 +271,72 @@ class ViewHandle:
         components: Iterable[object],
         *,
         tab_name: str | None,
-    ) -> list["ViewTableHandle"]:
+    ) -> list[ViewTableHandle]:
         return [
             ViewTableHandle(self, component, tab_name=tab_name)
             for component in components
             if isinstance(component, Table)
         ]
+
+    def _control_handles(
+        self,
+        components: Iterable[object],
+        *,
+        tab_name: str | None,
+    ) -> list[ViewInputHandle]:
+        handles: list[ViewInputHandle] = []
+        handle_types = (
+            InputBoxHandle,
+            DropdownHandle,
+            SelectorHandle,
+            DatePickerHandle,
+            CheckboxHandle,
+        )
+        for component in components:
+            component_type = getattr(component, "type_", None)
+            for handle_type in handle_types:
+                if component_type in handle_type.COMPONENT_TYPES:
+                    handles.append(handle_type(self, component, tab_name=tab_name))
+                    break
+        return handles
+
+    def _control(
+        self,
+        name_or_id: str,
+        handle_type: type[ViewInputHandle],
+        kind: str,
+        *,
+        exclude: type[ViewInputHandle] | None = None,
+    ):
+        from celofast.exceptions import AmbiguousComponentError, ComponentNotFoundError
+
+        candidates = [
+            control
+            for control in self._controls
+            if isinstance(control, handle_type)
+            and (exclude is None or not isinstance(control, exclude))
+        ]
+        id_matches = [control for control in candidates if control.id == name_or_id]
+        if id_matches:
+            id_matches[0].validate_binding()
+            return id_matches[0]
+        name_matches = [control for control in candidates if control.name == name_or_id]
+        if not name_matches:
+            raise ComponentNotFoundError(
+                f"{kind.title()} {name_or_id!r} was not found in View "
+                f"{self._native.key!r}."
+            )
+        if len(name_matches) > 1:
+            locations = ", ".join(
+                f"{control.id!r} (tab {control.tab_name!r})"
+                for control in name_matches
+            )
+            raise AmbiguousComponentError(
+                f"{kind.title()} name {name_or_id!r} is ambiguous; use a "
+                f"component ID: {locations}."
+            )
+        name_matches[0].validate_binding()
+        return name_matches[0]
 
 
 class ViewTableHandle:

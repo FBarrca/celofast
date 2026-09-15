@@ -60,6 +60,18 @@ class AmbiguousTableError(ResourceAmbiguityError):
     """
 
 
+class ComponentNotFoundError(ResourceNotFoundError):
+    """Raised when a typed View component selector has no match."""
+
+
+class AmbiguousComponentError(ResourceAmbiguityError):
+    """Raised when a typed View component display name is not unique."""
+
+
+class ComponentVariableError(CeloFastError, ValueError):
+    """Raised when a View input is not bound to a declared KM variable."""
+
+
 class QueryValidationError(CeloFastError, ValueError):
     """Raised when a query definition, binding, or execution option is invalid.
 
