@@ -112,6 +112,11 @@ class KnowledgeModel(KnowledgeObject):
     """Root of one complete generated KM capture."""
 
     @property
+    def input_variables(self) -> Mapping[str, Any] | None:
+        """Captured Studio defaults for inspection; execution remains native."""
+        return self.capture.input_variables
+
+    @property
     def key(self) -> str:
         return self.capture.source.key
 

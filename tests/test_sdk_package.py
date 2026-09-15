@@ -32,6 +32,44 @@ def files(path):
     return {item.name: item.read_bytes() for item in path.iterdir() if item.is_file()}
 
 
+def test_input_default_drift_and_reload(tmp_path, monkeypatch):
+    import importlib
+    import sys
+
+    base = capture()
+
+    def snapshot(value):
+        return Capture.create(
+            base.source,
+            base.to_dict(),
+            input_variables={
+                "months": {"key": "months", "defaultValue": value},
+            },
+        )
+
+    target = tmp_path / "input_snapshot"
+    write_package(snapshot("3"), target)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    module = importlib.import_module("input_snapshot")
+    try:
+        old = module.km
+        before = files(target)
+        changes = write_package(snapshot("12"), target, check=True)
+        assert any(
+            c.path == "inventory-km.input_variables.months.defaultValue"
+            and c.category == "definition"
+            for c in changes
+        )
+        assert files(target) == before
+        write_package(snapshot("12"), target)
+        importlib.reload(module)
+        assert old.input_variables["months"]["defaultValue"] == "3"
+        assert module.km.input_variables["months"]["defaultValue"] == "12"
+        assert not write_package(snapshot("12"), target, check=True)
+    finally:
+        sys.modules.pop("input_snapshot", None)
+
+
 def test_check_never_writes_and_pull_is_repeatable(tmp_path):
     target = tmp_path / "new-parent" / "inventory"
     assert write_package(capture(), target, check=True)

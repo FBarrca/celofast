@@ -94,6 +94,28 @@ Queries can combine generated attributes, KPIs, and filters with raw PQL strings
 
 ## Native execution
 
+### Captured input defaults
+
+Studio stores KM input-variable definitions separately from the final layer's
+`variables` collection. Pull captures these by key, including type, scope, and
+default value:
+
+```python
+inventory.input_variables["im_consideredfuturemonths"]["defaultValue"]
+```
+
+This mapping is deeply immutable and included in `capture.json`, integrity checks,
+and `--check` drift reports. Regeneration and module reload expose updated defaults;
+existing objects retain their old snapshot. Packages generated before this feature
+return `None`; a newly captured KM without inputs returns an empty mapping.
+
+These are declared defaults for inspection, not current View input values or
+automatic execution overrides. The final layer and Studio metadata are separate
+reads of the selected lifecycle, not an atomic snapshot. Package-level bindings
+are a different category and are not included in `input_variables`.
+
+### Query behavior
+
 Every query uses PyCelonis's `KnowledgeModelSaolaConnector`. Generated objects
 supply their stored `.pql` expressions to native `pql.PQLColumn`, `pql.PQLFilter`,
 and `pql.OrderByColumn` objects. No captured layer or custom query environment is

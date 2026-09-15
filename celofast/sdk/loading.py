@@ -17,7 +17,12 @@ class SDKCompatibilityError(ImportError):
 
 def capture_digest(capture: Capture) -> str:
     """Hash both provenance and definitions to bind declarations to their data."""
-    return hashlib.sha256(capture.model_dump_json().encode("utf-8")).hexdigest()
+    exclude = (
+        {"input_variables_json"} if capture.input_variables_json is None else set()
+    )
+    return hashlib.sha256(
+        capture.model_dump_json(exclude=exclude).encode("utf-8")
+    ).hexdigest()
 
 
 def load_capture(path: Path, *, runtime_api: int, digest: str) -> Capture:

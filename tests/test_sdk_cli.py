@@ -13,10 +13,24 @@ mode = "published"
 output = "generated/inventory"
 """)
     calls = []
-    payload = {"layer": {"tenantId": "tenant", "records": [{"id": "Plant"}]}}
+    payload = {
+        "layer": {
+            "tenantId": "tenant",
+            "nodeEntityId": "node",
+            "records": [{"id": "Plant"}],
+        }
+    }
 
     def request(**kwargs):
         calls.append(kwargs)
+        if kwargs["method"] == "GET":
+            return {
+                "id": "node",
+                "key": "inventory-km",
+                "draftId": "published",
+                "activatedDraftId": "published",
+                "inputVariableDefinitions": [],
+            }
         return payload
 
     native = SimpleNamespace(

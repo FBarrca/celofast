@@ -106,6 +106,7 @@ class Capture(BaseModel):
     format_version: Literal[1] = FORMAT_VERSION
     source: Source
     definition_json: str
+    input_variables_json: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -117,7 +118,19 @@ class Capture(BaseModel):
             value["definition_json"] = json.dumps(
                 value.pop("definition"), ensure_ascii=False, allow_nan=False
             )
+        if isinstance(value, dict) and "input_variables" in value:
+            if "input_variables_json" in value:
+                raise ValueError("Capture must contain one input-variable snapshot.")
+            value = dict(value)
+            value["input_variables_json"] = json.dumps(
+                value.pop("input_variables"), ensure_ascii=False, allow_nan=False
+            )
         return value
+
+    @field_validator("input_variables_json")
+    @classmethod
+    def canonical_inputs(cls, value: str | None) -> str | None:
+        return None if value is None else cls.canonical_definition(value)
 
     @field_validator("definition_json")
     @classmethod
@@ -150,7 +163,13 @@ class Capture(BaseModel):
         return self
 
     @classmethod
-    def create(cls, source: Source, definition: Mapping[str, Any]) -> Capture:
+    def create(
+        cls,
+        source: Source,
+        definition: Mapping[str, Any],
+        *,
+        input_variables: Mapping[str, Any] | None = None,
+    ) -> Capture:
         """Detach from source state, preserving unknown fields and exact strings."""
         normalized = _normalize(definition)
         try:
@@ -163,12 +182,30 @@ class Capture(BaseModel):
         metadata = normalized.get("metadata")
         if isinstance(metadata, dict) and metadata.get("key", source.key) != source.key:
             raise CaptureError("KM metadata.key does not match capture provenance.")
-        return cls(source=source, definition_json=encoded)
+        return cls(
+            source=source,
+            definition_json=encoded,
+            input_variables_json=None
+            if input_variables is None
+            else json.dumps(
+                _normalize(input_variables), ensure_ascii=False, allow_nan=False
+            ),
+        )
 
     @cached_property
     def fingerprint(self) -> str:
         """Definition fingerprint, independent of retrieval time and object order."""
-        return hashlib.sha256(self.definition_json.encode("utf-8")).hexdigest()
+        content = self.definition_json
+        if self.input_variables_json is not None:
+            content += "\n" + self.input_variables_json
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    @cached_property
+    def input_variables(self) -> Mapping[str, Any] | None:
+        """Studio input definitions by key; None means an older, uncaptured source."""
+        if self.input_variables_json is None:
+            return None
+        return _freeze(json.loads(self.input_variables_json))
 
     @cached_property
     def definition(self) -> Mapping[str, Any]:
@@ -187,6 +224,11 @@ class Capture(BaseModel):
                     "format_version": self.format_version,
                     "source": self.source.model_dump(),
                     "definition": self.to_dict(),
+                    **(
+                        {"input_variables": json.loads(self.input_variables_json)}
+                        if self.input_variables_json is not None
+                        else {}
+                    ),
                 },
                 indent=2,
                 ensure_ascii=False,
@@ -204,7 +246,8 @@ def retrieve(
 
     The endpoint and options mirror PyCelonis 2.15.1's get_content. Reading the
     raw JSON avoids lossy transport models and explicitly selects lifecycle.
-    No second definition request is used to assemble the capture.
+    Studio input defaults are read separately from the matching node revision.
+    These are metadata observations, not an atomic execution snapshot.
     """
     from urllib.parse import quote
 
@@ -240,4 +283,43 @@ def retrieve(
         key=native.key,
         mode=mode,
     )
-    return Capture.create(source, layer)
+    node_id = layer.get("nodeEntityId")
+    if not isinstance(node_id, str) or not node_id:
+        raise CaptureError(
+            "Effective KM has no nodeEntityId for input-variable capture."
+        )
+    node_url = f"/package-manager/api/nodes/{quote(node_id, safe='')}"
+    node = native.client.request(method="GET", url=node_url, parse_json=True)
+    if not isinstance(node, dict):
+        raise CaptureError("Studio response has no KM node metadata.")
+    revision = node.get("workingDraftId" if mode == "draft" else "activatedDraftId")
+    if not isinstance(revision, str) or not revision:
+        raise CaptureError(
+            f"KM node has no {mode} revision for input-variable capture."
+        )
+    if node.get("draftId") != revision:
+        node = native.client.request(
+            method="GET",
+            url=node_url,
+            params={"draftId": revision},
+            parse_json=True,
+        )
+    if (
+        not isinstance(node, dict)
+        or node.get("draftId") != revision
+        or node.get("key") != source.key
+        or node.get("id") != node_id
+    ):
+        raise CaptureError(
+            "Studio input-variable source does not match the selected KM revision."
+        )
+    definitions = node.get("inputVariableDefinitions")
+    if not isinstance(definitions, list):
+        raise CaptureError("Studio node has no inputVariableDefinitions list.")
+    inputs = {}
+    for item in definitions:
+        key = item.get("key") if isinstance(item, dict) else None
+        if not isinstance(key, str) or not key or key in inputs:
+            raise CaptureError("Studio input variables have missing or duplicate keys.")
+        inputs[key] = item
+    return Capture.create(source, layer, input_variables=inputs)

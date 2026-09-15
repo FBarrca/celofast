@@ -50,6 +50,7 @@ class Change:
         if set(self.path.split(".")) & {
             "pql",
             "value",
+            "defaultValue",
             "parameters",
             "dependencies",
             "filters",
@@ -234,6 +235,11 @@ def write_package(
                 )
             changes = differences(
                 previous.to_dict(), capture.to_dict(), capture.source.key
+            )
+            changes += differences(
+                json.loads(previous.input_variables_json or "null"),
+                json.loads(capture.input_variables_json or "null"),
+                f"{capture.source.key}.input_variables",
             )
     changes += changed_files
     if "schema.json" in before:

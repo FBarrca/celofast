@@ -20,3 +20,27 @@ def test_import_requires_matching_runtime_and_capture(tmp_path):
     path.write_text('{"format_version": 99}')
     with pytest.raises(SDKCompatibilityError, match="format"):
         load_capture(path, runtime_api=1, digest=digest)
+
+
+def test_pre_input_snapshot_digest_remains_compatible(tmp_path):
+    import hashlib
+    import json
+
+    legacy = {
+        "format_version": 1,
+        "source": {
+            "tenant_id": "t",
+            "space_id": "s",
+            "package_id": "p",
+            "key": "km",
+            "mode": "draft",
+        },
+        "definition_json": "{}",
+    }
+    text = json.dumps(legacy, separators=(",", ":"))
+    path = tmp_path / "capture.json"
+    path.write_text(text)
+    loaded = load_capture(
+        path, runtime_api=1, digest=hashlib.sha256(text.encode()).hexdigest()
+    )
+    assert loaded.input_variables is None
