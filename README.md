@@ -84,6 +84,23 @@ PQL and `query.to_query()` to get the existing dictionary representation.
 Existing `km.execute(query_dict)` calls continue to work. Regenerate older
 packages with `celofast km pull` to add direct record-attribute shortcuts.
 
+Select a complete record and filter it with generated filters or attribute
+comparisons:
+
+```python
+plants = (
+    km.select(plant)
+    .where(km.filters.active_inventory)
+    .where(plant.country.eq("DE"))
+    .execute(distinct=True)
+)
+```
+
+Whole-record selection includes attributes with a non-empty PQL expression,
+using their captured IDs as column names and preserving their captured order.
+Filters are combined with AND. With no `limit`, execution requests all matching
+rows. Pull older captures again to recover the source attribute order.
+
 ### Use existing PQL query definitions
 
 Configure the Space and Package once, then select Knowledge Models by their

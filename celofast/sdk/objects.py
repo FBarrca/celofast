@@ -19,6 +19,7 @@ if TYPE_CHECKING:
         KnowledgeModel as NativeKnowledgeModel,
     )
     from celofast.builder import Query
+    from celofast.expressions import Predicate
     from celofast.resources.augmentation_table import AugmentationTableCollection
     from celofast.resources.knowledge_model import KnowledgeModelHandle
 
@@ -100,6 +101,33 @@ class GenericKnowledgeObject(KnowledgeObject):
 class Record(KnowledgeObject):
     """Captured record definition, not a materialized data row."""
 
+    def _query_attributes(self) -> Iterator[Attribute[Any]]:
+        """Yield queryable attributes in each captured collection's order."""
+        for key, name in (
+            ("attributes", "attributes"),
+            ("newAttributes", "new_attributes"),
+            ("augmentedAttributes", "augmented_attributes"),
+        ):
+            namespace = getattr(self, name, None)
+            if isinstance(namespace, Namespace):
+                attributes = iter(namespace)
+            else:
+                attributes = (
+                    Attribute(self.capture, (*self.path, key, index))
+                    for index, item in enumerate(self.metadata.get(key) or ())
+                    if isinstance(item, Mapping)
+                    and item.get("type") in (None, "ATTRIBUTE")
+                )
+            for attribute in attributes:
+                if (
+                    isinstance(attribute, Attribute)
+                    and isinstance(attribute.id, str)
+                    and attribute.id.strip()
+                    and isinstance(attribute.pql, str)
+                    and attribute.pql.strip()
+                ):
+                    yield attribute
+
 
 @dataclass(frozen=True)
 class _Sortable(KnowledgeObject, Generic[T]):
@@ -123,6 +151,12 @@ class Sort:
 @dataclass(frozen=True)
 class Attribute(_Sortable[T]):
     """Captured attribute with a declared value type, possibly nullable in data."""
+
+    def eq(self, value: T | None) -> Predicate:
+        """Compare with a Python value; None produces an IS NULL filter."""
+        from celofast.expressions import Predicate
+
+        return Predicate.equal(self, value)
 
 
 @dataclass(frozen=True)
@@ -172,11 +206,11 @@ class KnowledgeModel(KnowledgeObject):
 
     def select(
         self,
-        columns: Mapping[str, str | Attribute[Any] | KPI[Any]] | None = None,
+        columns: Record | Mapping[str, str | Attribute[Any] | KPI[Any]] | None = None,
         /,
         **named_columns: str | Attribute[Any] | KPI[Any],
     ) -> Query:
-        """Start an immutable query using a mapping or named output columns."""
+        """Select a complete record, a mapping, or named output columns."""
         return self._connection().select(columns, **named_columns)
 
     def build(

@@ -1,7 +1,8 @@
 """Celofast-specific exceptions.
 
-PyCelonis and SaolaPy execution exceptions intentionally remain unchanged so
-callers retain their original types and error chains.
+Dictionary execution preserves PyCelonis and SaolaPy exceptions. The query
+builder translates recognized query errors to QueryValidationError and retains
+their native error chains; unrelated execution failures remain unchanged.
 """
 
 

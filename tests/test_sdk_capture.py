@@ -50,6 +50,22 @@ def test_fingerprint_ignores_known_object_order_but_preserves_unknown_order():
     assert '"definition_json"' not in first.to_json()
 
 
+def test_record_attribute_order_survives_capture_roundtrip_and_affects_drift():
+    from celofast.sdk.package import differences
+
+    content = {"records": [{"id": "Plant", "attributes": [
+        {"id": "Z", "pql": "1"}, {"id": "A", "pql": "2"},
+    ]}]}
+    before = Capture.create(source(), content)
+    assert [a["id"] for a in before.definition["records"][0]["attributes"]] == ["Z", "A"]
+    assert Capture.model_validate_json(before.to_json()) == before
+    content["records"][0]["attributes"].reverse()
+    after = Capture.create(source(), content)
+    assert before.fingerprint != after.fingerprint
+    changes = differences(before.to_dict(), after.to_dict())
+    assert any(change.path == "records.Plant.attributes (order)" for change in changes)
+
+
 @pytest.mark.parametrize(
     "payload",
     [

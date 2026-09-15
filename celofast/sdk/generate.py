@@ -12,7 +12,7 @@ from celofast.sdk.capture import Capture
 from celofast.sdk.loading import RUNTIME_API_VERSION, capture_digest
 from celofast.sdk.objects import Attribute, KnowledgeModel, KnowledgeObject, Namespace
 
-GENERATOR_VERSION = 2
+GENERATOR_VERSION = 3
 
 
 def _has_objects(value: Any) -> bool:

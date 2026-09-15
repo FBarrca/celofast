@@ -45,6 +45,8 @@ built: Query = (
     connected.select(number=connected.records.plant.number)
     .order_by(connected.records.plant.number.desc())
 )
+record_query: Query = connected.select(connected.records.plant)
+filtered: Query = record_query.where(connected.records.plant.number.eq("123"))
 query: QueryDefinition = {"columns": {"Number": attribute}, "order_by": [{"pql": attribute}]}
 """
     consumer.write_text(prefix)
@@ -68,3 +70,9 @@ query: QueryDefinition = {"columns": {"Number": attribute}, "order_by": [{"pql":
     )
     assert bad.returncode == 1, bad.stdout + bad.stderr
     assert 'expected "Attribute[int]"' in bad.stdout
+    consumer.write_text(prefix + "connected.records.plant.number.eq(123)\n")
+    bad_comparison = subprocess.run(
+        command, capture_output=True, text=True, timeout=60, check=False
+    )
+    assert bad_comparison.returncode == 1, bad_comparison.stdout + bad_comparison.stderr
+    assert 'expected "str | None"' in bad_comparison.stdout

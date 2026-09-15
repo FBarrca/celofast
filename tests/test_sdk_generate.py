@@ -327,6 +327,7 @@ sys.meta_path.insert(0, BlockQueryImports())
 from offline_inventory import km
 assert km.records.plant.number.pql == "'123'"
 assert km.records.plant.number.desc().ascending is False
+assert km.records.plant.number.eq("123").pql.endswith("= '123';")
 assert 'celofast.builder' not in sys.modules
 """
     result = subprocess.run(

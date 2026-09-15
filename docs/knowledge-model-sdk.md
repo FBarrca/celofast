@@ -81,6 +81,27 @@ other attributes have no shortcut; use their original collection and exact ID.
 For example, an attribute named `metadata` stays accessible through
 `plant.attributes["metadata"]`, while `plant.metadata` describes the record.
 
+### Select a complete record
+
+```python
+plant = km.records.o_celonis_plant
+all_plants = km.select(plant)
+active_plants = all_plants.where(km.filters.active_inventory)
+plants = active_plants.where(plant.country.eq("DE")).execute(distinct=True)
+```
+
+The result is a pandas DataFrame. Whole-record selection includes every captured
+attribute with a non-empty ID and non-empty PQL expression. It expands
+`attributes`, then `new_attributes`, then `augmented_attributes`, preserving the
+definition order within each collection. Other KM object types and attributes
+without PQL are skipped. Column names are exact attribute IDs, such as
+`NumberFormatted`, `Name`, and `Country`; conflicting IDs across collections
+raise `QueryValidationError`. An empty record selection also raises this error.
+
+Expansion retains the original generated attribute objects, including their
+types, PQL, and metadata. For custom output names or a subset of fields, use
+`km.select(plant_number=plant.number_formatted, plant_name=plant.name)`.
+
 ### Compose and reuse queries
 
 Use generated attributes or KPIs for columns and ordering, and generated filters
@@ -101,22 +122,69 @@ result = km.execute(query_dict, limit=100)
 
 | Operation | Behavior |
 | --- | --- |
+| `km.select(plant)` | Select every queryable record attribute in captured order, with exact attribute IDs as column names. |
 | `km.select(**columns)` | Select expressions with keyword output names. |
 | `km.select({"Plant number": number})` | Select with arbitrary string output names. A mapping and keywords can be combined; duplicate names are rejected. |
-| `query.where(*filters)` | Append filters, combined with AND. |
+| `query.where(*filters)` | Append generated filters, attribute predicates, or raw PQL filters, combined with AND. |
 | `query.order_by(*expressions)` | Replace sorting. Plain expressions ascend; attributes and KPIs support `.asc()` and `.desc()`. No arguments clears sorting. |
 | `query.build(variables=...)` | Compile native PQL without requesting query data. |
 | `query.to_query()` | Return an independent dictionary retaining captured objects and their defaults. |
-| `query.execute(...)` | Fetch a pandas DataFrame; accepts `variables`, `limit`, `offset`, and `distinct`. |
+| `query.execute(...)` | Fetch a pandas DataFrame; accepts `variables`, `limit`, `offset`, and `distinct`. Omitting `limit` requests all matching rows. |
 
 Composition is immutable: adding filters or changing sorting leaves the base
 query unchanged. Columns and filters can combine generated objects with raw PQL
-strings. Raw filters must be complete `FILTER ...;` statements. Python comparison
-helpers such as `.eq()` and `.isin()` are not part of this initial API.
+strings. Raw filters must be complete `FILTER ...;` statements. Repeated `where()`
+calls append conditions; repeated `order_by()` calls replace the sorting.
+
+### Attribute equality and raw filters
+
+```python
+query = (
+    km.select(plant)
+    .where(km.filters.active_inventory)
+    .where(plant.country.eq("DE"))
+    .where('FILTER "Plant"."Active" = 1;')
+)
+plants = query.execute(limit=100, offset=0, distinct=True)
+```
+
+`attribute.eq(value)` returns an immutable predicate. It accepts strings, finite
+numbers, booleans (encoded as 1/0), dates, and datetimes. `eq(None)` uses `IS NULL`.
+The generated attribute's declared type is checked by static type checkers.
+Strings use PQL escaping for quotes and backslashes; literal text is never
+treated as a `${variable}` replacement. Datetimes use millisecond precision;
+timezone-aware values are converted to UTC, and finer precision is rejected.
+See Celonis's [string literals](https://help.celonis.com/pql46/en/string) and
+[date constants](https://help.celonis.com/pql47/en/date) for the native syntax.
+
+Attribute defaults and explicit `variables=` overrides are applied to the
+attribute expression before the Python literal is added. Use repeated `where()`
+calls to combine predicates with AND; Python `and`/`or` on a predicate raises
+`QueryValidationError`. Other comparisons can be written as raw PQL filters.
 
 `to_query()` retains captured objects, so its result is not necessarily JSON
 serializable. It preserves the same variable-default behavior as direct dictionary
 execution. `build()` and `execute()` use the existing native compilation path.
+
+### Validation and errors
+
+The builder raises `QueryValidationError` for empty selections, duplicate column
+names, invalid filter objects, unsupported KM object types, and incompatible
+captured sources. Limits and offsets must be non-negative integers, excluding
+booleans; `distinct` must be a boolean.
+
+Local PQL checks reject malformed filter statements, unclosed quotes or comments,
+unbalanced delimiters, extra statements, and missing operands. `build()` also
+checks the PQL after variable replacement. These are structural checks, not a
+complete PQL parser: function signatures, KM references, and the remaining
+grammar are resolved by Celonis during execution. The native KM connector has no
+standalone validation service for these expressions.
+
+During builder execution, native query-resolution errors and server errors
+explicitly reporting syntax, parsing, or unknown-filter failures become
+`QueryValidationError`, preserving the native error chain as the cause. Unrelated
+export, permission, and connection failures retain their native exceptions.
+The existing dictionary API retains its validation and native error behavior.
 
 ### Connections and compatibility
 
@@ -137,9 +205,12 @@ than the handle returned by `cf.km(inventory.key)`; callers must not rely on tho
 two results having the same object identity or concrete type.
 
 Regenerate older packages with `celofast km pull` to get direct attribute
-shortcuts. Older runtime-v1 packages still import with this runtime; newly
-generated runtime-v2 packages require the updated Celofast runtime. Review
-generation diffs, including symbols that conflict with new API method names.
+shortcuts and source attribute order. Older captures sorted record attributes
+by ID; their original order cannot be recovered without pulling again. Attribute
+reordering now changes the fingerprint and is reported by `--check`.
+Older runtime-v1/v2 packages still import with this runtime; newly generated
+runtime-v3 packages require the updated Celofast runtime. Review generation
+diffs, including symbols that conflict with new API method names.
 
 ## Native execution
 

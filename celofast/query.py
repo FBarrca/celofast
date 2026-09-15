@@ -11,6 +11,7 @@ from typing_extensions import NotRequired
 import pycelonis.pql as pql
 
 from celofast.exceptions import QueryValidationError, UnresolvedVariableError
+from celofast.expressions import Predicate
 from celofast.sdk.objects import Attribute, Filter, KPI
 
 
@@ -38,7 +39,8 @@ class QueryDefinition(TypedDict):
             expressions.  Insertion order becomes the result-column order.
         filters: Optional list of complete native PQL filter statements.  A
             Knowledge Model filter reference should remain symbolic, for
-            example ``"FILTER @active_suppliers;"``.
+            example ``"FILTER @active_suppliers;"``. Generated filters and
+            attribute equality predicates are also accepted.
         order_by: Optional ordered list of :class:`OrderByDefinition` values.
             Insertion order is preserved in the generated PQL.
 
@@ -56,7 +58,7 @@ class QueryDefinition(TypedDict):
     """
 
     columns: dict[str, str | Attribute[Any] | KPI[Any]]
-    filters: NotRequired[list[str | Filter]]
+    filters: NotRequired[list[str | Filter | Predicate]]
     order_by: NotRequired[list[OrderByDefinition]]
 
 
@@ -163,7 +165,7 @@ def validate_query(query: Mapping[str, object]) -> _PQLQuery:
 
     filters: list[str] = []
     for index, expression in enumerate(raw_filters):
-        if isinstance(expression, Filter):
+        if isinstance(expression, (Filter, Predicate)):
             expression = expression.pql
         if not isinstance(expression, str) or not expression.strip():
             raise QueryValidationError(
@@ -268,6 +270,8 @@ def query_to_pql(
     original = cast(Mapping[str, Any], query)
 
     def bind(expression: str, value: object) -> str:
+        if isinstance(value, Predicate):
+            return value.render(bind(cast(str, value.attribute.pql), value.attribute))
         if isinstance(value, (Attribute, KPI, Filter)):
             # Inline PQL inputs are not resolved by the native connector.
             # Reuse textual binding with this object's captured defaults.

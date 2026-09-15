@@ -88,7 +88,8 @@ def _normalize(value: Any, path: tuple[str, ...] = ()) -> Any:
                 raise CaptureError(f"{location}: duplicate source IDs.")
             # Missing IDs and null entries survive exactly; structural paths
             # remain meaningful by retaining their original order.
-            if len(present) == len(result):
+            # Record attribute order defines whole-record query column order.
+            if len(path) == 1 and len(present) == len(result):
                 result.sort(key=lambda item: item["id"])
         return result
     if value is None or type(value) in (str, bool, int, float):
@@ -194,7 +195,7 @@ class Capture(BaseModel):
 
     @cached_property
     def fingerprint(self) -> str:
-        """Definition fingerprint, independent of retrieval time and object order."""
+        """Definition fingerprint, including record attribute order."""
         content = self.definition_json
         if self.input_variables_json is not None:
             content += "\n" + self.input_variables_json

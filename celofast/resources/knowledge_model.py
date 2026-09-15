@@ -17,7 +17,7 @@ from celofast.resources.augmentation_table import AugmentationTableCollection
 from celofast.types import ResourceMode
 from celofast.sdk.capture import Source
 from celofast.sdk.objects import KnowledgeModel as CapturedKnowledgeModel
-from celofast.sdk.objects import Attribute, KPI
+from celofast.sdk.objects import Attribute, KPI, Record
 
 if TYPE_CHECKING:
     from celofast.builder import Query
@@ -80,11 +80,11 @@ class KnowledgeModelHandle:
 
     def select(
         self,
-        columns: Mapping[str, str | Attribute[Any] | KPI[Any]] | None = None,
+        columns: Record | Mapping[str, str | Attribute[Any] | KPI[Any]] | None = None,
         /,
         **named_columns: str | Attribute[Any] | KPI[Any],
     ) -> Query:
-        """Start a query with output names supplied as a mapping or keywords."""
+        """Select a whole record or output names supplied as a mapping or keywords."""
         from celofast.builder import Query
 
         return Query._select(self, columns, **named_columns)
