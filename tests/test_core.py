@@ -153,9 +153,7 @@ def make_published_client(*, missing_km: bool = False):
     final_content = SimpleNamespace(data_model_id="dm-id")
     get_content = MagicMock(
         side_effect=(
-            PyCelonisNotFoundError("missing published KM")
-            if missing_km
-            else None
+            PyCelonisNotFoundError("missing published KM") if missing_km else None
         ),
         return_value=final_content,
     )
@@ -267,3 +265,52 @@ def test_invalid_resource_mode_is_rejected_before_client_resolution():
 
     client.apps.get_space.assert_not_called()
     client.studio.get_space.assert_not_called()
+
+
+@pytest.mark.parametrize("mode", ["draft", "published"])
+@pytest.mark.parametrize("raw_first", [False, True])
+def test_generated_model_binding_checks_each_source_and_shares_native_handle(mode, raw_first):
+    from celofast.sdk import Capture, KnowledgeModel, Source
+    from celofast.exceptions import QueryValidationError
+
+    client = make_client()[0] if mode == "draft" else make_published_client()[0]
+    source = Source(
+        tenant_id="tenant",
+        space_id="space-id",
+        package_id="package-id",
+        key="orders-km",
+        mode=mode,
+    )
+    capture = Capture.create(source, {"dataModelId": "dm-id"})
+    cf = CeloFast("space-id", "package-id", mode=mode, client=cast(Celonis, client))
+    with (
+        patch("celofast.core.retrieve", return_value=capture) as retrieve,
+        patch(
+            "pycelonis.ems.studio.content_node.knowledge_model.KnowledgeModel.get_content",
+            return_value=SimpleNamespace(data_model_id="dm-id"),
+        ),
+    ):
+        initial = cf.km("orders-km") if raw_first else None
+        handle = cf.km(KnowledgeModel(capture))
+        if initial is not None:
+            assert handle is initial
+        assert cf.km("orders-km") is handle
+        changed = Capture.create(source, {"dataModelId": "dm-id", "kpis": [{"id": "new", "pql": "1"}]})
+        assert cf.km(KnowledgeModel(changed)) is handle
+        assert cf.km(KnowledgeModel(capture)) is handle
+        assert handle.mode == mode
+        assert handle._source == capture.source
+        assert retrieve.call_args.kwargs["mode"] == mode
+        assert retrieve.call_count == 1
+        other_source = source.model_copy(update={"tenant_id": "other-tenant"})
+        other = Capture.create(other_source, {"dataModelId": "dm-id"})
+        with pytest.raises(QueryValidationError, match="different KM source"):
+            cf.km(KnowledgeModel(other))
+        wrong_dm = Capture.create(source, {"dataModelId": "other-dm"})
+        with pytest.raises(QueryValidationError, match="Data Model"):
+            cf.km(KnowledgeModel(wrong_dm))
+        wrong_mode = source.model_copy(
+            update={"mode": "published" if mode == "draft" else "draft"}
+        )
+        with pytest.raises(QueryValidationError, match="lifecycle"):
+            cf.km(KnowledgeModel(Capture.create(wrong_mode, {"dataModelId": "dm-id"})))

@@ -5,6 +5,8 @@ from __future__ import annotations
 import functools
 import os
 
+from dotenv import find_dotenv, load_dotenv
+
 from pycelonis import get_celonis as pycelonis_get_celonis
 from pycelonis import oauth2
 from pycelonis.celonis import Celonis
@@ -38,6 +40,7 @@ def get_celonis(base_url: str | None = None) -> Celonis:
         to propagate with their native exception types.
     """
 
+    load_dotenv(find_dotenv(usecwd=True))
     resolved_base_url = (base_url or os.environ.get("CELONIS_URL", "")).rstrip("/")
     if not resolved_base_url:
         raise RuntimeError("CELONIS_URL must be provided to use the PyCelonis client.")
@@ -53,10 +56,6 @@ def get_celonis(base_url: str | None = None) -> Celonis:
             f"{', '.join(missing)} must be provided to use the PyCelonis client."
         )
 
-    #  Oauth vars
-    print(f"Using CELONIS_URL={resolved_base_url}")
-    print(f"Using OAUTH_CLIENT_ID={oauth_values['OAUTH_CLIENT_ID']}")
-    print(f"Using OAUTH_CLIENT_SECRET={oauth_values['OAUTH_CLIENT_SECRET']}")
     return pycelonis_get_celonis(
         base_url=resolved_base_url,
         api_token=oauth2(
@@ -64,9 +63,9 @@ def get_celonis(base_url: str | None = None) -> Celonis:
             oauth_values["OAUTH_CLIENT_SECRET"],
             oauth_values["OAUTH_SCOPES"],
         ),
-        # key_type=KeyType.BEARER,
-        # user_agent="celofast",
-        # verify_ssl=True,
-        # check_if_outdated=False,
-        # permissions=False,
+        key_type=KeyType.BEARER,
+        user_agent="celofast",
+        verify_ssl=True,
+        check_if_outdated=False,
+        permissions=False,
     )

@@ -1,4 +1,4 @@
-"""Knowledge Model query execution through PyCelonis's native connector."""
+"""Knowledge Model queries through the native PyCelonis connector."""
 
 from __future__ import annotations
 
@@ -7,23 +7,22 @@ from collections.abc import Mapping
 import pandas as pd
 from pycelonis.ems.data_integration.data_model import DataModel
 from pycelonis.ems.studio.content_node.knowledge_model import KnowledgeModel
-from pycelonis.pql import DataFrame
+import pycelonis.pql as pql
 from pycelonis.pql.saola_connector import KnowledgeModelSaolaConnector
-from saolapy.pql.base import PQL
 
 from celofast.exceptions import QueryValidationError
 from celofast.query import query_to_pql
 from celofast.resources.augmentation_table import AugmentationTableCollection
 from celofast.types import ResourceMode
+from celofast.sdk.capture import Source
+from celofast.sdk.objects import KnowledgeModel as CapturedKnowledgeModel
 
 
 class KnowledgeModelHandle:
     """Execute reusable query definitions against one native Knowledge Model.
 
-    The handle is intentionally thin: KPI, record-attribute, filter, and
-    Knowledge Model variable semantics remain owned by PyCelonis.  CeloFast
-    only converts the dictionary contract to SaolaPy ``PQL`` and chooses the
-    native ``KnowledgeModelSaolaConnector`` with the resolved Data Model.
+    All queries use KnowledgeModelSaolaConnector. Generated objects supply their
+    PQL expressions; dependencies resolve against the connected Knowledge Model.
 
     Args:
         knowledge_model: Native PyCelonis Knowledge Model object.  In
@@ -49,16 +48,30 @@ class KnowledgeModelHandle:
         *,
         draft: bool = True,
         augmentation_tables: AugmentationTableCollection | None = None,
+        source: Source | None = None,
     ) -> None:
         self._native = knowledge_model
         self._data_model = data_model
         self._draft = draft
         self._augmentation_tables = augmentation_tables
+        self._source = source
         self._connector = KnowledgeModelSaolaConnector(
             data_model,
             knowledge_model,
             draft=draft,
         )
+
+    def bind(self, model: CapturedKnowledgeModel) -> KnowledgeModelHandle:
+        """Validate the generated model source and return this native handle."""
+        if self._source is None or model.capture.source != self._source:
+            raise QueryValidationError(
+                "Generated model belongs to a different KM source or the source is unverified."
+            )
+        if model.capture.definition.get("dataModelId") != self._data_model.id:
+            raise QueryValidationError(
+                "Generated model targets a different Data Model."
+            )
+        return self
 
     @property
     def mode(self) -> ResourceMode:
@@ -114,7 +127,7 @@ class KnowledgeModelHandle:
         query: Mapping[str, object],
         *,
         variables: Mapping[str, str] | None = None,
-    ) -> PQL:
+    ) -> pql.PQL:
         """Compile a reusable query definition without executing it.
 
         Args:
@@ -150,7 +163,7 @@ class KnowledgeModelHandle:
         offset: int | None = None,
         distinct: bool = False,
     ) -> pd.DataFrame:
-        """Execute a query through PyCelonis's native KM connector.
+        """Execute a query against the connected Knowledge Model.
 
         Args:
             query: Reusable dictionary query definition.
@@ -175,8 +188,8 @@ class KnowledgeModelHandle:
         """
 
         self._validate_execution_options(limit, offset, distinct)
-        pql = self.build(query, variables=variables)
-        frame = DataFrame.from_pql(pql, saola_connector=self._connector)
+        native_query = self.build(query, variables=variables)
+        frame = pql.DataFrame.from_pql(native_query, saola_connector=self._connector)
         return frame.to_pandas(limit=limit, offset=offset, distinct=distinct)
 
     @staticmethod

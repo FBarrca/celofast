@@ -1,42 +1,42 @@
-"""PyCelonis-native MLWB input queries and augmentation-table outputs."""
+"""Celofast public API; generated KM imports stay offline and lightweight."""
 
-from dotenv import load_dotenv
+from importlib import import_module
+from typing import TYPE_CHECKING, Any
 
-load_dotenv()
-
-from celofast.client import get_celonis
-from celofast.core import CeloFast
-from celofast.exceptions import (
-    AmbiguousComponentError,
-    AmbiguousTableError,
-    AugmentationValidationError,
-    CeloFastError,
-    ComponentNotFoundError,
-    ComponentVariableError,
-    QueryValidationError,
-    ResourceAmbiguityError,
-    ResourceNotFoundError,
-    ResourceResolutionError,
-    TableNotFoundError,
-    UnresolvedVariableError,
-    ViewContentError,
-)
-from celofast.query import OrderByDefinition, QueryDefinition
-from celofast.resources.augmentation_table import (
-    AugmentationTableCollection,
-    AugmentationTableHandle,
-)
-from celofast.resources.view_input import (
-    CheckboxHandle,
-    DatePickerHandle,
-    DateRange,
-    DropdownHandle,
-    DropdownOption,
-    InputBoxHandle,
-    InputVariableValue,
-    SelectorHandle,
-)
-from celofast.types import ResourceMode
+if TYPE_CHECKING:
+    from celofast.client import get_celonis
+    from celofast.core import CeloFast
+    from celofast.exceptions import (
+        AmbiguousComponentError,
+        AmbiguousTableError,
+        AugmentationValidationError,
+        CeloFastError,
+        ComponentNotFoundError,
+        ComponentVariableError,
+        QueryValidationError,
+        ResourceAmbiguityError,
+        ResourceNotFoundError,
+        ResourceResolutionError,
+        TableNotFoundError,
+        UnresolvedVariableError,
+        ViewContentError,
+    )
+    from celofast.query import OrderByDefinition, QueryDefinition
+    from celofast.resources.augmentation_table import (
+        AugmentationTableCollection,
+        AugmentationTableHandle,
+    )
+    from celofast.resources.view_input import (
+        CheckboxHandle,
+        DatePickerHandle,
+        DateRange,
+        DropdownHandle,
+        DropdownOption,
+        InputBoxHandle,
+        InputVariableValue,
+        SelectorHandle,
+    )
+    from celofast.types import ResourceMode
 
 __all__ = [
     "AmbiguousComponentError",
@@ -68,3 +68,39 @@ __all__ = [
     "ViewContentError",
     "get_celonis",
 ]
+
+
+_MODULES = {
+    "get_celonis": "celofast.client",
+    "CeloFast": "celofast.core",
+    "OrderByDefinition": "celofast.query",
+    "QueryDefinition": "celofast.query",
+    "ResourceMode": "celofast.types",
+    "AugmentationTableCollection": "celofast.resources.augmentation_table",
+    "AugmentationTableHandle": "celofast.resources.augmentation_table",
+}
+for _name in (
+    "CheckboxHandle",
+    "DatePickerHandle",
+    "DateRange",
+    "DropdownHandle",
+    "DropdownOption",
+    "InputBoxHandle",
+    "InputVariableValue",
+    "SelectorHandle",
+):
+    _MODULES[_name] = "celofast.resources.view_input"
+for _name in __all__:
+    _MODULES.setdefault(_name, "celofast.exceptions")
+
+
+def __getattr__(name: str) -> Any:
+    if name not in _MODULES:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(import_module(_MODULES[name]), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))

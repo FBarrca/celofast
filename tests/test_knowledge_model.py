@@ -23,7 +23,7 @@ def test_execute_uses_native_connector_and_to_pandas_options():
     lazy_frame.to_pandas.return_value = expected
 
     with patch(
-        "celofast.resources.knowledge_model.DataFrame.from_pql",
+        "celofast.resources.knowledge_model.pql.DataFrame.from_pql",
         return_value=lazy_frame,
     ) as from_pql:
         result = handle.execute(
@@ -55,7 +55,7 @@ def test_no_implicit_limit_and_native_export_errors_are_preserved():
     lazy_frame.to_pandas.side_effect = RuntimeError("native failure")
 
     with patch(
-        "celofast.resources.knowledge_model.DataFrame.from_pql",
+        "celofast.resources.knowledge_model.pql.DataFrame.from_pql",
         return_value=lazy_frame,
     ):
         with pytest.raises(RuntimeError, match="native failure"):

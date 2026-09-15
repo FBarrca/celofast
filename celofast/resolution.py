@@ -86,6 +86,14 @@ class _BaseResolver:
                 f"Knowledge Model {knowledge_model.key!r} has no resolved Data Model ID."
             )
 
+        return self.data_model_by_id(data_model_id)
+
+    def data_model_by_id(self, data_model_id: str) -> DataModel:
+        """Resolve an explicit Data Model ID using the shared accessible-model cache."""
+        if not isinstance(data_model_id, str) or not data_model_id:
+            raise ResourceResolutionError(
+                "Knowledge Model has no resolved Data Model ID."
+            )
         if data_model_id not in self._data_models and not self._data_models_loaded:
             for data_pool in self.client.data_integration.get_data_pools():
                 for data_model in data_pool.get_data_models():
@@ -96,8 +104,7 @@ class _BaseResolver:
             return self._data_models[data_model_id]
         except KeyError as exc:
             raise ResourceResolutionError(
-                f"No accessible Data Pool contains Data Model {data_model_id!r} "
-                f"used by Knowledge Model {knowledge_model.key!r}."
+                f"No accessible Data Pool contains Data Model {data_model_id!r}."
             ) from exc
 
 
@@ -185,7 +192,9 @@ class StudioResolver(_BaseResolver):
         if view.id in self._view_content:
             return self._view_content[view.id]
         if not view.serialized_content:
-            raise ViewContentError(f"View {view.key!r} has no serialized Studio content.")
+            raise ViewContentError(
+                f"View {view.key!r} has no serialized Studio content."
+            )
         try:
             payload = yaml.safe_load(view.serialized_content)
             if not isinstance(payload, dict):
@@ -229,7 +238,9 @@ class AppsResolver(_BaseResolver):
         root_node_key = getattr(self.package, "root_node_key", None)
         space_id = getattr(self.package, "space_id", self.space_id)
         package_client = getattr(self.package, "client", None)
-        if not all(isinstance(value, str) and value for value in (root_node_key, space_id)):
+        if not all(
+            isinstance(value, str) and value for value in (root_node_key, space_id)
+        ):
             raise ResourceResolutionError(
                 "Published Package does not expose the root key required to "
                 f"resolve Knowledge Model {key!r}."

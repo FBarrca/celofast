@@ -1,16 +1,17 @@
-"""Serializable query definitions backed by native SaolaPy PQL objects."""
+"""Serializable query definitions backed by native PyCelonis PQL objects."""
 
 from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from typing import TypedDict, cast
+from typing import Any, TypedDict, cast
 
 from typing_extensions import NotRequired
 
-from saolapy.pql.base import OrderByColumn, PQL, PQLColumn, PQLFilter
+import pycelonis.pql as pql
 
 from celofast.exceptions import QueryValidationError, UnresolvedVariableError
+from celofast.sdk.objects import Attribute, Filter, KPI
 
 
 class OrderByDefinition(TypedDict):
@@ -25,12 +26,12 @@ class OrderByDefinition(TypedDict):
     KPI names or Knowledge Model references on the client.
     """
 
-    pql: str
+    pql: str | Attribute[Any] | KPI[Any]
     ascending: NotRequired[bool]
 
 
 class QueryDefinition(TypedDict):
-    """Compact, serializable representation of a native SaolaPy query.
+    """A query using PQL strings or captured KM objects.
 
     Attributes:
         columns: Non-empty mapping from output aliases to native PQL
@@ -41,9 +42,10 @@ class QueryDefinition(TypedDict):
         order_by: Optional ordered list of :class:`OrderByDefinition` values.
             Insertion order is preserved in the generated PQL.
 
-    Query definitions are plain dictionaries, so they can be serialized as
-    JSON/YAML and reused across calls.  Validation rejects unknown top-level
-    fields, empty expressions, and malformed ordering entries.
+    String definitions can be serialized as JSON/YAML. Generated objects are
+    converted to their stored PQL expressions. Dependencies resolve in the live
+    connected KM. Validation rejects unknown fields,
+    empty expressions, and malformed ordering entries.
 
     Example:
         >>> query: QueryDefinition = {
@@ -53,9 +55,20 @@ class QueryDefinition(TypedDict):
         ... }
     """
 
-    columns: dict[str, str]
-    filters: NotRequired[list[str]]
+    columns: dict[str, str | Attribute[Any] | KPI[Any]]
+    filters: NotRequired[list[str | Filter]]
     order_by: NotRequired[list[OrderByDefinition]]
+
+
+class _PQLOrder(TypedDict):
+    pql: str
+    ascending: bool
+
+
+class _PQLQuery(TypedDict):
+    columns: dict[str, str]
+    filters: list[str]
+    order_by: list[_PQLOrder]
 
 
 _QUERY_KEYS = frozenset(("columns", "filters", "order_by"))
@@ -100,7 +113,7 @@ def validate_variables(
     return bindings
 
 
-def validate_query(query: Mapping[str, object]) -> QueryDefinition:
+def validate_query(query: Mapping[str, object]) -> _PQLQuery:
     """Validate and copy a mapping into the public query contract.
 
     Args:
@@ -133,7 +146,11 @@ def validate_query(query: Mapping[str, object]) -> QueryDefinition:
     columns: dict[str, str] = {}
     for alias, expression in raw_columns.items():
         if not isinstance(alias, str) or not alias.strip():
-            raise QueryValidationError("Every query column needs a non-empty string alias.")
+            raise QueryValidationError(
+                "Every query column needs a non-empty string alias."
+            )
+        if isinstance(expression, (Attribute, KPI)):
+            expression = expression.pql
         if not isinstance(expression, str) or not expression.strip():
             raise QueryValidationError(
                 f"Column {alias!r} needs a non-empty PQL expression."
@@ -146,6 +163,8 @@ def validate_query(query: Mapping[str, object]) -> QueryDefinition:
 
     filters: list[str] = []
     for index, expression in enumerate(raw_filters):
+        if isinstance(expression, Filter):
+            expression = expression.pql
         if not isinstance(expression, str) or not expression.strip():
             raise QueryValidationError(
                 f"Filter at index {index} must be a non-empty PQL string."
@@ -156,12 +175,10 @@ def validate_query(query: Mapping[str, object]) -> QueryDefinition:
     if not isinstance(raw_order_by, list):
         raise QueryValidationError("query.order_by must be a list of mappings.")
 
-    order_by: list[OrderByDefinition] = []
+    order_by: list[_PQLOrder] = []
     for index, item in enumerate(raw_order_by):
         if not isinstance(item, Mapping):
-            raise QueryValidationError(
-                f"Ordering at index {index} must be a mapping."
-            )
+            raise QueryValidationError(f"Ordering at index {index} must be a mapping.")
         unknown_order_keys = set(item) - _ORDER_BY_KEYS
         if unknown_order_keys:
             rendered = ", ".join(sorted(repr(key) for key in unknown_order_keys))
@@ -169,6 +186,8 @@ def validate_query(query: Mapping[str, object]) -> QueryDefinition:
                 f"Unknown order_by field(s) at index {index}: {rendered}."
             )
         expression = item.get("pql")
+        if isinstance(expression, (Attribute, KPI)):
+            expression = expression.pql
         if not isinstance(expression, str) or not expression.strip():
             raise QueryValidationError(
                 f"Ordering at index {index} needs a non-empty PQL expression."
@@ -178,9 +197,9 @@ def validate_query(query: Mapping[str, object]) -> QueryDefinition:
             raise QueryValidationError(
                 f"order_by[{index}].ascending must be a boolean."
             )
-        order_by.append(OrderByDefinition(pql=expression, ascending=ascending))
+        order_by.append(_PQLOrder(pql=expression, ascending=ascending))
 
-    return QueryDefinition(columns=columns, filters=filters, order_by=order_by)
+    return _PQLQuery(columns=columns, filters=filters, order_by=order_by)
 
 
 def bind_variables(pql: str, variables: Mapping[str, str] | None = None) -> str:
@@ -211,9 +230,7 @@ def bind_variables(pql: str, variables: Mapping[str, str] | None = None) -> str:
         def replace(match: re.Match[str]) -> str:
             name = match.group(1)
             if name not in bindings:
-                raise UnresolvedVariableError(
-                    f"Unresolved query variable ${{{name}}}."
-                )
+                raise UnresolvedVariableError(f"Unresolved query variable ${{{name}}}.")
             return bindings[name]
 
         return _VARIABLE_RE.sub(replace, code)
@@ -228,8 +245,8 @@ def query_to_pql(
     query: Mapping[str, object],
     *,
     variables: Mapping[str, str] | None = None,
-) -> PQL:
-    """Compile a dictionary query into a native SaolaPy :class:`PQL`.
+) -> pql.PQL:
+    """Compile a dictionary query into a native PyCelonis :class:`pql.PQL`.
 
     Args:
         query: Reusable query definition containing columns and optional
@@ -238,8 +255,8 @@ def query_to_pql(
             in columns, filters, and ordering expressions.
 
     Returns:
-        A new SaolaPy ``PQL`` with ``PQLColumn``, ``PQLFilter``, and
-        ``OrderByColumn`` objects in the same order as the input mapping/list.
+        A new PyCelonis ``pql.PQL`` with ``pql.PQLColumn``, ``pql.PQLFilter``, and
+        ``pql.OrderByColumn`` objects in the same order as the input mapping/list.
         The query is not executed.
 
     Raises:
@@ -248,27 +265,36 @@ def query_to_pql(
     """
 
     definition = validate_query(query)
-    return PQL(
+    original = cast(Mapping[str, Any], query)
+
+    def bind(expression: str, value: object) -> str:
+        # Generated PQL leaves KM variables for the native connector unless
+        # the caller explicitly supplies template overrides.
+        if variables is None and isinstance(value, (Attribute, KPI, Filter)):
+            return expression
+        return bind_variables(expression, variables)
+
+    return pql.PQL(
         columns=[
-            PQLColumn(name=alias, query=bind_variables(expression, variables))
+            pql.PQLColumn(name=alias, query=bind(expression, original["columns"][alias]))
             for alias, expression in definition["columns"].items()
         ],
         filters=[
-            PQLFilter(query=bind_variables(expression, variables))
-            for expression in definition["filters"]
+            pql.PQLFilter(query=bind(expression, original["filters"][index]))
+            for index, expression in enumerate(definition["filters"])
         ],
         order_by_columns=[
-            OrderByColumn(
-                query=bind_variables(item["pql"], variables),
+            pql.OrderByColumn(
+                query=bind(item["pql"], original["order_by"][index]["pql"]),
                 ascending=item["ascending"],
             )
-            for item in definition["order_by"]
+            for index, item in enumerate(definition["order_by"])
         ],
     )
 
 
-def query_from_pql(query: PQL) -> QueryDefinition:
-    """Convert native SaolaPy ``PQL`` into a :class:`QueryDefinition`.
+def query_from_pql(query: pql.PQL) -> QueryDefinition:
+    """Convert native PyCelonis ``pql.PQL`` into a :class:`QueryDefinition`.
 
     Args:
         query: Native PQL returned by SaolaPy or by a PyCelonis component such
@@ -293,11 +319,11 @@ def query_from_pql(query: PQL) -> QueryDefinition:
             )
         columns[column.name] = column.query
 
-    definition = QueryDefinition(
+    definition = _PQLQuery(
         columns=columns,
         filters=[filter_.query for filter_ in query.filters],
         order_by=[
-            OrderByDefinition(pql=item.query, ascending=item.ascending)
+            _PQLOrder(pql=item.query, ascending=item.ascending)
             for item in query.order_by_columns
         ],
     )

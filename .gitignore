@@ -11,3 +11,4 @@ wheels/
 
 # Local environment configuration
 .env
+.celofast-validation/

@@ -22,18 +22,6 @@ Install the package from the `FbarrCa` GitHub repository with
 uv add "celofast @ git+https://github.com/FbarrCa/celofast.git"
 ```
 
-Alternatively, install it with `pip`:
-
-```bash
-pip install "celofast @ git+https://github.com/FbarrCa/celofast.git"
-```
-
-The package requires Python 3.10 or later. Its PyCelonis dependencies are
-hosted on the Celonis package repository and are referenced by verified direct
-artifact URLs in the package metadata, so `pip` does not need a custom index
-configuration. Your environment must still be able to access that repository
-and provide credentials if your organization requires them.
-
 ## Configuration
 
 Copy `.env.example` to `.env` and configure:
@@ -59,6 +47,31 @@ In addition the following permissions should be given:
 > `integration.enable-external-augmentation-api`
 
 ## Query a Knowledge Model
+
+### Use captured, typed KM definitions
+
+Generate a Python package from your cloud Knowledge Model:
+
+```bash
+celofast km pull inventory
+```
+
+```python
+from celofast import CeloFast
+from generated.inventory import km as inventory
+
+cf = CeloFast(space_id="SPACE_ID", package_id="PACKAGE_ID")
+plant = inventory.records.o_celonis_plant
+result = cf.km(inventory).execute({
+    "columns": {"Plant": plant.attributes.number_formatted},
+})
+```
+
+Generated objects contain the definitions captured at pull time. Cloud edits are
+adopted through regeneration; query data remains live. See [Knowledge Model SDK](docs/knowledge-model-sdk.md)
+for configuration, supported execution, and `--check` in CI.
+
+### Use existing PQL query definitions
 
 Configure the Space and Package once, then select Knowledge Models by their
 exact keys. Draft mode uses Studio resources by default:

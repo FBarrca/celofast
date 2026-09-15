@@ -17,6 +17,9 @@ from celofast.resources.augmentation_table import AugmentationTableCollection
 from celofast.resources.knowledge_model import KnowledgeModelHandle
 from celofast.resources.view import ViewHandle
 from celofast.types import ResourceMode
+from celofast.sdk.capture import Source, retrieve
+from celofast.exceptions import QueryValidationError
+from celofast.sdk.objects import KnowledgeModel as CapturedKnowledgeModel
 
 
 class CeloFast:
@@ -149,20 +152,17 @@ class CeloFast:
         """
         return self._resolver.package
 
-    def km(self, key: str) -> KnowledgeModelHandle:
-        """Return a cached handle for a Knowledge Model selected by exact key.
+    def km(self, key: str | CapturedKnowledgeModel) -> KnowledgeModelHandle:
+        """Select a native model by its generated root or exact key.
 
         Args:
-            key: Exact Knowledge Model key.  This is not the model's display
-                name and is not interpreted as a package variable.  In
-                published mode it is combined with the package root key to
-                address the final semantic-layer model.
+            key: A generated ``km`` root or an exact Knowledge Model key.
+                Display names and package variables are not accepted as keys.
 
         Returns:
-            A :class:`KnowledgeModelHandle` backed by the native PyCelonis
-            Knowledge Model connector.  The associated Data Model is resolved
-            from the KM's final server-side content, and the connector uses
-            the selected lifecycle context.
+            A :class:`KnowledgeModelHandle` using the selected lifecycle and
+            verified Data Model. All captures of the same KM share one handle;
+            generated roots are source-checked on every lookup.
 
         Raises:
             ResourceNotFoundError: If no KM with ``key`` exists in the Package.
@@ -171,9 +171,35 @@ class CeloFast:
             ResourceResolutionError: If the KM has no accessible Data Model.
         """
 
+        model = key if isinstance(key, CapturedKnowledgeModel) else None
+        capture = model.capture if model is not None else None
+        if capture is not None:
+            expected = capture.source
+            if (expected.space_id, expected.package_id, expected.mode) != (
+                self._resolver.space_id,
+                self._resolver.package_id,
+                self.mode,
+            ):
+                raise QueryValidationError(
+                    "Generated model targets a different Space, Package, or lifecycle."
+                )
+            key = expected.key
+        if not isinstance(key, str) or not key:
+            raise ValueError("Knowledge Model key must be a non-empty string.")
         if key not in self._km_handles:
             native = self._resolver.knowledge_model(key)
             data_model = self._resolver.data_model(native)
+            content = self._resolver._knowledge_model_content[native.id]
+            tenant_id = getattr(content, "tenant_id", None)
+            source = None
+            if isinstance(tenant_id, str) and tenant_id:
+                source = Source(
+                    tenant_id=tenant_id,
+                    space_id=self._resolver.space_id,
+                    package_id=self._resolver.package_id,
+                    key=key,
+                    mode=self.mode,
+                )
             augmentation_tables = self._augmentation_collections.get(data_model.id)
             if augmentation_tables is None:
                 augmentation_tables = AugmentationTableCollection(data_model)
@@ -183,8 +209,25 @@ class CeloFast:
                 data_model,
                 draft=self._resolver.draft,
                 augmentation_tables=augmentation_tables,
+                source=source,
             )
-        return self._km_handles[key]
+        handle = self._km_handles[key]
+        if model is not None:
+            if handle._source is None:
+                # Older native content models may omit tenant provenance.
+                current = retrieve(
+                    handle.native,
+                    space_id=self._resolver.space_id,
+                    package_id=self._resolver.package_id,
+                    mode=self.mode,
+                )
+                if current.definition.get("dataModelId") != handle.data_model.id:
+                    raise QueryValidationError(
+                        "Connected KM targets a different Data Model."
+                    )
+                handle._source = current.source
+            return handle.bind(model)
+        return handle
 
     def view(
         self,

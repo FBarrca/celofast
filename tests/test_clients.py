@@ -45,6 +45,7 @@ def test_get_celonis_uses_oauth_credentials(monkeypatch):
 
 
 def test_get_celonis_reports_missing_oauth_configuration(monkeypatch):
+    monkeypatch.setattr(client, "load_dotenv", lambda _: False)
     monkeypatch.setenv("CELONIS_URL", "https://example.celonis.cloud")
     monkeypatch.delenv("OAUTH_CLIENT_ID", raising=False)
     monkeypatch.delenv("OAUTH_CLIENT_SECRET", raising=False)
