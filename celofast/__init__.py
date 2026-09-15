@@ -4,6 +4,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from celofast.builder import Query
     from celofast.client import get_celonis
     from celofast.core import CeloFast
     from celofast.exceptions import (
@@ -56,6 +57,7 @@ __all__ = [
     "InputBoxHandle",
     "InputVariableValue",
     "OrderByDefinition",
+    "Query",
     "QueryDefinition",
     "QueryValidationError",
     "ResourceAmbiguityError",
@@ -71,6 +73,7 @@ __all__ = [
 
 
 _MODULES = {
+    "Query": "celofast.builder",
     "get_celonis": "celofast.client",
     "CeloFast": "celofast.core",
     "OrderByDefinition": "celofast.query",

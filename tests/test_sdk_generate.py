@@ -254,6 +254,7 @@ def test_generated_package_imports_offline_with_complete_discoverable_objects(tm
         km = module.km
         plant = km.records.o_celonis_plant
         attr = plant.attributes.number_name_concat
+        assert plant.number_name_concat == attr
         assert isinstance(attr, Attribute)
         assert attr.id == "NumberNameConcat"
         assert attr.column_type == "string"
@@ -271,3 +272,65 @@ def test_generated_package_imports_offline_with_complete_discoverable_objects(tm
         )
     finally:
         sys.modules.pop(spec.name, None)
+
+
+def test_shortcuts_skip_collisions_and_preserve_nested_attribute_types(tmp_path):
+    ids = ["Number", "metadata", "attributes", "NumberName", "number_name", "Shared"]
+    capture = Capture.create(
+        Source(tenant_id="t", space_id="s", package_id="p", key="km", mode="draft"),
+        {"records": [{
+            "id": "Plant",
+            "attributes": [
+                {"id": id_, "columnType": "STRING", "pql": "'value'"}
+                for id_ in ids
+            ] + [{"id": "Nested", "columnType": "STRING", "pql": "'nested'",
+                  "parameters": [{"id": "Parameter"}]}],
+            "newAttributes": [{"id": "Shared", "columnType": "STRING", "pql": "'new'"}],
+            "augmentedAttributes": [{"id": "Extra", "columnType": "INTEGER", "pql": "1"}],
+        }]},
+    )
+    root, _ = load_generated(capture, tmp_path)
+    plant = root.records.plant
+    assert plant.number == plant.attributes.number
+    assert plant.extra == plant.augmented_attributes.extra
+    assert plant.metadata["id"] == "Plant"
+    assert plant.attributes["metadata"].pql == "'value'"
+    assert plant.attributes["attributes"].pql == "'value'"
+    assert not hasattr(plant, "number_name")
+    assert not hasattr(plant, "shared")
+    assert plant.attributes["Shared"].pql == "'value'"
+    assert plant.new_attributes["Shared"].pql == "'new'"
+    assert plant.nested.parameters.parameter.id == "Parameter"
+
+
+def test_import_and_shortcuts_do_not_load_query_stack(tmp_path):
+    import subprocess
+
+    capture = Capture.create(
+        Source(tenant_id="t", space_id="s", package_id="p", key="km", mode="draft"),
+        {"records": [{"id": "Plant", "attributes": [
+            {"id": "Number", "columnType": "STRING", "pql": "'123'"}
+        ]}]},
+    )
+    package = tmp_path / "offline_inventory"
+    package.mkdir()
+    for name, data in generate(capture).items():
+        (package / name).write_bytes(data)
+    script = """
+import sys
+sys.path.insert(0, sys.argv[1])
+class BlockQueryImports:
+    def find_spec(self, fullname, path, target=None):
+        if fullname.split('.')[0] in {'pycelonis', 'saolapy', 'pandas'}:
+            raise AssertionError(f'Offline import loaded {fullname}')
+sys.meta_path.insert(0, BlockQueryImports())
+from offline_inventory import km
+assert km.records.plant.number.pql == "'123'"
+assert km.records.plant.number.desc().ascending is False
+assert 'celofast.builder' not in sys.modules
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path)],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

@@ -10,9 +10,9 @@ from typing import Any
 
 from celofast.sdk.capture import Capture
 from celofast.sdk.loading import RUNTIME_API_VERSION, capture_digest
-from celofast.sdk.objects import KnowledgeModel, KnowledgeObject, Namespace
+from celofast.sdk.objects import Attribute, KnowledgeModel, KnowledgeObject, Namespace
 
-GENERATOR_VERSION = 1
+GENERATOR_VERSION = 2
 
 
 def _has_objects(value: Any) -> bool:
@@ -56,6 +56,7 @@ def generate(capture: Capture) -> dict[str, bytes]:
     declarations: list[str] = []
     inventory: list[dict[str, Any]] = []
     diagnostics: list[str] = []
+    object_classes: dict[tuple[str | int, ...], str] = {}
     class_names: dict[str, tuple[str | int, ...] | None] = dict.fromkeys(
         {
             "KnowledgeModel",
@@ -74,8 +75,9 @@ def generate(capture: Capture) -> dict[str, bytes]:
     reserved = (
         set(dir(KnowledgeObject))
         | set(dir(KnowledgeModel))
+        | set(dir(Attribute))
         | set(dir(Namespace))
-        | {"capture", "path"}
+        | {"capture", "path", "_handle"}
     )
 
     def class_name(path: tuple[str | int, ...]) -> str:
@@ -160,6 +162,7 @@ def generate(capture: Capture) -> dict[str, bytes]:
                 and (not path or base == "Record")
             ]
             if not children and path:
+                object_classes[path] = base
                 return base
             symbols = _names([key for key, _ in children], reserved)
             for (key, child), symbol in zip(children, symbols):
@@ -175,6 +178,37 @@ def generate(capture: Capture) -> dict[str, bytes]:
                         "",
                     ]
                 )
+            if base == "Record":
+                # Shortcuts never replace metadata, children, or an ambiguous
+                # attribute name. The original collections remain canonical.
+                attributes = [
+                    entry
+                    for entry in inventory
+                    if len(entry["path"]) == len(path) + 2
+                    and tuple(entry["path"][: len(path)]) == path
+                    and entry["path"][-2]
+                    in {
+                        "attributes",
+                        "newAttributes",
+                        "augmentedAttributes",
+                    }
+                    and isinstance(entry["id"], str)
+                    and entry["class"].startswith("Attribute[")
+                ]
+                aliases = [python_name(entry["id"]) for entry in attributes]
+                for entry, alias in zip(attributes, aliases):
+                    if alias in reserved or alias in symbols or aliases.count(alias) > 1:
+                        continue
+                    child_class = object_classes[tuple(entry["path"])]
+                    relative = entry["python"][len(access) + 1 :]
+                    properties.extend(
+                        [
+                            "    @property",
+                            f"    def {alias}(self) -> {child_class}:",
+                            f"        return self.{relative}",
+                            "",
+                        ]
+                    )
         else:
             base = "Namespace"
             entries = [
@@ -236,6 +270,7 @@ def generate(capture: Capture) -> dict[str, bytes]:
             f"@dataclass(frozen=True)\nclass {name}({base}):\n"
             + ("\n".join(properties) or "    pass\n")
         )
+        object_classes[path] = name
         return name
 
     root_symbol = "km"

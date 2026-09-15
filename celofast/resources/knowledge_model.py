@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 from pycelonis.ems.data_integration.data_model import DataModel
@@ -16,6 +17,10 @@ from celofast.resources.augmentation_table import AugmentationTableCollection
 from celofast.types import ResourceMode
 from celofast.sdk.capture import Source
 from celofast.sdk.objects import KnowledgeModel as CapturedKnowledgeModel
+from celofast.sdk.objects import Attribute, KPI
+
+if TYPE_CHECKING:
+    from celofast.builder import Query
 
 
 class KnowledgeModelHandle:
@@ -72,6 +77,17 @@ class KnowledgeModelHandle:
                 "Generated model targets a different Data Model."
             )
         return self
+
+    def select(
+        self,
+        columns: Mapping[str, str | Attribute[Any] | KPI[Any]] | None = None,
+        /,
+        **named_columns: str | Attribute[Any] | KPI[Any],
+    ) -> Query:
+        """Start a query with output names supplied as a mapping or keywords."""
+        from celofast.builder import Query
+
+        return Query._select(self, columns, **named_columns)
 
     @property
     def mode(self) -> ResourceMode:

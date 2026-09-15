@@ -8,7 +8,7 @@ from pathlib import Path
 
 from celofast.sdk.capture import Capture
 
-RUNTIME_API_VERSION = 1
+RUNTIME_API_VERSION = 2
 
 
 class SDKCompatibilityError(ImportError):
@@ -27,7 +27,7 @@ def capture_digest(capture: Capture) -> str:
 
 def load_capture(path: Path, *, runtime_api: int, digest: str) -> Capture:
     """Load offline and fail clearly for stale code, data, or runtime versions."""
-    if runtime_api != RUNTIME_API_VERSION:
+    if runtime_api not in (1, RUNTIME_API_VERSION):
         raise SDKCompatibilityError(
             "Generated KM runtime is incompatible. Upgrade Celofast or rerun celofast km pull."
         )

@@ -3,10 +3,24 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
-from typing import Any, ClassVar, Generic, TypeVar
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar
+
+from typing_extensions import Self
 
 from celofast.sdk.capture import Capture
+from celofast.types import ResourceMode
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import pycelonis.pql as pql
+    from pycelonis.ems.data_integration.data_model import DataModel
+    from pycelonis.ems.studio.content_node.knowledge_model import (
+        KnowledgeModel as NativeKnowledgeModel,
+    )
+    from celofast.builder import Query
+    from celofast.resources.augmentation_table import AugmentationTableCollection
+    from celofast.resources.knowledge_model import KnowledgeModelHandle
 
 T = TypeVar("T")
 Path = tuple[str | int, ...]
@@ -88,12 +102,31 @@ class Record(KnowledgeObject):
 
 
 @dataclass(frozen=True)
-class Attribute(KnowledgeObject, Generic[T]):
+class _Sortable(KnowledgeObject, Generic[T]):
+    def asc(self) -> Sort:
+        """Order this captured expression from low to high."""
+        return Sort(self)
+
+    def desc(self) -> Sort:
+        """Order this captured expression from high to low."""
+        return Sort(self, ascending=False)
+
+
+@dataclass(frozen=True)
+class Sort:
+    """An ordering that retains the captured expression and its defaults."""
+
+    expression: _Sortable[Any]
+    ascending: bool = True
+
+
+@dataclass(frozen=True)
+class Attribute(_Sortable[T]):
     """Captured attribute with a declared value type, possibly nullable in data."""
 
 
 @dataclass(frozen=True)
-class KPI(KnowledgeObject, Generic[T]):
+class KPI(_Sortable[T]):
     """Captured KPI, including its definition and associated metadata."""
 
 
@@ -111,6 +144,64 @@ class Variable(KnowledgeObject, Generic[T]):
 class KnowledgeModel(KnowledgeObject):
     """Root of one complete generated KM capture."""
 
+    _handle: KnowledgeModelHandle | None = field(
+        default=None, kw_only=True, compare=False, repr=False
+    )
+
+    def _connect(self, handle: KnowledgeModelHandle) -> Self:
+        """Return a connected copy, preserving this generated root's type."""
+        handle.bind(self)
+        return replace(self, _handle=handle)
+
+    def _connection(self) -> KnowledgeModelHandle:
+        if self._handle is None:
+            raise RuntimeError("Connect this model with cf.km(model) first.")
+        return self._handle
+
+    @property
+    def native(self) -> NativeKnowledgeModel:
+        return self._connection().native
+
+    @property
+    def data_model(self) -> DataModel:
+        return self._connection().data_model
+
+    @property
+    def augmentation_tables(self) -> AugmentationTableCollection:
+        return self._connection().augmentation_tables
+
+    def select(
+        self,
+        columns: Mapping[str, str | Attribute[Any] | KPI[Any]] | None = None,
+        /,
+        **named_columns: str | Attribute[Any] | KPI[Any],
+    ) -> Query:
+        """Start an immutable query using a mapping or named output columns."""
+        return self._connection().select(columns, **named_columns)
+
+    def build(
+        self,
+        query: Mapping[str, object],
+        *,
+        variables: Mapping[str, str] | None = None,
+    ) -> pql.PQL:
+        """Compile an existing dictionary query without executing it."""
+        return self._connection().build(query, variables=variables)
+
+    def execute(
+        self,
+        query: Mapping[str, object],
+        *,
+        variables: Mapping[str, str] | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+        distinct: bool = False,
+    ) -> pd.DataFrame:
+        """Execute an existing dictionary query through the shared handle."""
+        return self._connection().execute(
+            query, variables=variables, limit=limit, offset=offset, distinct=distinct
+        )
+
     @property
     def input_variables(self) -> Mapping[str, Any] | None:
         """Captured Studio defaults for inspection; execution remains native."""
@@ -121,7 +212,7 @@ class KnowledgeModel(KnowledgeObject):
         return self.capture.source.key
 
     @property
-    def mode(self) -> str:
+    def mode(self) -> ResourceMode:
         return self.capture.source.mode
 
 

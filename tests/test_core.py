@@ -293,13 +293,16 @@ def test_generated_model_binding_checks_each_source_and_shares_native_handle(mod
         initial = cf.km("orders-km") if raw_first else None
         handle = cf.km(KnowledgeModel(capture))
         if initial is not None:
-            assert handle is initial
-        assert cf.km("orders-km") is handle
+            assert handle._handle is initial
+        assert cf.km("orders-km") is handle._handle
         changed = Capture.create(source, {"dataModelId": "dm-id", "kpis": [{"id": "new", "pql": "1"}]})
-        assert cf.km(KnowledgeModel(changed)) is handle
-        assert cf.km(KnowledgeModel(capture)) is handle
+        changed_model = cf.km(KnowledgeModel(changed))
+        assert changed_model._handle is handle._handle
+        assert changed_model.capture is changed
+        assert handle.capture is capture
+        assert cf.km(KnowledgeModel(capture))._handle is handle._handle
         assert handle.mode == mode
-        assert handle._source == capture.source
+        assert handle._handle._source == capture.source
         assert retrieve.call_args.kwargs["mode"] == mode
         assert retrieve.call_count == 1
         other_source = source.model_copy(update={"tenant_id": "other-tenant"})

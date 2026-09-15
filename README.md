@@ -61,15 +61,28 @@ from celofast import CeloFast
 from generated.inventory import km as inventory
 
 cf = CeloFast(space_id="SPACE_ID", package_id="PACKAGE_ID")
-plant = inventory.records.o_celonis_plant
-result = cf.km(inventory).execute({
-    "columns": {"Plant": plant.attributes.number_formatted},
-})
+km = cf.km(inventory)
+plant = km.records.o_celonis_plant
+value = km.kpis.inventory_value
+
+result = (
+    km.select(plant=plant.number_formatted, value=value)
+    .where(km.filters.active_inventory)
+    .order_by(value.desc())
+    .execute(limit=100)
+)
 ```
 
 Generated objects contain the definitions captured at pull time. Cloud edits are
 adopted through regeneration; query data remains live. See [Knowledge Model SDK](docs/knowledge-model-sdk.md)
 for configuration, supported execution, and `--check` in CI.
+
+`select()` also accepts a mapping for names containing spaces, such as
+`km.select({"Plant number": plant.number_formatted})`. Query composition returns
+new objects, so a base query can be reused. Use `query.build()` to inspect native
+PQL and `query.to_query()` to get the existing dictionary representation.
+Existing `km.execute(query_dict)` calls continue to work. Regenerate older
+packages with `celofast km pull` to add direct record-attribute shortcuts.
 
 ### Use existing PQL query definitions
 

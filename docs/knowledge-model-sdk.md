@@ -45,7 +45,7 @@ from celofast import CeloFast
 from generated.inventory import km as inventory
 
 plant = inventory.records.o_celonis_plant
-number = plant.attributes.number_formatted
+number = plant.number_formatted
 
 number.id
 number.description
@@ -54,9 +54,8 @@ number.pql
 number.metadata  # Complete, deeply immutable source definition
 
 cf = CeloFast(space_id="SPACE_ID", package_id="PACKAGE_ID", mode="draft")
-result = cf.km(inventory).execute({
-    "columns": {"Plant number": number},
-}, limit=100)
+km = cf.km(inventory)
+result = km.select({"Plant number": number}).execute(limit=100)
 ```
 
 Member names derive from your KM IDs, so the exact available attributes depend
@@ -75,22 +74,72 @@ Exact-ID lookup returns the common object type because its key is a runtime
 string. Unknown types use `Any`; unsupported categories remain discoverable as
 generic objects. Capture diagnostics are recorded in `schema.json`.
 
+Records expose direct shortcuts for unambiguous attributes from `attributes`,
+`new_attributes`, and `augmented_attributes`. Shortcuts preserve the original
+attribute type and metadata. Names that collide with record properties or
+other attributes have no shortcut; use their original collection and exact ID.
+For example, an attribute named `metadata` stays accessible through
+`plant.attributes["metadata"]`, while `plant.metadata` describes the record.
+
+### Compose and reuse queries
+
 Use generated attributes or KPIs for columns and ordering, and generated filters
 for filtering:
 
 ```python
-query = {
-    "columns": {"Plant": number, "Value": inventory.kpis.inventory_value},
-    "filters": [inventory.filters.active_inventory],
-    "order_by": [{"pql": inventory.kpis.inventory_value, "ascending": False}],
-}
-native_pql = cf.km(inventory).build(query)
+value = km.kpis.inventory_value
+base = km.select(plant=km.records.o_celonis_plant.number_formatted, value=value)
+active = base.where(km.filters.active_inventory)
+largest = active.order_by(value.desc())
+
+native_pql = largest.build()
+result = largest.execute(limit=100)
+query_dict = largest.to_query()
+# The existing execution API accepts the same definition.
+result = km.execute(query_dict, limit=100)
 ```
 
-Binding checks tenant, Space, Package, KM key, lifecycle, and Data Model.
-Generated roots and string keys share one native handle per KM; each generated
-root is validated even when the handle is already cached.
-Queries can combine generated attributes, KPIs, and filters with raw PQL strings.
+| Operation | Behavior |
+| --- | --- |
+| `km.select(**columns)` | Select expressions with keyword output names. |
+| `km.select({"Plant number": number})` | Select with arbitrary string output names. A mapping and keywords can be combined; duplicate names are rejected. |
+| `query.where(*filters)` | Append filters, combined with AND. |
+| `query.order_by(*expressions)` | Replace sorting. Plain expressions ascend; attributes and KPIs support `.asc()` and `.desc()`. No arguments clears sorting. |
+| `query.build(variables=...)` | Compile native PQL without requesting query data. |
+| `query.to_query()` | Return an independent dictionary retaining captured objects and their defaults. |
+| `query.execute(...)` | Fetch a pandas DataFrame; accepts `variables`, `limit`, `offset`, and `distinct`. |
+
+Composition is immutable: adding filters or changing sorting leaves the base
+query unchanged. Columns and filters can combine generated objects with raw PQL
+strings. Raw filters must be complete `FILTER ...;` statements. Python comparison
+helpers such as `.eq()` and `.isin()` are not part of this initial API.
+
+`to_query()` retains captured objects, so its result is not necessarily JSON
+serializable. It preserves the same variable-default behavior as direct dictionary
+execution. `build()` and `execute()` use the existing native compilation path.
+
+### Connections and compatibility
+
+`cf.km(inventory)` returns a connected copy of the generated root, preserving
+its precise type and autocomplete. The imported `inventory` remains offline
+and unchanged. Connect before calling its query methods or accessing `native`,
+`data_model`, or `augmentation_tables`.
+
+Binding checks tenant, Space, Package, KM key, lifecycle, and Data Model on every
+lookup. Connected copies share a cached native handle while keeping their own
+captured definitions. Builder columns, filters, and sorting also reject generated
+objects from another source or Data Model. String-key selection still returns
+the cached handle, which supports both `select()` and dictionary queries.
+
+Existing `cf.km(inventory).build(query_dict)` and `.execute(query_dict)` calls
+continue to work. The returned generated object is now a connected copy rather
+than the handle returned by `cf.km(inventory.key)`; callers must not rely on those
+two results having the same object identity or concrete type.
+
+Regenerate older packages with `celofast km pull` to get direct attribute
+shortcuts. Older runtime-v1 packages still import with this runtime; newly
+generated runtime-v2 packages require the updated Celofast runtime. Review
+generation diffs, including symbols that conflict with new API method names.
 
 ## Native execution
 

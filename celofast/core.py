@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import TypeVar, overload
 
 from pycelonis.celonis import Celonis
 
@@ -20,6 +21,8 @@ from celofast.types import ResourceMode
 from celofast.sdk.capture import Source, retrieve
 from celofast.exceptions import QueryValidationError
 from celofast.sdk.objects import KnowledgeModel as CapturedKnowledgeModel
+
+_KM = TypeVar("_KM", bound=CapturedKnowledgeModel)
 
 
 class CeloFast:
@@ -152,7 +155,15 @@ class CeloFast:
         """
         return self._resolver.package
 
-    def km(self, key: str | CapturedKnowledgeModel) -> KnowledgeModelHandle:
+    @overload
+    def km(self, key: str) -> KnowledgeModelHandle: ...
+
+    @overload
+    def km(self, key: _KM) -> _KM: ...
+
+    def km(
+        self, key: str | CapturedKnowledgeModel
+    ) -> KnowledgeModelHandle | CapturedKnowledgeModel:
         """Select a native model by its generated root or exact key.
 
         Args:
@@ -160,9 +171,10 @@ class CeloFast:
                 Display names and package variables are not accepted as keys.
 
         Returns:
-            A :class:`KnowledgeModelHandle` using the selected lifecycle and
-            verified Data Model. All captures of the same KM share one handle;
-            generated roots are source-checked on every lookup.
+            String keys return a cached :class:`KnowledgeModelHandle`.
+            Generated roots return a connected copy retaining their precise
+            generated type and captured definitions. Copies share the native
+            handle and are source-checked on every lookup.
 
         Raises:
             ResourceNotFoundError: If no KM with ``key`` exists in the Package.
@@ -226,7 +238,7 @@ class CeloFast:
                         "Connected KM targets a different Data Model."
                     )
                 handle._source = current.source
-            return handle.bind(model)
+            return model._connect(handle)
         return handle
 
     def view(

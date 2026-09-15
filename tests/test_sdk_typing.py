@@ -32,11 +32,19 @@ def test_static_analyzer_resolves_generated_attribute_types(tmp_path):
     consumer = tmp_path / "consumer.py"
     prefix = """from inventory import km as inventory_km
 from celofast.sdk.objects import Attribute
-from celofast import QueryDefinition
+from celofast import CeloFast, Query, QueryDefinition
 def needs_string(value: Attribute[str]) -> None: ...
 def needs_integer(value: Attribute[int]) -> None: ...
 attribute = inventory_km.records.plant.attributes.number
 needs_string(attribute)
+needs_string(inventory_km.records.plant.number)
+cf = CeloFast("s", "p")
+connected = cf.km(inventory_km)
+needs_string(connected.records.plant.number)
+built: Query = (
+    connected.select(number=connected.records.plant.number)
+    .order_by(connected.records.plant.number.desc())
+)
 query: QueryDefinition = {"columns": {"Number": attribute}, "order_by": [{"pql": attribute}]}
 """
     consumer.write_text(prefix)
@@ -54,7 +62,7 @@ query: QueryDefinition = {"columns": {"Number": attribute}, "order_by": [{"pql":
         command, capture_output=True, text=True, timeout=60, check=False
     )
     assert good.returncode == 0, good.stdout + good.stderr
-    consumer.write_text(prefix + "needs_integer(attribute)\n")
+    consumer.write_text(prefix + "needs_integer(connected.records.plant.number)\n")
     bad = subprocess.run(
         command, capture_output=True, text=True, timeout=60, check=False
     )
