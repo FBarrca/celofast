@@ -16,10 +16,11 @@ from celofast.exceptions import (
     ObjectNotFoundError,
     QueryValidationError,
 )
-from celofast.sdk.capture import Capture, Source
+from celofast.sdk.capture import Source
 from celofast.sdk.definitions import (
     Field,
     LinkDefinition,
+    ModelInfo,
     ObjectDefinition,
     Predicate,
     Related,
@@ -76,7 +77,7 @@ class _Relation(Generic[O]):
             )
         target = self.target.fields
         if predicate is not None and (
-            predicate.owner != target.object_type or predicate.capture is not target.capture
+            predicate.owner != target.object_type or predicate.model is not target.model
         ):
             raise QueryValidationError(
                 f"{self.name} relates to {target.object_type}; the predicate describes "
@@ -137,7 +138,7 @@ class Object:
     def ref(self) -> ObjectRef:
         definition = type(self).fields
         return ObjectRef(
-            source=definition.capture.source,
+            source=definition.model.source,
             object_type=definition.object_type,
             key=getattr(self, "key"),
         )
@@ -250,7 +251,7 @@ class ObjectCollection(Generic[O]):
                 )
             if (
                 predicate.owner != definition.object_type
-                or predicate.capture is not definition.capture
+                or predicate.model is not definition.model
             ):
                 raise QueryValidationError(
                     f"A predicate on {predicate.owner} cannot filter "
@@ -265,7 +266,7 @@ class ObjectCollection(Generic[O]):
         for sort in sorts:
             sort = sort.asc() if isinstance(sort, Field) else sort
             if not isinstance(sort, Sort) or sort.field.owner != definition.object_type or (
-                sort.field.capture is not definition.capture
+                sort.field.model is not definition.model
             ):
                 raise QueryValidationError(
                     f"order_by() accepts fields of {definition.object_type}, such as "
@@ -325,17 +326,24 @@ class ObjectCollection(Generic[O]):
 class ObjectModel:
     """Generated registry of object types captured from one Knowledge Model."""
 
-    capture: Capture
+    info: ModelInfo
     objects: tuple[type[Object], ...]
 
     @property
     def source(self) -> Source:
-        return self.capture.source
+        return self.info.source
 
     @property
-    def input_variables(self) -> Mapping[str, Any] | None:
-        """Captured Studio input definitions, for inspection only."""
-        return self.capture.input_variables
+    def data_model_id(self) -> str | None:
+        return self.info.data_model_id
+
+    @property
+    def variables(self) -> tuple[str, ...]:
+        """KM input variables (``${name}``) used by generated field expressions.
+
+        Bind them with ``cf.km(model, variables={...})``.
+        """
+        return self.info.variables
 
     def __iter__(self) -> Iterator[type[Object]]:
         return iter(self.objects)

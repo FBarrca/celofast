@@ -126,13 +126,17 @@ The generated package contains:
 
 | File | Content |
 | --- | --- |
-| `__init__.py` | Exports every value class and `km`, the object registry. |
-| `definitions.py` | `PlantDefinition` classes with `Field[...]` members, keys, and link declarations. |
+| `__init__.py` | Exports every value class and `km`, the object registry, plus the `__celofast__` generation stamp. |
+| `definitions.py` | The KM source, then `PlantDefinition` classes with `Field[...]` members, expressions, keys, and link declarations. |
 | `objects.py` | `Plant` value classes and the `km` registry. |
 | `links.py` | `PlantLinks` (instance traversal) and `PlantRelations` (relationship predicates) classes. |
-| `capture.json` | The complete captured KM definition. |
-| `schema.json` | Generated symbols, mapping, exclusions, and diagnostics. |
 | `py.typed` | Marks the package as typed. |
+
+The package is plain Python with no data files. Everything the runtime needs is
+written as literals: the KM source, Data Model, and each field's expression and
+metadata. The captured KM definition is only the input to generation, so parts
+of the KM that no generated type uses (KPIs, filters, excluded records and
+fields) are not in the package.
 
 A generated value class and its definition look like this:
 
@@ -162,7 +166,7 @@ class Plant(_o.Object):
 ```
 
 Importing is offline: it does not authenticate, contact Celonis, or import
-PyCelonis or pandas. Imports verify the runtime version and capture integrity.
+PyCelonis or pandas. Imports verify the runtime version.
 
 ### Definitions
 
@@ -175,18 +179,20 @@ Plant.fields.key_fields                # (Plant.fields.id,)
 Plant.fields.links["materials"]        # LinkDefinition(target=..., cardinality="many", ...)
 Plant.fields["COUNTRY"] is Plant.fields.country
 Plant.fields.country.value_type        # "str"
-Plant.fields.country.description       # captured metadata
-Plant.fields.metadata                  # the complete captured record definition
-inventory.input_variables              # captured Studio input definitions
+Plant.fields.country.expression        # '"o_celonis_Plant"."Country"'
+Plant.fields.country.description       # captured display name and description
+Plant.fields.metadata                  # {"displayName": "Plant", "description": None}
+inventory.source                       # tenant, Space, Package, KM key, lifecycle
+inventory.variables                    # ${name} KM inputs used by generated fields
 ```
 
 Field names come from the attribute's data-model column name when it spells
 the same identifier (`ISDISCONTINUED` with column `IsDiscontinued` becomes
 `is_discontinued`), and otherwise from the attribute ID. Only `key`, `ref`,
-`links`, `relations`, `fields`, `object_type`, `metadata`, `key_fields`,
-`capture`, and `path` are reserved. An attribute with a reserved or colliding
-Python name receives a readable suffix, such as `key_attribute`; `schema.json`
-maps every source path to its generated name.
+`links`, `relations`, `fields`, `model`, `object_type`, `metadata`, and
+`key_fields` are reserved. An attribute with a reserved or colliding Python
+name receives a readable suffix, such as `key_attribute`; each generated field
+keeps its attribute ID (`Plant.fields["KEY"]`).
 
 ## 3. Retrieve objects
 
@@ -304,7 +310,8 @@ or `None` without a request.
 ### KM input variables
 
 Captured expressions can contain `${name}` placeholders for KM input variables.
-Bind them explicitly per client:
+`inventory.variables` lists the ones generated fields use. Bind them
+explicitly per client:
 
 ```python
 client = cf.km(inventory, variables={"im_consideredpastmonths": "12"})
@@ -323,9 +330,16 @@ there, exclude the affected fields.
 uv run celofast km pull inventory --check
 ```
 
-Check reads the cloud definition without changing files. Changes to the capture,
-the mapping, or generated symbols count as drift. Exit **0** means up to date,
-**1** means drift, and **2** means failure, including an incomplete mapping.
+Check reads the cloud definition, regenerates the package in memory, and prints
+a unified diff of every generated file that would change, without writing.
+Drift is exactly what changes the generated code: expressions, types, names,
+keys, links, metadata, or the mapping. Edits to parts of the KM that no
+generated type uses are not drift. A new record the mapping doesn't cover still
+fails the check. Exit **0** means up to date, **1** means drift, and **2** means
+failure, including an incomplete mapping.
+
+Changing the mapping requires a pull: generation always starts from the current
+cloud definition.
 
 Keep application code outside the generated directory. Celofast refuses to
 replace unrelated files, verifies the new package imports before installing it,

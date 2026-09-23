@@ -31,11 +31,11 @@ Source: [core.py](../celofast/core.py), [client.py](../celofast/client.py).
 
 | Member | Behavior |
 | --- | --- |
-| `inventory` (`km` in the package) | `ObjectModel`: `iter()`, `len()`, `inventory["RECORD_ID"]` returns the class, `.source`, `.capture`, `.input_variables`. |
+| `inventory` (`km` in the package) | `ObjectModel`: `iter()`, `len()`, `inventory["RECORD_ID"]` returns the class, `.source`, `.data_model_id`, `.variables` (`${name}` inputs used by generated fields). |
 | `Plant` | Frozen dataclass: `key` plus one plain-valued attribute per loaded field. |
 | `Plant.fields` | `PlantDefinition`: one `Field` per loaded field; iteration in generated order; `["ATTRIBUTE_ID"]` exact lookup. |
-| `Plant.fields.object_type`, `.key_fields`, `.links`, `.metadata` | Captured record ID, key fields, `LinkDefinition`s by name, complete captured record. |
-| `Field.name`, `.value_type`, `.nullable`, `.id`, `.description`, `.display_name`, `.metadata` | Generated name, declared type, nullability (false for keys), and captured metadata. |
+| `Plant.fields.object_type`, `.key_fields`, `.links`, `.metadata`, `.model` | Captured record ID, key fields, `LinkDefinition`s by name, the record's `displayName` and `description`, and the package's `ModelInfo`. |
+| `Field.name`, `.id`, `.expression`, `.value_type`, `.nullable`, `.display_name`, `.description` | Generated name, attribute ID, captured expression, declared type, nullability (false for keys), and captured metadata. |
 | `Field.eq(x)`, `.ne(x)` | `Predicate`. `x` is a value of the field's type or another field of the same object type; `None` is a value. |
 | `Field.lt(x)`, `.lte(x)`, `.gt(x)`, `.gte(x)` | `Predicate`; false when either side is null. Not available for `bool`. |
 | `Field.asc()`, `Field.desc()` | `Sort` for `order_by()`. |

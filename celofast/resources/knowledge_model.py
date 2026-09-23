@@ -15,7 +15,7 @@ from celofast.exceptions import ObjectValueError, QueryValidationError
 from celofast.query import query_to_pql, validate_variables
 from celofast.resources.augmentation_table import AugmentationTableCollection
 from celofast.sdk.capture import Capture, Source
-from celofast.sdk.definitions import Predicate, Related, Sort
+from celofast.sdk.definitions import ModelInfo, Predicate, Related, Sort
 from celofast.sdk.hydration import decode, hydrate
 from celofast.sdk.objects import Object, ObjectCollection, ObjectModel
 from celofast.sdk.planning import ReadPlan, plan_read, plan_values
@@ -67,17 +67,17 @@ class KnowledgeModelConnection:
             draft=draft,
         )
 
-    def _validate_capture(self, capture: Capture) -> None:
+    def _validate_model(self, model: ModelInfo) -> None:
         if self._source is None and self._capture_loader is not None:
             current = self._capture_loader()
             if current.definition.get("dataModelId") != self._data_model.id:
                 raise QueryValidationError("Connected KM targets a different Data Model.")
             self._source = current.source
-        if self._source is None or capture.source != self._source:
+        if self._source is None or model.source != self._source:
             raise QueryValidationError(
                 "Generated model belongs to a different KM source or the source is unverified."
             )
-        if capture.definition.get("dataModelId") != self._data_model.id:
+        if model.data_model_id != self._data_model.id:
             raise QueryValidationError("Generated model targets a different Data Model.")
 
     @property
@@ -190,7 +190,7 @@ class KnowledgeModelClient:
         *,
         variables: Mapping[str, str] | None = None,
     ) -> None:
-        connection._validate_capture(model.capture)
+        connection._validate_model(model.info)
         self._connection = connection
         self._model = model
         self._variables = validate_variables(variables)

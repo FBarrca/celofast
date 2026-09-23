@@ -1,28 +1,24 @@
 import pytest
 
-from celofast.sdk import Capture, Source
-from celofast.sdk.loading import SDKCompatibilityError, capture_digest, load_capture
+from celofast.sdk.loading import (
+    RUNTIME_API_VERSION,
+    SDKCompatibilityError,
+    load_capture,
+    require_runtime,
+)
 
 
-def test_import_requires_matching_runtime_and_capture(tmp_path):
-    capture = Capture.create(
-        Source(tenant_id="t", space_id="s", package_id="p", key="km", mode="draft"), {}
-    )
-    path = tmp_path / "capture.json"
-    path.write_text(capture.model_dump_json())
-    digest = capture_digest(capture)
-    assert load_capture(path, runtime_api=6, digest=digest) == capture
-    with pytest.raises(SDKCompatibilityError, match="runtime"):
-        load_capture(path, runtime_api=99, digest=digest)
-    path.write_text(capture.model_dump_json().replace('"draft"', '"published"'))
-    with pytest.raises(SDKCompatibilityError, match="differ"):
-        load_capture(path, runtime_api=6, digest=digest)
-    path.write_text('{"format_version": 99}')
-    with pytest.raises(SDKCompatibilityError, match="format"):
-        load_capture(path, runtime_api=6, digest=digest)
+def test_current_runtime_is_accepted():
+    require_runtime(RUNTIME_API_VERSION)
 
 
-@pytest.mark.parametrize("version", [1, 2, 3, 4, 5, 99])
-def test_old_runtime_requires_regeneration(tmp_path, version):
+@pytest.mark.parametrize("version", [1, 2, 3, 4, 5, 6, 99])
+def test_other_runtimes_require_regeneration(version):
     with pytest.raises(SDKCompatibilityError, match="rerun celofast km pull"):
-        load_capture(tmp_path / "capture.json", runtime_api=version, digest="unused")
+        require_runtime(version)
+
+
+def test_packages_with_capture_sidecars_require_regeneration(tmp_path):
+    # Packages from runtime API 6 and earlier call load_capture at import.
+    with pytest.raises(SDKCompatibilityError, match="capture.json.*Rerun celofast km pull"):
+        load_capture(tmp_path / "capture.json", runtime_api=6, digest="unused")

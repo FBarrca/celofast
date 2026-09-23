@@ -184,7 +184,7 @@ class CeloFast:
                 "`from generated.inventory import km`. Run `celofast km pull` to "
                 "generate one; KM keys and query definitions are no longer accepted."
             )
-        expected = model.capture.source
+        expected = model.source
         if (expected.space_id, expected.package_id, expected.mode) != (
             self._resolver.space_id,
             self._resolver.package_id,

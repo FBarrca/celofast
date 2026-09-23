@@ -110,7 +110,7 @@ without removing the original findings.
 ## Generated application packages
 
 Application-generated KM packages contain `__init__.py`, `definitions.py`,
-`objects.py`, `links.py`, `capture.json`, `schema.json`, and `py.typed`. Keep
+`objects.py`, `links.py`, and `py.typed`: plain Python with no data files. Keep
 them together. Change definitions in the source KM or the object mapping, pull
 again, and review the diff rather than editing generated files.
 
@@ -118,8 +118,10 @@ For each object type the generator emits a frozen definition dataclass of
 `Field`s (`definitions.py`), a frozen value dataclass (`objects.py`), and, for
 declared links, `Links` and `Relations` classes (`links.py`). `objects.py` and
 `links.py` import each other and resolve names only at call time. Generator
-version 9 uses runtime API version 6; older packages fail at import with a
-regeneration message.
+version 10 uses runtime API version 7; older packages (including those with
+`capture.json`/`schema.json` sidecars) fail at import with a regeneration
+message, and a pull replaces them. The installer recognizes its own output by
+the `__celofast__` stamp in `__init__.py`.
 
 Run `uv run celofast km pull inventory --check` in an application that has that
 KM configured to verify drift. This is a cloud read and needs its credentials;

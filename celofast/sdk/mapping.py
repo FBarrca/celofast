@@ -54,7 +54,7 @@ _DECLARED_TYPES: dict[str, ValueType] = {
 }
 RESERVED_FIELDS = frozenset(
     {name for name in {*dir(Object), *dir(ObjectDefinition)} if not name.startswith("__")}
-    | {"key", "ref", "links", "relations", "fields", "capture", "path", "object_type"}
+    | {"key", "ref", "links", "relations", "fields", "model", "object_type", "metadata"}
     # Builtin annotation names used by generated fields.
     | {"str", "int", "float", "bool", "tuple"}
 )
@@ -94,6 +94,9 @@ class FieldSpec:
     name: str
     value_type: ValueType
     key: bool
+    expression: str
+    display_name: str | None = None
+    description: str | None = None
 
 
 @dataclass(frozen=True)
@@ -110,6 +113,8 @@ class ObjectSpec:
     path: tuple[str | int, ...]
     class_name: str
     description: str
+    display_name: str | None
+    record_description: str | None
     fields: tuple[FieldSpec, ...]
     key: tuple[str, ...]
     links: tuple[LinkSpec, ...]
@@ -173,20 +178,25 @@ def _names(values: list[str], reserved: set[str] | frozenset[str], *, suffixes: 
     return result
 
 
+def _attribute(record: dict[str, Any], path: tuple[str | int, ...]) -> dict[str, Any]:
+    collection, segment = path[-2], path[-1]
+    items = record.get(str(collection)) or []
+    if isinstance(segment, int):
+        return items[segment]
+    return next(item for item in items if isinstance(item, dict) and item.get("id") == segment)
+
+
+def _text(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
 def _spelling(record: dict[str, Any], path: tuple[str | int, ...], attribute_id: str) -> str:
     """Prefer the data-model column name when it spells the same identifier.
 
     Catalog attribute IDs are often upper case (ISDISCONTINUED) while their
     column is IsDiscontinued; the column's casing yields is_discontinued.
     """
-    collection, segment = path[-2], path[-1]
-    items = record.get(str(collection)) or []
-    attribute = (
-        items[segment]
-        if isinstance(segment, int)
-        else next(item for item in items if isinstance(item, dict) and item.get("id") == segment)
-    )
-    column = attribute.get("columnName")
+    column = _attribute(record, path).get("columnName")
     if isinstance(column, str) and column.upper() == attribute_id.upper():
         return column
     return attribute_id
@@ -335,8 +345,19 @@ def normalize(capture: Capture, mapping: Mapping[str, Any] | MappingConfig | Non
             path=path,
             class_name=name,
             description=description,
+            display_name=_text(record.get("displayName")),
+            record_description=_text(record.get("description")),
             fields=tuple(
-                FieldSpec(attribute_id, attribute_path, python, value_type, attribute_id in key)
+                FieldSpec(
+                    attribute_id,
+                    attribute_path,
+                    python,
+                    value_type,
+                    attribute_id in key,
+                    expression=_attribute(record, attribute_path)["pql"],
+                    display_name=_text(_attribute(record, attribute_path).get("displayName")),
+                    description=_text(_attribute(record, attribute_path).get("description")),
+                )
                 for (attribute_id, attribute_path, value_type, _), python in zip(fields, names)
             ),
             key=tuple(names[[f[0] for f in fields].index(attribute_id)] for attribute_id in key),

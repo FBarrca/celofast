@@ -75,11 +75,8 @@ class _Renderer:
         self.resolve = resolve
 
     def expression(self, field: Field[object]) -> str:
-        pql = field.metadata.get("pql")
-        if not isinstance(pql, str) or not pql.strip():
-            raise QueryValidationError(f"{field.owner}.{field.name} has no expression.")
         # A newline keeps a trailing line comment from consuming what follows.
-        return f"({bind_variables(pql, self.variables)}\n)"
+        return f"({bind_variables(field.expression, self.variables)}\n)"
 
     def condition(self, predicate: Predicate, negate: bool = False) -> str:
         if isinstance(predicate, (And, Or)):

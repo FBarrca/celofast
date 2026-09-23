@@ -4,6 +4,7 @@ from celofast.sdk.capture import Capture, CaptureError, Source
 from celofast.sdk.definitions import (
     Field,
     LinkDefinition,
+    ModelInfo,
     ObjectDefinition,
     Predicate,
     Sort,
@@ -27,6 +28,7 @@ __all__ = [
     "Field",
     "LinkDefinition",
     "Links",
+    "ModelInfo",
     "Object",
     "ObjectCollection",
     "ObjectDefinition",

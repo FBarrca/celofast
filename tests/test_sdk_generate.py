@@ -100,16 +100,39 @@ def test_generated_source_declares_explicit_types(tmp_path):
     assert "def materials(self) -> _o.ObjectCollection[_objects.Material]:" in links
 
 
-def test_manifest_records_symbols_mapping_and_exclusions():
-    manifest = json.loads(generate(capture(), MAPPING)["schema.json"])
-    assert manifest["runtime_api"] == 6
-    assert manifest["excluded"] == ["EL_LOG"]
-    assert manifest["mapping"]["objects"]["O_STOCK"]["key"] == ["PLANT_ID", "DAY"]
-    by_python = {entry["python"]: entry for entry in manifest["objects"]}
-    assert by_python["Plant"]["path"] == ["records", "O_PLANT"]
-    assert by_python["Plant.country"]["type"] == "str"
-    assert by_python["Plant.id"]["key"] is True
-    assert by_python["Plant.links.materials"]["cardinality"] == "many"
+def test_package_is_self_contained_python(tmp_path):
+    files = generate(capture(), MAPPING)
+    assert not [name for name in files if name.endswith(".json")]
+    module = load(write(tmp_path / "inventory"))
+
+    # Everything the runtime needs is written as literals in the code.
+    info = module.km.info
+    assert info.source == capture().source
+    assert info.data_model_id == "dm"
+    assert module.km.variables == ("factor",)  # Used by Material.stock's expression.
+    country = module.Plant.fields.country
+    assert (country.id, country.expression, country.value_type) == (
+        "COUNTRY", '"o_Plant"."Country"', "str",
+    )
+    assert module.Plant.fields.metadata == {"displayName": "Plant", "description": None}
+    assert module.Plant.fields.model is info is module.Material.fields.model
+
+    # The stamp identifies generated output and its source.
+    assert module.__celofast__ == {
+        "managed_by": "celofast.km",
+        "runtime_api": 7,
+        "generator_version": 10,
+        "source": capture().source.model_dump(),
+    }
+
+
+def test_variables_in_comments_are_not_reported(tmp_path):
+    layer = capture().to_dict()
+    record(layer, "O_PLANT")["attributes"][1]["pql"] = '"o_Plant"."Country" -- was ${old}'
+    from celofast.sdk import Capture
+
+    module = load(write(tmp_path / "commented", Capture.create(capture().source, layer)))
+    assert module.km.variables == ("factor",)
 
 
 def test_generation_is_deterministic():

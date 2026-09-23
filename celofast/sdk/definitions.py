@@ -2,6 +2,8 @@
 
 Definitions never hold values or connections. Generated value classes expose
 them as ``Plant.fields``; ``plant.country`` is always a loaded Python value.
+Generated packages write every definition as Python literals; nothing is read
+from data files at import.
 """
 
 from __future__ import annotations
@@ -11,60 +13,40 @@ from dataclasses import dataclass
 from typing import Any, ClassVar, Generic, Literal, TypeVar
 
 from celofast.exceptions import ObjectValueError, QueryValidationError
-from celofast.sdk.capture import Capture
+from celofast.sdk.capture import Source
 from celofast.sdk.hydration import ValueType, check_filter_value
 
 T = TypeVar("T")
-Path = tuple[str | int, ...]
 
 
-@dataclass(frozen=True)
-class Definition:
-    """A captured definition addressed by its path in one capture."""
+@dataclass(frozen=True, eq=False)
+class ModelInfo:
+    """The Knowledge Model one generated package was pulled from.
 
-    capture: Capture
-    path: Path = ()
+    One instance exists per generated package; definitions compare it by
+    identity, so types from different packages (or reloads) never mix.
+    """
 
-    @property
-    def metadata(self) -> Mapping[str, Any]:
-        """Immutable captured metadata, including fields without generated names."""
-        value: Any = self.capture.definition
-        for segment in self.path:
-            if isinstance(value, tuple) and isinstance(segment, str):
-                matches = [
-                    item
-                    for item in value
-                    if isinstance(item, Mapping) and item.get("id") == segment
-                ]
-                if len(matches) != 1:
-                    raise KeyError(segment)
-                value = matches[0]
-            else:
-                value = value[segment]
-        return value
+    source: Source
+    data_model_id: str | None
+    variables: tuple[str, ...] = ()
+    """``${name}`` placeholders used by generated field expressions."""
 
 
 @dataclass(frozen=True, kw_only=True)
-class Field(Definition, Generic[T]):
+class Field(Generic[T]):
     """A typed, queryable object property. Values live on loaded objects."""
 
-    name: str
+    model: ModelInfo
     owner: str
+    name: str
+    id: str
+    """The captured attribute ID."""
+    expression: str
     value_type: ValueType
     nullable: bool = True
-
-    @property
-    def id(self) -> str | None:
-        """The captured attribute ID."""
-        return self.metadata.get("id")
-
-    @property
-    def display_name(self) -> str | None:
-        return self.metadata.get("displayName")
-
-    @property
-    def description(self) -> str | None:
-        return self.metadata.get("description")
+    display_name: str | None = None
+    description: str | None = None
 
     # Comparisons follow Python semantics for None: eq/ne treat None as a
     # value, and ordering with a null operand is false. ``~`` is an exact
@@ -98,7 +80,7 @@ class Field(Definition, Generic[T]):
     def _compare(self, op: Operator, other: object) -> Predicate:
         ordering = op not in ("eq", "ne")
         if isinstance(other, Field):
-            if other.owner != self.owner or other.capture is not self.capture:
+            if other.owner != self.owner or other.model is not self.model:
                 raise QueryValidationError(
                     f"{self.owner}.{self.name} can only be compared with fields of the same type."
                 )
@@ -136,7 +118,7 @@ class Predicate:
         raise NotImplementedError
 
     @property
-    def capture(self) -> Capture:
+    def model(self) -> ModelInfo:
         raise NotImplementedError
 
     def __and__(self, other: Predicate) -> Predicate:
@@ -165,8 +147,8 @@ class Comparison(Predicate):
         return self.field.owner
 
     @property
-    def capture(self) -> Capture:
-        return self.field.capture
+    def model(self) -> ModelInfo:
+        return self.field.model
 
 
 @dataclass(frozen=True, eq=False)
@@ -180,7 +162,7 @@ class _Group(Predicate):
             if not isinstance(part, Predicate):
                 raise QueryValidationError("Predicates combine only with other predicates.")
             flat.extend(part.parts if type(part) is cls else (part,))
-        if len({(p.owner, id(p.capture)) for p in flat}) != 1:
+        if len({(p.owner, id(p.model)) for p in flat}) != 1:
             raise QueryValidationError(
                 "Combined predicates must describe the same object type; "
                 "use a relation (has/any) to reach related objects."
@@ -192,8 +174,8 @@ class _Group(Predicate):
         return self.parts[0].owner
 
     @property
-    def capture(self) -> Capture:
-        return self.parts[0].capture
+    def model(self) -> ModelInfo:
+        return self.parts[0].model
 
 
 class And(_Group):
@@ -215,8 +197,8 @@ class Not(Predicate):
         return self.part.owner
 
     @property
-    def capture(self) -> Capture:
-        return self.part.capture
+    def model(self) -> ModelInfo:
+        return self.part.model
 
 
 @dataclass(frozen=True, eq=False)
@@ -237,8 +219,8 @@ class Related(Predicate):
         return self.source.owner
 
     @property
-    def capture(self) -> Capture:
-        return self.source.capture
+    def model(self) -> ModelInfo:
+        return self.source.model
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -253,18 +235,31 @@ class LinkDefinition:
 
 
 @dataclass(frozen=True, kw_only=True)
-class ObjectDefinition(Definition):
+class ObjectDefinition:
     """Describes one object type: its population, key, fields, and links.
 
-    Only ``object_type``, ``metadata``, ``key_fields``, ``links``, ``capture``,
-    and ``path`` are reserved, so business attributes keep natural names.
-    Display names and descriptions are in ``metadata``.
+    Only ``model``, ``object_type``, ``metadata``, ``key_fields``, and
+    ``links`` are reserved, so business attributes keep natural names. The
+    record's display name and description are in ``metadata``.
     """
 
-    # Generated subclasses declare fields and set these class-level facts.
+    # Generated subclasses declare Field members and set these class-level facts.
+    _model: ClassVar[ModelInfo]
+    _object_type: ClassVar[str]
+    _metadata: ClassVar[Mapping[str, str | None]] = {}
     _members: ClassVar[tuple[str, ...]] = ()
     _key: ClassVar[tuple[str, ...]] = ()
     _links: ClassVar[tuple[LinkDefinition, ...]] = ()
+
+    @property
+    def model(self) -> ModelInfo:
+        """The Knowledge Model this type was generated from."""
+        return self._model
+
+    @property
+    def metadata(self) -> Mapping[str, str | None]:
+        """The record's captured ``displayName`` and ``description``."""
+        return self._metadata
 
     def __iter__(self) -> Iterator[Field[Any]]:
         """Iterate all loaded fields in generated order."""
@@ -284,7 +279,7 @@ class ObjectDefinition(Definition):
     @property
     def object_type(self) -> str:
         """The captured record ID; never an instance's business key."""
-        return str(self.metadata.get("id"))
+        return self._object_type
 
     @property
     def key_fields(self) -> tuple[Field[Any], ...]:

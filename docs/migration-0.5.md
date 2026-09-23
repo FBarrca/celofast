@@ -19,9 +19,11 @@ deliberate break: the old entry points have no compatibility aliases.
 | KPIs, KM filters, raw PQL filters | Not exposed by the object SDK |
 | `cf.km("key")` | `cf.km(inventory)` only. Use `cf.augmentation_tables("key")` for output tables without a generated package. |
 | `KnowledgeModelHandle` | `KnowledgeModelClient` (from `cf.km`); `view.km` is a `KnowledgeModelConnection` without query methods |
-| Generated `__init__.py` with a record hierarchy | `definitions.py`, `objects.py`, `links.py`; `__init__.py` exports value classes and `km` |
+| Generated `__init__.py` with a record hierarchy, plus `capture.json` and `schema.json` | Plain Python: `definitions.py`, `objects.py`, `links.py`; `__init__.py` exports value classes and `km`. No data files. |
 | Records without identity were queryable | Every record needs a verified key or an explicit exclusion |
-| Runtime API 5 | Runtime API 6 |
+| `inventory.input_variables`, `attribute.metadata`, `attribute.pql` | `inventory.variables` (names used by generated fields), `field.expression`, `field.display_name`, `field.description` |
+| `km pull --check` reported any KM definition change | Reports a unified diff of the generated files; KM changes that don't affect generated types are not drift |
+| Runtime API 5 | Runtime API 7 |
 
 View tables are unchanged: `view.table(...).to_query()` and `.execute()` still
 return dictionaries and DataFrames. They are a View feature, not part of the KM

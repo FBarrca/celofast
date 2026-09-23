@@ -274,7 +274,7 @@ def test_relations_resolve_related_keys_before_the_object_read(offline):
     fields = offline.sdk.MaterialMasterPlant.fields
 
     def expression(field):  # Captured expressions are parenthesized as-is.
-        return f"({field.metadata['pql']}\n)"
+        return f"({field.expression}\n)"
 
     plant, key = expression(fields.plant_id), expression(fields.id)
     assert f"CASE WHEN {plant} IN ('P-DE') THEN 1 ELSE 0 END = 1" in condition

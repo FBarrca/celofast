@@ -139,6 +139,8 @@ def main(argv: list[str] | None = None) -> int:
         changes = write_package(capture, output, mapping=mapping, check=args.check)
         for change in changes:
             print(change)
+            if args.check and change.diff:
+                print(change.diff, end="" if change.diff.endswith("\n") else "\n")
         if args.check:
             print(f"{capture.source.key}: {'out of date' if changes else 'up to date'}")
             return 1 if changes else 0

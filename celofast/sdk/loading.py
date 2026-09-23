@@ -1,46 +1,28 @@
-"""Compatibility and integrity checks for generated package imports."""
+"""Compatibility checks for generated package imports."""
 
 from __future__ import annotations
 
-import hashlib
-import json
-from pathlib import Path
-
-from celofast.sdk.capture import Capture
-
+# 7: self-contained Python packages (no capture.json or schema.json sidecars).
 # 6: object SDK (value classes, definitions, links); the query API was removed.
-RUNTIME_API_VERSION = 6
+RUNTIME_API_VERSION = 7
 
 
 class SDKCompatibilityError(ImportError):
-    """Generated declarations cannot safely use this runtime or sidecar."""
+    """Generated declarations cannot safely use this runtime."""
 
 
-def capture_digest(capture: Capture) -> str:
-    """Hash both provenance and definitions to bind declarations to their data."""
-    return hashlib.sha256(capture.model_dump_json().encode("utf-8")).hexdigest()
-
-
-def load_capture(path: Path, *, runtime_api: int, digest: str) -> Capture:
-    """Load offline and fail clearly for stale code, data, or runtime versions."""
-    if runtime_api != RUNTIME_API_VERSION:
+def require_runtime(version: int) -> None:
+    """Fail at import when a package was generated for another runtime."""
+    if version != RUNTIME_API_VERSION:
         raise SDKCompatibilityError(
-            "Generated KM runtime is incompatible. Upgrade Celofast or rerun celofast km pull."
+            f"Generated KM package targets runtime API {version}; this Celofast "
+            f"provides {RUNTIME_API_VERSION}. Upgrade Celofast or rerun celofast km pull."
         )
-    try:
-        text = path.read_text(encoding="utf-8")
-        raw = json.loads(text)
-        if not isinstance(raw, dict) or raw.get("format_version") != 1:
-            raise SDKCompatibilityError(
-                "Generated KM format is incompatible. Upgrade Celofast or rerun celofast km pull."
-            )
-        capture = Capture.model_validate_json(text)
-    except (OSError, ValueError) as exc:
-        raise SDKCompatibilityError(
-            f"Cannot load captured KM definitions from {path.name}. Rerun celofast km pull."
-        ) from exc
-    if capture_digest(capture) != digest:
-        raise SDKCompatibilityError(
-            "Generated KM declarations and definitions differ. Rerun celofast km pull."
-        )
-    return capture
+
+
+def load_capture(*_: object, **__: object) -> None:
+    """Called by packages from before runtime API 7; always incompatible."""
+    raise SDKCompatibilityError(
+        "Generated KM package uses capture.json from an older Celofast. "
+        "Rerun celofast km pull and restart Python."
+    )

@@ -50,9 +50,7 @@ def test_fingerprint_ignores_known_object_order_but_preserves_unknown_order():
     assert '"definition_json"' not in first.to_json()
 
 
-def test_record_attribute_order_survives_capture_roundtrip_and_affects_drift():
-    from celofast.sdk.package import differences
-
+def test_record_attribute_order_survives_capture_roundtrip():
     content = {"records": [{"id": "Plant", "attributes": [
         {"id": "Z", "pql": "1"}, {"id": "A", "pql": "2"},
     ]}]}
@@ -62,8 +60,6 @@ def test_record_attribute_order_survives_capture_roundtrip_and_affects_drift():
     content["records"][0]["attributes"].reverse()
     after = Capture.create(source(), content)
     assert before.fingerprint != after.fingerprint
-    changes = differences(before.to_dict(), after.to_dict())
-    assert any(change.path == "records.Plant.attributes (order)" for change in changes)
 
 
 @pytest.mark.parametrize(
@@ -128,9 +124,7 @@ def test_retrieval_preserves_unknown_fields_and_explicit_lifecycle(mode):
     assert "unrelatedEnvelope" not in capture.definition
 
 
-def test_input_defaults_are_detached_and_part_of_integrity():
-    from celofast.sdk.loading import capture_digest
-
+def test_input_defaults_are_detached_and_fingerprinted():
     inputs = {
         "months": {"defaultValue": "3", "dataType": "TEXT"},
         "optional": {"defaultValue": None},
@@ -144,7 +138,6 @@ def test_input_defaults_are_detached_and_part_of_integrity():
         old.input_variables["months"]["defaultValue"] = "6"
     assert old.definition == new.definition
     assert old.fingerprint != new.fingerprint
-    assert capture_digest(old) != capture_digest(new)
     assert Capture.model_validate_json(old.to_json()) == old
     legacy = Capture.create(source(), {})
     assert legacy.input_variables is None

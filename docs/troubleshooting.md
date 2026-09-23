@@ -28,7 +28,7 @@ generated packages, object retrieval, Views, or output writes.
 | Pull refuses the output directory | Keep application code outside the managed directory. Use a separate output for a different KM source. |
 | `ModuleNotFoundError` for `generated.inventory` | Run the configured pull and make its output importable from the application's working directory or package. |
 | `SDKCompatibilityError` on import | The package was generated for another runtime (for example the 0.4 query API). Rerun `celofast km pull` and restart Python; keep all generated files together. |
-| A field has an unexpected name | Reserved or colliding names get suffixes, such as `key_attribute`; `schema.json` lists every generated symbol. Look fields up by attribute ID with `Plant.fields["ID"]`. |
+| A field has an unexpected name | Reserved or colliding names get suffixes, such as `key_attribute`; `definitions.py` lists each field with its attribute ID. Look fields up by attribute ID with `Plant.fields["ID"]`. |
 | Missing `km.select`, `km.execute`, or `inventory.records` | The query API was removed. See the [0.5 migration guide](migration-0.5.md). |
 | `TypeError` from `cf.km("key")` | Pass the generated model: `cf.km(inventory)`. Use `cf.augmentation_tables("key")` for output tables. |
 | `QueryValidationError` about source or Data Model | Connect to the matching tenant, Space, Package, lifecycle, and Data Model. |

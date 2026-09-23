@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+import difflib
 import json
 import os
 import shutil
@@ -10,17 +12,18 @@ import subprocess
 import sys
 import tempfile
 import warnings
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from collections.abc import Mapping
 from typing import Any
 
 from celofast.sdk.capture import Capture, CaptureError
-from celofast.sdk.generate import PACKAGE_FILES, generate
+from celofast.sdk.generate import MARKER, PACKAGE_FILES, generate
 from celofast.sdk.mapping import MappingConfig
 
-# Every file any generation has owned; older layouts are replaced in place.
-_FILES = frozenset(PACKAGE_FILES)
+# Sidecars written by earlier generators; recognized as owned and removed.
+_LEGACY = frozenset({"capture.json", "schema.json"})
+_FILES = frozenset(PACKAGE_FILES) | _LEGACY
 
 
 def _is_link(path: Path) -> bool:
@@ -34,97 +37,48 @@ def _is_link(path: Path) -> bool:
 
 @dataclass(frozen=True)
 class Change:
-    """One human-readable difference, addressed by source identity where possible."""
+    """One changed file of the generated package, with a unified diff for code."""
 
     kind: str
     path: str
-
-    @property
-    def category(self) -> str:
-        if self.path.startswith("files/"):
-            return "files"
-        if self.path.startswith("symbols/"):
-            return "symbols"
-        field = self.path.rsplit(".", 1)[-1]
-        if field in {"columnType", "type"}:
-            return "type"
-        if field in {"description", "displayName", "shortDisplayName", "documentation"}:
-            return "metadata"
-        if set(self.path.split(".")) & {
-            "pql",
-            "value",
-            "defaultValue",
-            "parameters",
-            "dependencies",
-            "filters",
-        }:
-            return "definition"
-        if self.kind in {"+", "-"} or self.path.endswith(" (order)"):
-            return "structure"
-        return "metadata"
+    diff: str = ""
 
     def __str__(self) -> str:
-        return f"{self.kind} [{self.category}] {self.path}"
+        return f"{self.kind} {self.path}"
 
 
-def _symbols(manifest: dict[str, Any]) -> dict[str, str]:
-    """Index generated names by source path so collision-driven renames are visible."""
-    entries = manifest.get("objects")
-    if not isinstance(entries, list):
-        return {}
-    return {
-        json.dumps(entry["path"]): entry["python"]
-        for entry in entries
-        if isinstance(entry, dict)
-        and isinstance(entry.get("path"), list)
-        and isinstance(entry.get("python"), str)
-    }
-
-
-def differences(before: Any, after: Any, path: str = "") -> tuple[Change, ...]:
-    """Compare definitions, preserving meaningful array order and source IDs."""
-    if type(before) is not type(after):
-        return (Change("~", path),)
-    if isinstance(before, dict):
-        changes = []
-        for key in sorted(before.keys() | after.keys()):
-            child = f"{path}.{key}" if path else key
-            if key not in before:
-                changes.append(Change("+", child))
-            elif key not in after:
-                changes.append(Change("-", child))
-            else:
-                changes.extend(differences(before[key], after[key], child))
-        return tuple(changes)
-    if isinstance(before, list):
-
-        def by_id(items: list[Any]) -> dict[str, Any] | None:
-            if not all(
-                isinstance(item, dict) and isinstance(item.get("id"), str)
-                for item in items
+def _stamp(files: Mapping[str, bytes]) -> dict[str, Any] | None:
+    """Read the ownership stamp from ``__init__.py`` (or a legacy schema.json)."""
+    init = files.get("__init__.py")
+    if init is not None:
+        try:
+            tree = ast.parse(init.decode("utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            tree = None
+        for node in tree.body if tree is not None else ():
+            if (
+                isinstance(node, ast.Assign)
+                and [getattr(t, "id", None) for t in node.targets] == [MARKER]
             ):
-                return None
-            result = {item["id"]: item for item in items}
-            return result if len(result) == len(items) else None
-
-        old, new = by_id(before), by_id(after)
-        if old is not None and new is not None:
-            result = differences(old, new, path)
-            # Preserve order differences for collections whose order has meaning.
-            common = set(old) & set(new)
-            if [key for key in old if key in common] != [
-                key for key in new if key in common
-            ]:
-                result += (Change("~", f"{path} (order)"),)
-            return result
-        if len(before) != len(after):
-            return (Change("~", path),)
-        return tuple(
-            change
-            for i, (old_item, new_item) in enumerate(zip(before, after))
-            for change in differences(old_item, new_item, f"{path}[{i}]")
-        )
-    return () if before == after else (Change("~", path),)
+                try:
+                    value = ast.literal_eval(node.value)
+                except ValueError:
+                    return None
+                return value if isinstance(value, dict) else None
+    if "schema.json" in files:
+        try:
+            manifest = json.loads(files["schema.json"])
+        except ValueError:
+            return None
+        if isinstance(manifest, dict):
+            source = manifest.get("source")
+            if source is None and "capture.json" in files:
+                try:
+                    source = json.loads(files["capture.json"]).get("source")
+                except (ValueError, AttributeError):
+                    source = None
+            return {**manifest, "source": source}
+    return None
 
 
 def _existing(output: Path) -> dict[str, bytes]:
@@ -159,19 +113,33 @@ def _existing(output: Path) -> dict[str, bytes]:
         )
     ):
         raise CaptureError(f"Refusing to remove unrelated content in {cache}.")
-    try:
-        manifest = json.loads((output / "schema.json").read_text(encoding="utf-8"))
-        if manifest.get("managed_by") != "celofast.km":
-            raise ValueError("missing generator ownership marker")
-    except (OSError, ValueError, AttributeError) as exc:
+    files = {name: (output / name).read_bytes() for name in _FILES if (output / name).is_file()}
+    stamp = _stamp(files)
+    if not stamp or stamp.get("managed_by") != "celofast.km":
         raise CaptureError(
-            f"{output} is not a managed Celofast KM package: {exc}"
-        ) from exc
-    return {
-        name: (output / name).read_bytes()
-        for name in _FILES
-        if (output / name).is_file()
-    }
+            f"{output} is not a managed Celofast KM package: no generation stamp found."
+        )
+    return files
+
+
+def _diff(name: str, before: bytes | None, after: bytes | None) -> str:
+    if name.endswith(".json") or name == "py.typed":
+        return ""  # Legacy sidecars and markers: report the file, not its content.
+    old = (before or b"").decode("utf-8").splitlines(keepends=True)
+    new = (after or b"").decode("utf-8").splitlines(keepends=True)
+    return "".join(difflib.unified_diff(old, new, f"a/{name}", f"b/{name}"))
+
+
+def differences(before: Mapping[str, bytes], after: Mapping[str, bytes]) -> tuple[Change, ...]:
+    """File-level changes between two package contents, with code diffs."""
+    changes = []
+    for name in sorted(before.keys() | after.keys()):
+        old, new = before.get(name), after.get(name)
+        if old == new:
+            continue
+        kind = "+" if old is None else "-" if new is None else "~"
+        changes.append(Change(kind, f"files/{name}", _diff(name, old, new)))
+    return tuple(changes)
 
 
 def _remove_owned(directory: Path, parent: Path) -> None:
@@ -218,8 +186,10 @@ def write_package(
 
     ``mapping`` supplies object keys, types, exclusions, and relationships.
 
-    Returns differences from the existing package. An empty tuple means output
-    already matches. Failed staging or replacement preserves the previous package.
+    Returns the changed files, each with a unified diff of generated code. An
+    empty tuple means the output already matches: KM changes that do not affect
+    the generated types are not drift. Failed staging or replacement preserves
+    the previous package.
     """
     requested = Path(output).absolute()
     if _is_link(requested):
@@ -229,45 +199,13 @@ def write_package(
         raise CaptureError("A filesystem root cannot be a generated output directory.")
     expected = generate(capture, mapping)
     before = _existing(target)
-    changed_files = tuple(
-        Change("~" if name in before else "+", f"files/{name}")
-        for name, data in sorted(expected.items())
-        if before.get(name) != data
-    )
-    changes: tuple[Change, ...] = ()
-    if "capture.json" in before:
-        try:
-            previous = Capture.model_validate_json(before["capture.json"])
-        except ValueError:
-            changes = (Change("~", "capture.json (invalid local capture)"),)
-        else:
-            if previous.source != capture.source:
-                raise CaptureError(
-                    "Output belongs to a different KM source; choose a separate output directory."
-                )
-            changes = differences(
-                previous.to_dict(), capture.to_dict(), capture.source.key
+    if before:
+        previous = (_stamp(before) or {}).get("source")
+        if previous is not None and previous != capture.source.model_dump():
+            raise CaptureError(
+                "Output belongs to a different KM source; choose a separate output directory."
             )
-            changes += differences(
-                json.loads(previous.input_variables_json or "null"),
-                json.loads(capture.input_variables_json or "null"),
-                f"{capture.source.key}.input_variables",
-            )
-    changes += changed_files
-    if "schema.json" in before:
-        old_symbols = _symbols(json.loads(before["schema.json"]))
-        new_symbols = _symbols(json.loads(expected["schema.json"]))
-        for path in sorted(old_symbols.keys() | new_symbols.keys()):
-            old, new = old_symbols.get(path), new_symbols.get(path)
-            if old != new:
-                changes += (
-                    Change(
-                        "+" if old is None else "-" if new is None else "~",
-                        f"symbols/{old} -> {new}"
-                        if old and new
-                        else f"symbols/{old or new}",
-                    ),
-                )
+    changes = differences(before, expected)
     if check or not changes:
         return changes
 

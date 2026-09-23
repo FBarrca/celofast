@@ -273,6 +273,10 @@ def test_object_client_checks_each_source_and_shares_native_connection(mode):
     from celofast.exceptions import QueryValidationError
     from celofast.resources.knowledge_model import KnowledgeModelClient
     from celofast.sdk import Capture, ObjectModel, Source
+    from celofast.sdk.definitions import ModelInfo
+
+    def model(source, data_model_id="dm-id"):
+        return ObjectModel(ModelInfo(source, data_model_id), ())
 
     client = make_client()[0] if mode == "draft" else make_published_client()[0]
     source = Source(
@@ -291,8 +295,8 @@ def test_object_client_checks_each_source_and_shares_native_connection(mode):
             return_value=SimpleNamespace(data_model_id="dm-id"),
         ),
     ):
-        first = cf.km(ObjectModel(capture, ()))
-        second = cf.km(ObjectModel(capture, ()))
+        first = cf.km(model(source))
+        second = cf.km(model(source))
         assert isinstance(first, KnowledgeModelClient)
         assert first._connection is second._connection is cf._km_connection("orders-km")
         assert first.mode == mode
@@ -300,17 +304,15 @@ def test_object_client_checks_each_source_and_shares_native_connection(mode):
         assert retrieve.call_args.kwargs["mode"] == mode
         assert retrieve.call_count == 1
         other_source = source.model_copy(update={"tenant_id": "other-tenant"})
-        other = Capture.create(other_source, {"dataModelId": "dm-id"})
         with pytest.raises(QueryValidationError, match="different KM source"):
-            cf.km(ObjectModel(other, ()))
-        wrong_dm = Capture.create(source, {"dataModelId": "other-dm"})
+            cf.km(model(other_source))
         with pytest.raises(QueryValidationError, match="Data Model"):
-            cf.km(ObjectModel(wrong_dm, ()))
+            cf.km(model(source, "other-dm"))
         wrong_mode = source.model_copy(
             update={"mode": "published" if mode == "draft" else "draft"}
         )
         with pytest.raises(QueryValidationError, match="lifecycle"):
-            cf.km(ObjectModel(Capture.create(wrong_mode, {"dataModelId": "dm-id"}), ()))
+            cf.km(model(wrong_mode))
 
 
 def test_km_rejects_keys_and_removed_query_roots():
