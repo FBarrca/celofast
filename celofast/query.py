@@ -1,19 +1,20 @@
-"""Serializable query definitions backed by native PyCelonis PQL objects."""
+"""Serializable View query definitions backed by native PyCelonis PQL objects.
+
+These dictionaries describe View table exports. They are not part of the
+Knowledge Model object SDK.
+"""
 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Mapping
-from typing import Any, TypedDict, cast
+from collections.abc import Mapping
+from typing import TypedDict, cast
 
 from typing_extensions import NotRequired
 
 import pycelonis.pql as pql
 
 from celofast.exceptions import QueryValidationError, UnresolvedVariableError
-from celofast.expressions import Predicate
-from celofast.sdk.objects import Attribute, Filter, KPI
-from celofast.sdk.capture import Capture
 
 
 class OrderByDefinition(TypedDict):
@@ -28,26 +29,24 @@ class OrderByDefinition(TypedDict):
     KPI names or Knowledge Model references on the client.
     """
 
-    pql: str | Attribute[Any] | KPI[Any]
+    pql: str
     ascending: NotRequired[bool]
 
 
 class QueryDefinition(TypedDict):
-    """A query using PQL strings or captured KM objects.
+    """A View table query using native PQL strings.
 
     Attributes:
         columns: Non-empty mapping from output aliases to native PQL
             expressions.  Insertion order becomes the result-column order.
         filters: Optional list of complete native PQL filter statements.  A
             Knowledge Model filter reference should remain symbolic, for
-            example ``"FILTER @active_suppliers;"``. Generated filters and
-            attribute equality predicates are also accepted.
+            example ``"FILTER @active_suppliers;"``.
         order_by: Optional ordered list of :class:`OrderByDefinition` values.
             Insertion order is preserved in the generated PQL.
 
-    String definitions can be serialized as JSON/YAML. Generated objects are
-    converted to their stored PQL expressions. Dependencies resolve in the live
-    connected KM. Validation rejects unknown fields,
+    Definitions can be serialized as JSON/YAML. Dependencies resolve in the
+    live connected KM. Validation rejects unknown fields,
     empty expressions, and malformed ordering entries.
 
     Example:
@@ -58,8 +57,8 @@ class QueryDefinition(TypedDict):
         ... }
     """
 
-    columns: dict[str, str | Attribute[Any] | KPI[Any]]
-    filters: NotRequired[list[str | Filter | Predicate]]
+    columns: dict[str, str]
+    filters: NotRequired[list[str]]
     order_by: NotRequired[list[OrderByDefinition]]
 
 
@@ -117,14 +116,6 @@ def validate_variables(
 
 
 def validate_query(query: Mapping[str, object]) -> _PQLQuery:
-    """Validate query shape and captured objects without interpreting PQL grammar."""
-    try:
-        return _validate_query(query)
-    except (KeyError, IndexError, AttributeError, TypeError) as exc:
-        raise QueryValidationError("Unknown or invalid captured query object.") from exc
-
-
-def _validate_query(query: Mapping[str, object]) -> _PQLQuery:
     """Validate and copy a mapping into the public query contract.
 
     Args:
@@ -160,8 +151,6 @@ def _validate_query(query: Mapping[str, object]) -> _PQLQuery:
             raise QueryValidationError(
                 "Every query column needs a non-empty string alias."
             )
-        if isinstance(expression, (Attribute, KPI)):
-            expression = expression.pql
         if not isinstance(expression, str) or not expression.strip():
             raise QueryValidationError(
                 f"Column {alias!r} needs a non-empty PQL expression."
@@ -174,8 +163,6 @@ def _validate_query(query: Mapping[str, object]) -> _PQLQuery:
 
     filters: list[str] = []
     for index, expression in enumerate(raw_filters):
-        if isinstance(expression, (Filter, Predicate)):
-            expression = expression.pql
         if not isinstance(expression, str) or not expression.strip():
             raise QueryValidationError(
                 f"Filter at index {index} must be a non-empty PQL string."
@@ -197,8 +184,6 @@ def _validate_query(query: Mapping[str, object]) -> _PQLQuery:
                 f"Unknown order_by field(s) at index {index}: {rendered}."
             )
         expression = item.get("pql")
-        if isinstance(expression, (Attribute, KPI)):
-            expression = expression.pql
         if not isinstance(expression, str) or not expression.strip():
             raise QueryValidationError(
                 f"Ordering at index {index} needs a non-empty PQL expression."
@@ -256,7 +241,6 @@ def query_to_pql(
     query: Mapping[str, object],
     *,
     variables: Mapping[str, str] | None = None,
-    validate_capture: Callable[[Capture], None] | None = None,
 ) -> pql.PQL:
     """Compile a dictionary query into a native PyCelonis :class:`pql.PQL`.
 
@@ -265,13 +249,10 @@ def query_to_pql(
             filters/orderings.
         variables: Optional exact string bindings for ``${name}`` placeholders
             in columns, filters, and ordering expressions.
-        validate_capture: Source validation supplied by the connected KM handle.
-            Standalone compilation has no connected source to compare against.
 
     Returns:
-        A new PyCelonis ``pql.PQL`` with ``pql.PQLColumn``, ``pql.PQLFilter``, and
-        ``pql.OrderByColumn`` objects in the same order as the input mapping/list.
-        The query is not executed.
+        A new PyCelonis ``pql.PQL`` with columns, filters, and orderings in
+        input order. The query is not executed.
 
     Raises:
         QueryValidationError: If the definition is malformed.
@@ -279,34 +260,22 @@ def query_to_pql(
     """
 
     definition = validate_query(query)
-    original = cast(Mapping[str, Any], query)
-
     bindings = validate_variables(variables)
-
-    def bind(expression: str, value: object) -> str:
-        if isinstance(value, Predicate):
-            return value.render(bind(cast(str, value.attribute.pql), value.attribute))
-        if isinstance(value, (Attribute, KPI, Filter)) and validate_capture is not None:
-            validate_capture(value.capture)
-        return bind_variables(expression, bindings)
-
     return pql.PQL(
         columns=[
-            pql.PQLColumn(
-                name=alias, query=bind(expression, original["columns"][alias])
-            )
+            pql.PQLColumn(name=alias, query=bind_variables(expression, bindings))
             for alias, expression in definition["columns"].items()
         ],
         filters=[
-            pql.PQLFilter(query=bind(expression, original["filters"][index]))
-            for index, expression in enumerate(definition["filters"])
+            pql.PQLFilter(query=bind_variables(expression, bindings))
+            for expression in definition["filters"]
         ],
         order_by_columns=[
             pql.OrderByColumn(
-                query=bind(item["pql"], original["order_by"][index]["pql"]),
+                query=bind_variables(item["pql"], bindings),
                 ascending=item["ascending"],
             )
-            for index, item in enumerate(definition["order_by"])
+            for item in definition["order_by"]
         ],
     )
 

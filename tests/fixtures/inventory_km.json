@@ -1,0 +1,2217 @@
+{
+ "definition": {
+  "dataModelId": "fixture-dm",
+  "records": [
+   {
+    "displayName": "DeliveryLine Event Log",
+    "id": "EL_CELONIS_DELIVERYLINE",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "MaterialMovement Event Log",
+    "id": "EL_CELONIS_MATERIALMOVEMENT",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "ProductionOrder Event Log",
+    "id": "EL_CELONIS_PRODUCTIONORDER",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "PurchaseDocument Event Log",
+    "id": "EL_CELONIS_PURCHASEDOCUMENT",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "PurchaseDocumentLine Event Log",
+    "id": "EL_CELONIS_PURCHASEDOCUMENTLINE",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "ProductionOrderActivities Event Log",
+    "id": "EL__PRODUCTIONORDERACTIVITIES",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "PurchaseDocumentLineActivities Event Log",
+    "id": "EL__PURCHASEDOCUMENTLINEACTIVITIES",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "SalesOrderScheduleLineActivities Event Log",
+    "id": "EL__SALESORDERSCHEDULELINEACTIVITIES",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "Mlflow Augmentation Anchor",
+    "id": "MLFLOW_AUGMENTATION_ANCHOR",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "Mlflow Experiments",
+    "id": "MLFLOW_EXPERIMENTS",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "Mlflow Metrics",
+    "id": "MLFLOW_METRICS",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "Mlflow Params",
+    "id": "MLFLOW_PARAMS",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "Mlflow Runs",
+    "id": "MLFLOW_RUNS",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "Mlflow Tags",
+    "id": "MLFLOW_TAGS",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "BillOfMaterialComponent",
+    "id": "O_CELONIS_BILLOFMATERIALCOMPONENT",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "BillOfMaterialProduct",
+    "id": "O_CELONIS_BILLOFMATERIALPRODUCT",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "CurrencyConversion",
+    "id": "O_CELONIS_CURRENCYCONVERSION",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "Customer",
+    "id": "O_CELONIS_CUSTOMER",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "Delivery Line",
+    "id": "O_CELONIS_DELIVERYLINE",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "Material",
+    "id": "O_CELONIS_MATERIAL",
+    "type": "RECORD"
+   },
+   {
+    "attributes": [
+     {
+      "columnName": "IsDiscontinued",
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "IsDiscontinued",
+      "id": "ISDISCONTINUED",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"IsDiscontinued\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "BaseCurrency",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "BaseCurrency",
+      "id": "BASECURRENCY",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"BaseCurrency\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "ValidityPeriodStartDate",
+      "columnType": "DATE",
+      "description": null,
+      "displayName": "ValidityPeriodStartDate",
+      "id": "VALIDITYPERIODSTARTDATE",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"ValidityPeriodStartDate\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "SourceSystemInstance",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "SourceSystemInstance",
+      "id": "SOURCESYSTEMINSTANCE",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"SourceSystemInstance\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "PlannedProductionLeadTimeDays",
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "PlannedProductionLeadTimeDays",
+      "id": "PLANNEDPRODUCTIONLEADTIMEDAYS",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"PlannedProductionLeadTimeDays\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "PlannedDeliveryTimeDays",
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "PlannedDeliveryTimeDays",
+      "id": "PLANNEDDELIVERYTIMEDAYS",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"PlannedDeliveryTimeDays\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "UnitPriceAmount",
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "UnitPriceAmount",
+      "id": "UNITPRICEAMOUNT",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"UnitPriceAmount\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "ValidityPeriodEndDate",
+      "columnType": "DATE",
+      "description": null,
+      "displayName": "ValidityPeriodEndDate",
+      "id": "VALIDITYPERIODENDDATE",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"ValidityPeriodEndDate\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "SafetyStockQuantity",
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "SafetyStockQuantity",
+      "id": "SAFETYSTOCKQUANTITY",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"SafetyStockQuantity\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "ProcurementType",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "ProcurementType",
+      "id": "PROCUREMENTTYPE",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"ProcurementType\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "MRPType",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "MRPType",
+      "id": "MRPTYPE",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"MRPType\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "MRPController",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "MRPController",
+      "id": "MRPCONTROLLER",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"MRPController\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "MinimumLotSizeQuantity",
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "MinimumLotSizeQuantity",
+      "id": "MINIMUMLOTSIZEQUANTITY",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"MinimumLotSizeQuantity\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "CurrentValuatedStockQuantity",
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "CurrentValuatedStockQuantity",
+      "id": "CURRENTVALUATEDSTOCKQUANTITY",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"CurrentValuatedStockQuantity\"\n",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "CurrentValuatedStockAmount",
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "CurrentValuatedStockAmount",
+      "id": "CURRENTVALUATEDSTOCKAMOUNT",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"CurrentValuatedStockAmount\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Id",
+      "id": "ID",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "Material_ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Material Id",
+      "id": "MATERIAL_ID",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"Material_ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "Plant_ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Plant Id",
+      "id": "PLANT_ID",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"Plant_ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": "Number of incoming Bill of Materials Links of a given material | plant. Indicates the number BOM line items that contribute to producing this material | plant.",
+      "displayName": "No. of Incoming Bill of Material Links",
+      "id": "NumIncomingBillOfMaterialLinks",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": "Number of outgoing Bill of Materials Links of a given material | plant. Indicates the number of BOM line items that consume this material | plant.",
+      "displayName": "No. of Outgoing Bill of Material Links",
+      "id": "NumOutgoingBillOfMaterialLinks",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "No. of Self-Links",
+      "id": "NumSelfBillOfMaterialLinks",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "No Self-Links",
+      "id": "NoSelfLinkLinkIndicator",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "All Node?",
+      "id": "AllNode",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": "No. of Network Streams this Material | Plant combination is part of.",
+      "displayName": "No. of Streams",
+      "id": "NetworkStreams",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "Is Start Node?",
+      "id": "IsStartNode",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Has Outgoing Bill of Material Links",
+      "id": "OutgoingBomLinkIndicator",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Start Node",
+      "id": "StartNode",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "End Node",
+      "id": "EndNodeIndicator",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "All Node",
+      "id": "AllNodeIndicator",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Has Incoming Bill of Material Links",
+      "id": "IncomingBomLinkIndicator",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "No Incoming Bill of Material Links",
+      "id": "NoIncomingBomLinkIndicator",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "Is End Node?",
+      "id": "IsEndNode",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": "Combined result of ABC and XYZ analyses for Material-Plant. For more detailed definitions see the respective KPIs for ABC and XYZ classification. ",
+      "displayName": "ABC/XYZ Classification",
+      "id": "ABCXYZClassification",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": "Helper KPI to pick a z-value from the standard normal distribution based on desired service level for the computation of the Safety Stock recommendation.",
+      "displayName": "Z-Value for Service Level",
+      "id": "ZValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": "Planned service level for a Material-Plant combination. This KPI computes a potential Service level based on the outcome of XYZ classification.",
+      "displayName": "Service Level (XYZ)",
+      "id": "ServiceLevelXYZ",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": "Replenishment Lead time Standard Deviation per Material-Plant, considering both production and Purchase based on either average or median.",
+      "displayName": "Replenishment Lead Time St. Dev.",
+      "id": "StdDevReplenishmentLeadTime",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": "ABC-classification of all materials based on consumption value. Materials making up 80% of a company's consumption value are classified as A, the next 15% as B, and remaining materials as C. Materials without consumption data are considered Unclassified. ",
+      "displayName": "ABC Classification per Material",
+      "id": "ABCClassification",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": " The XYZ Analysis is based on the dynamics of consumption. This uses the variance coefficient of consumption or sales in a specific time horizon.",
+      "displayName": "XYZ Classification per Material",
+      "id": "XYZClassification",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": "Safety stock as currently defined in your ERP system.",
+      "displayName": "Safety Stock",
+      "id": "SafetyStockLevelFormatted",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": "This formula leverages the PQL currency conversion function to convert inventory value to the currency specified as the reporting currency.",
+      "displayName": "Inventory on Hand (Val.)",
+      "id": "CurrentValuatedStockAmountConverted",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": "Converted Inventory on Hand Quantity",
+      "displayName": "Inventory on Hand (Qty.)",
+      "id": "CurrentValuatedStockQuantity",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "Planned Orders (Qty.)",
+      "id": "SumPlannedSupplyFutureQuantity",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": null,
+      "displayName": "Purchase Requisitions (Qty.)",
+      "id": "SumPurchaseRequisitionLineFutureQuantity",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": null,
+      "displayName": "Open Purchase Documents (Qty.)",
+      "id": "SumPurchaseScheduleLineFutureQuantity",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": null,
+      "displayName": "Production Orders (Qty.)",
+      "id": "SumProductionOrderFutureQuantity",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": "Total available supply quantity of a material plant combination. This value is computed based on available valuated inventory, planned orders, purchase requisition, Purchase Documents, incoming reservations, and production orders.",
+      "displayName": "Open Supply (Qty.)",
+      "id": "SumSupplyFutureQuantity",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": "Total available supply value of a material plant combination. This value is computed based on available valuated inventory, planned orders, purchase requisition, Purchase Documents, incoming reservations, and production orders.",
+      "displayName": "Open Supply (Val.)",
+      "id": "SumSupplyFutureValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": "Total available replenishment quantity of a material plant combination. This quantity is computed based on planned orders, purchase requisition, Purchase Documents, and production orders.",
+      "displayName": "Open Replenishment (Qty.)",
+      "id": "SumReplenishmentFutureQuantity",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": null,
+      "displayName": "Outgoing Reservations (Qty.)",
+      "id": "SumMaterialReservationFutureQuantity",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": null,
+      "displayName": "Sales Orders (Qty.)",
+      "id": "SumSalesOrderScheduleLineFutureQuantity",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": null,
+      "displayName": "Deliveries (Qty.)",
+      "id": "SumDeliveryLineFutureQuantity",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": null,
+      "displayName": "Independent Requirements (Qty.)",
+      "id": "SumMaterialRequirementFutureQuantity",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": "Total demand quantity of a material plant combination. This value is computed based on outgoing stock transfer orders, outgoing reservations, sales orders, and independent requirements.",
+      "displayName": "Open Demand (Qty.)",
+      "id": "SumConsumptionFutureQuantity",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": "Average value of inventory on hand during the last x months for this material | plant.",
+      "displayName": "Avg. Inventory Val.",
+      "id": "AvgCurrentValuatedStockAmountConvertedMonth",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": "Remaining open demand quantity after all currently open supply has been consumed. If fulfilling open demand requires taking inventory out of Safety Stock, the quantity needed to refill this Safety Stock is considered Uncovered Demand as well.",
+      "displayName": "Uncovered Demand (Qty.)",
+      "id": "UncoveredDemandFutureQuantity",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": "Remaining open demand value after all currently open supply has been consumed. If fulfilling open demand requires taking inventory out of Safety Stock, the quantity needed to refill this Safety Stock is considered Uncovered Demand as well.",
+      "displayName": "Uncovered Demand (Val.)",
+      "id": "UncoveredDemandFutureValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": "This KPI is the planned purchase lead time. It consists of the planned delivery time in days and the planned goods receipt processing time.",
+      "displayName": "Planned Purchase Lead Time",
+      "id": "PlannedPurchaseLeadTime",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": "This KPI is the average or median actual amount of time between Purchase Document Creation and Goods Receipt. It is aggregated to Material-Plant level using PU-functions. The decision for average or median is done during customization.",
+      "displayName": "Purchase Lead Time for Material",
+      "id": "ActualPurchaseLeadTime",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": "This KPI is the average lead time across Production Orders assigned to a Material-Plant combination. It is aggregated to Material-Plant level using PU-functions. The decision for average or median is done during customization.\"",
+      "displayName": "Production Lead Time for Material",
+      "id": "ActualProductionLeadTime",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": "Actual Replenishment Lead time per Material-Plant, considering both production and purchase based on average or median.",
+      "displayName": "Actual Replenishment Lead Time per Material",
+      "id": "ActualReplenishmentLeadTime",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "Unit Price",
+      "id": "UnitPriceConverted",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "string",
+      "description": null,
+      "displayName": "MRP Type",
+      "id": "MRPTypeFormatted",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "string",
+      "description": null,
+      "displayName": "MRP Controller",
+      "id": "MRPControllerFormatted",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "string",
+      "description": null,
+      "displayName": "Procurement Type",
+      "id": "ProcurementTypeFormatted",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Country",
+      "id": "Country",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Discontinued Material",
+      "id": "DiscontinuedMaterial",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Has Purchase Document Lines",
+      "id": "HasPurchaseDocumentLines",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Has Sales Order Schedule Lines",
+      "id": "HasSalesOrderScheduleLines",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Material Missing Valuation",
+      "id": "MaterialMissingValuation",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Material No. & Plant. No.",
+      "id": "MaterialNumberPlantNumberConcat",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "Safety Stock Value",
+      "id": "SafetyStockValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "No. of Out. Material Document Items",
+      "id": "NumOutgoingMaterialDocumentItems",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "No. of Inc. Material Document Items",
+      "id": "NumIncomingMaterialDocumentItems",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "No. of Purchase Document Lines",
+      "id": "NumPurchaseDocumentLines",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "No. of Purchase Requisition Items",
+      "id": "NumPurchaseRequisitionLines",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "No. of Sales Order Schedule Lines",
+      "id": "NumSalesOrderScheduleLines",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "No. of Production Orders",
+      "id": "NumProductionOrders",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "No. of Planned Orders",
+      "id": "NumPlannedOrders",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "No. of Material Reservations",
+      "id": "NumMaterialReservations",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "No. of Material Requirements",
+      "id": "NumMaterialRequirements",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": "Average value of inventory on hand during the last 12 months for this material | plant.",
+      "displayName": "Avg. Inventory Val. (12 Mo)",
+      "id": "AvgInventoryVal12Months",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": "This KPI is the average actual amount of time between Purchase Document Creation and Goods Receipt. It is aggregated to Material-Plant level using PU-functions. ",
+      "displayName": "Avg. Material Purchase Lead Time (12mo)",
+      "id": "AvgMaterialPurchaseLeadTime12Months",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": "Average monthly consumption quantity of this material | plant during the last 12 months.",
+      "displayName": "Avg. Monthly Cons. Qty. (12mo)",
+      "id": "AvgMonthlyConsQty12Months",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": "This KPI is the average lead time across Production Orders assigned to a Material-Plant combination. The KPI is parametrized for ease of maintenance in other queries. ",
+      "displayName": "Avg. Production Lead Time (12mo)",
+      "id": "AvgProductionLeadTime12Months",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": "This KPI is the base sum of the net consumption quantity in the last 12 full months Pulled up to \"o_celonis_MaterialMasterPlant\".",
+      "displayName": "Consumption Qty. (12mo)",
+      "id": "ConsumptionQty12Months",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": "Total consumption value of this material | plant in the last 12 months.",
+      "displayName": "Consumption Val. (12mo)",
+      "id": "ConsumptionVal12Months",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": "This KPI is the average lead time across Production Orders assigned to a Material-Plant combination.",
+      "displayName": "Median Production Lead Time (12mo)",
+      "id": "MedianProductionLeadTime12Months",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": "Number of on-time Purchase Document Lines for this material | plant divided by the total considered number of Purchase Document Lines in the last 12 months.",
+      "displayName": "Supplier Reliability (On-Time, 12mo)",
+      "id": "SupplierReliability12Months",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": "Net value of Purchase Document Lines for this material | plant that have been received late in the last 12 months.",
+      "displayName": "Purchase Document Value (Late, 12mo)",
+      "id": "PurchaseDocumentValLate12Months",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": "Total replenishment value of this material | plant in the last 12 months.",
+      "displayName": "Replenishment Val. (12mo)",
+      "id": "ReplenishmentVal12Months",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "Stand. Dev. Cons. Qty. (12mo)",
+      "id": "StandardDevConsQty12Months",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": "Replenishment Lead time per Material || Plant, considering both production and Purchase planned data.",
+      "displayName": "Planned Replenishment Lead Time",
+      "id": "PlannedReplenishmentLeadTime",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "Open Purchase Documents (Val.)",
+      "id": "SumPurchaseScheduleLineFutureValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "Purchase Requisition (Val.)",
+      "id": "SumPurchaseRequisitionLineFutureValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "Production Orders (Val.)",
+      "id": "SumProductionOrderFutureValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "Planned Orders (Val.)",
+      "id": "SumPlannedSupplyFutureValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": "Total available replenishment value of a material plant combination. This value is computed based on planned orders, purchase requisition, Purchase Documents, and production orders.",
+      "displayName": "Open Replenishment (Val.)",
+      "id": "SumReplenishmentFutureValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "Outgoing Reservations (Val.)",
+      "id": "SumMaterialReservationFutureValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "Sales Orders (Val.)",
+      "id": "SumSalesOrderScheduleLineFutureValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "Independent Requirements (Val.)",
+      "id": "SumMaterialRequirementFutureValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": "Total demand value of a material plant combination. This value is computed based on reservations, sales orders, and independent requirements.",
+      "displayName": "Open Demand (Val.)",
+      "id": "SumConsumptionFutureValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "Service Level (On-Time, 12mo)",
+      "id": "ServiceLevelOnTime12Months",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "Sales Order Value (Late, 12mo)",
+      "id": "SalesOrderValueLate12Months",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": "Value of all currently Open Sales Orders.",
+      "displayName": "Open Sales Value",
+      "id": "OpenSalesOrderScheduleLineValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": "Value of all currently Open Sales Orders, considering only open orders from the past.",
+      "displayName": "Open Sales Backorder Value",
+      "id": "OpenSalesOrderScheduleLineBackorderValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "No. of Sales Order Schedule Lines w/ Goods Issue",
+      "id": "NumSalesOrderScheduleLinesWithoutGoodsIssue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": "Days of cover calculated based on current inventory on hand and a 12 months consumption timeframe for this material | plant.",
+      "displayName": "Days of Cover (12mo)",
+      "id": "DaysOfCover12Months",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "Has Uncovered Open Demand?",
+      "id": "HasUncoveredOpenDemand",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": "Remaining open demand quantity for orders after all currently open supply has been consumed. If fulfilling open demand requires taking inventory out of Safety Stock, the quantity needed to refill this Safety Stock is not considered Uncovered Demand for Orders.",
+      "displayName": "Uncovered Open Demand for Orders (Qty.)",
+      "id": "UncoveredOpenDemandOrderQuantity",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": "Remaining open demand value for orders after all currently open supply has been consumed. If fulfilling open demand requires taking inventory out of Safety Stock, the value needed to refill this Safety Stock is not considered Uncovered Demand for Orders.",
+      "displayName": "Uncovered Open Demand for Orders (Val.)",
+      "id": "UncoveredOpenDemandOrderValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": "Obsolete stock for this material | plant combination. A material | plant is flagged as obsolete if it has an excess stock rate of 100%, no open sales orders, and no follow-up material.",
+      "displayName": "Obsolete Stock (Val.)",
+      "id": "ObsoleteStockValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": "Legacy stock for this material | plant combination. A material | plant is flagged as legacy if it has a follow-up material and is flagged as discontinued.",
+      "displayName": "Legacy Stock (Val.)",
+      "id": "LegacyStockValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": "This KPI is the average actual amount of time between Purchase Document Creation and Goods Receipt. It is aggregated to Material-Plant level using PU-functions. ",
+      "displayName": "Median Purchase Lead Time (12mo)",
+      "id": "MedianPurchaseLeadTime12Months",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "Lowest Stock Level (12mo.)",
+      "id": "LowestStockLevel12Months",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "Highest Stock Level (12mo.)",
+      "id": "HighestStockLevel12Months",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Material No. & Name | Plant No. & Name",
+      "id": "MaterialNumberNamePlantNumberNameConcat",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "Open Delivery Lines (Val.)",
+      "id": "SumDeliveryLineFutureValue",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "Desired Service Level",
+      "id": "DesiredServiceLevel",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"ServiceLevelXYZ\"",
+      "type": "ATTRIBUTE"
+     }
+    ],
+    "augmentedAttributes": [],
+    "description": null,
+    "displayName": "MaterialMasterPlant",
+    "id": "O_CELONIS_MATERIALMASTERPLANT",
+    "identifier": null,
+    "newAttributes": [],
+    "pql": "\"o_celonis_MaterialMasterPlant\"",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "MaterialMovement",
+    "id": "O_CELONIS_MATERIALMOVEMENT",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "Material Requirement",
+    "id": "O_CELONIS_MATERIALREQUIREMENT",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "Material Reservation",
+    "id": "O_CELONIS_MATERIALRESERVATION",
+    "type": "RECORD"
+   },
+   {
+    "attributes": [
+     {
+      "columnName": "AdjustmentQuantity",
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "AdjustmentQuantity",
+      "id": "ADJUSTMENTQUANTITY",
+      "pql": "\"o_celonis_PlannedSupply\".\"AdjustmentQuantity\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "SourceSystemInstance",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "SourceSystemInstance",
+      "id": "SOURCESYSTEMINSTANCE",
+      "pql": "\"o_celonis_PlannedSupply\".\"SourceSystemInstance\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "QuantityUnit",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "QuantityUnit",
+      "id": "QUANTITYUNIT",
+      "pql": "\"o_celonis_PlannedSupply\".\"QuantityUnit\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "PlannedSupplyNumber",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "PlannedSupplyNumber",
+      "id": "PLANNEDSUPPLYNUMBER",
+      "pql": "\"o_celonis_PlannedSupply\".\"PlannedSupplyNumber\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "OrderQuantity",
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "OrderQuantity",
+      "id": "ORDERQUANTITY",
+      "pql": "\"o_celonis_PlannedSupply\".\"OrderQuantity\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "OrderFinishDate",
+      "columnType": "DATE",
+      "description": null,
+      "displayName": "OrderFinishDate",
+      "id": "ORDERFINISHDATE",
+      "pql": "\"o_celonis_PlannedSupply\".\"OrderFinishDate\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "ObjectType",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "ObjectType",
+      "id": "OBJECTTYPE",
+      "pql": "\"o_celonis_PlannedSupply\".\"ObjectType\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "IsFirmOrder",
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "IsFirmOrder",
+      "id": "ISFIRMORDER",
+      "pql": "\"o_celonis_PlannedSupply\".\"IsFirmOrder\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Id",
+      "id": "ID",
+      "pql": "\"o_celonis_PlannedSupply\".\"ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "MaterialMasterPlant_ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "MaterialMasterPlant Id",
+      "id": "MATERIALMASTERPLANT_ID",
+      "pql": "\"o_celonis_PlannedSupply\".\"MaterialMasterPlant_ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "string",
+      "description": "Unique ID of a Planned Order.",
+      "displayName": "Planned Order Number",
+      "id": "PlannedSupplyNumberFormatted",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "date",
+      "description": "Date a Planned Order is expected to be finished based on current planning parameters.",
+      "displayName": "Order Finish Date",
+      "id": "OrderFinishDateFormatted",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "string",
+      "description": "Type of Planned Order.",
+      "displayName": "Object Type",
+      "id": "ObjectTypeFormatted",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "float",
+      "description": "Total Planned Order Quantity converted to Stock keeping Units.",
+      "displayName": "Planned Order Quantity",
+      "id": "OrderQuantityConverted",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "string",
+      "description": null,
+      "displayName": "Open Planned Order Condition",
+      "id": "IsOpen",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": "Adjustment quantity reducing a planned supply (e.g. implemented quantity or planned scrap) converted to Stock keeping Units.",
+      "displayName": "Planned Adjustment Quantity",
+      "id": "AdjustmentQuantityConverted",
+      "type": "ATTRIBUTE"
+     }
+    ],
+    "augmentedAttributes": [],
+    "description": null,
+    "displayName": "Planned Supply",
+    "id": "O_CELONIS_PLANNEDSUPPLY",
+    "identifier": null,
+    "newAttributes": [],
+    "pql": "\"o_celonis_PlannedSupply\"",
+    "type": "RECORD"
+   },
+   {
+    "attributes": [
+     {
+      "columnName": "SourceSystemInstance",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "SourceSystemInstance",
+      "id": "SOURCESYSTEMINSTANCE",
+      "pql": "\"o_celonis_Plant\".\"SourceSystemInstance\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "PlantName",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "PlantName",
+      "id": "PLANTNAME",
+      "pql": "\"o_celonis_Plant\".\"PlantName\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "PlantNumber",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "PlantNumber",
+      "id": "PLANTNUMBER",
+      "pql": "\"o_celonis_Plant\".\"PlantNumber\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "CountryName",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "CountryName",
+      "id": "COUNTRYNAME",
+      "pql": "\"o_celonis_Plant\".\"CountryName\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "Country",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Country",
+      "id": "COUNTRY",
+      "pql": "\"o_celonis_Plant\".\"Country\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Id",
+      "id": "ID",
+      "pql": "\"o_celonis_Plant\".\"ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "string",
+      "description": "Plant a material is stored at, produced at, or shipped to.",
+      "displayName": "Plant No. & Name",
+      "id": "NumberNameConcat",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "string",
+      "description": "Plant a material is stored at, produced at, or shipped to.",
+      "displayName": "Plant No.",
+      "id": "NumberFormatted",
+      "type": "ATTRIBUTE"
+     }
+    ],
+    "augmentedAttributes": [],
+    "description": null,
+    "displayName": "Plant",
+    "id": "O_CELONIS_PLANT",
+    "identifier": null,
+    "newAttributes": [],
+    "pql": "\"o_celonis_Plant\"",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "Production Order",
+    "id": "O_CELONIS_PRODUCTIONORDER",
+    "type": "RECORD"
+   },
+   {
+    "attributes": [
+     {
+      "columnName": "IsCanceled",
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "IsCanceled",
+      "id": "ISCANCELED",
+      "pql": "\"o_celonis_PurchaseDocument\".\"IsCanceled\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "SourceSystemInstance",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "SourceSystemInstance",
+      "id": "SOURCESYSTEMINSTANCE",
+      "pql": "\"o_celonis_PurchaseDocument\".\"SourceSystemInstance\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "PurchaseOrganizationName",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "PurchaseOrganizationName",
+      "id": "PURCHASEORGANIZATIONNAME",
+      "pql": "\"o_celonis_PurchaseDocument\".\"PurchaseOrganizationName\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "PurchaseOrganization",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "PurchaseOrganization",
+      "id": "PURCHASEORGANIZATION",
+      "pql": "\"o_celonis_PurchaseDocument\".\"PurchaseOrganization\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "CreationExecutionType",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "CreationExecutionType",
+      "id": "CREATIONEXECUTIONTYPE",
+      "pql": "\"o_celonis_PurchaseDocument\".\"CreationExecutionType\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "PurchaseDocumentNumber",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "PurchaseDocumentNumber",
+      "id": "PURCHASEDOCUMENTNUMBER",
+      "pql": "\"o_celonis_PurchaseDocument\".\"PurchaseDocumentNumber\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "DocumentTypeText",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "DocumentTypeText",
+      "id": "DOCUMENTTYPETEXT",
+      "pql": "\"o_celonis_PurchaseDocument\".\"DocumentTypeText\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "DocumentType",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "DocumentType",
+      "id": "DOCUMENTTYPE",
+      "pql": "\"o_celonis_PurchaseDocument\".\"DocumentType\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "DocumentCategory",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "DocumentCategory",
+      "id": "DOCUMENTCATEGORY",
+      "pql": "\"o_celonis_PurchaseDocument\".\"DocumentCategory\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "PaymentTerms",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "PaymentTerms",
+      "id": "PAYMENTTERMS",
+      "pql": "\"o_celonis_PurchaseDocument\".\"PaymentTerms\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "Currency",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Currency",
+      "id": "CURRENCY",
+      "pql": "\"o_celonis_PurchaseDocument\".\"Currency\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "CreationTime",
+      "columnType": "DATE",
+      "description": null,
+      "displayName": "CreationTime",
+      "id": "CREATIONTIME",
+      "pql": "\"o_celonis_PurchaseDocument\".\"CreationTime\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Id",
+      "id": "ID",
+      "pql": "\"o_celonis_PurchaseDocument\".\"ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "CreatedBy_ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "CreatedBy Id",
+      "id": "CREATEDBY_ID",
+      "pql": "\"o_celonis_PurchaseDocument\".\"CreatedBy_ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "Vendor_ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Vendor Id",
+      "id": "VENDOR_ID",
+      "pql": "\"o_celonis_PurchaseDocument\".\"Vendor_ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "string",
+      "description": "Indicates whether a Purchase Document has been flagged for deletion. ",
+      "displayName": "Order Deletion Indicator",
+      "id": "IsDeletedFormatted",
+      "type": "ATTRIBUTE"
+     }
+    ],
+    "augmentedAttributes": [],
+    "description": null,
+    "displayName": "PurchaseDocument",
+    "id": "O_CELONIS_PURCHASEDOCUMENT",
+    "identifier": null,
+    "newAttributes": [],
+    "pql": "\"o_celonis_PurchaseDocument\"",
+    "type": "RECORD"
+   },
+   {
+    "attributes": [
+     {
+      "columnName": "LineNumber",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "LineNumber",
+      "id": "LINENUMBER",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"LineNumber\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "IsCanceled",
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "IsCanceled",
+      "id": "ISCANCELED",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"IsCanceled\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "DocumentCategory",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "DocumentCategory",
+      "id": "DOCUMENTCATEGORY",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"DocumentCategory\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "IsGoodsReceiptRequired",
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "IsGoodsReceiptRequired",
+      "id": "ISGOODSRECEIPTREQUIRED",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"IsGoodsReceiptRequired\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "SourceSystemInstance",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "SourceSystemInstance",
+      "id": "SOURCESYSTEMINSTANCE",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"SourceSystemInstance\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "CreationExecutionType",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "CreationExecutionType",
+      "id": "CREATIONEXECUTIONTYPE",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"CreationExecutionType\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "PurchaseDocumentNumber",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "PurchaseDocumentNumber",
+      "id": "PURCHASEDOCUMENTNUMBER",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"PurchaseDocumentNumber\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "Description",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Description",
+      "id": "DESCRIPTION",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"Description\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "QuantityUnit",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "QuantityUnit",
+      "id": "QUANTITYUNIT",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"QuantityUnit\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "Quantity",
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "Quantity",
+      "id": "QUANTITY",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"Quantity\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "DocumentType",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "DocumentType",
+      "id": "DOCUMENTTYPE",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"DocumentType\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "NetUnitPrice",
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "NetUnitPrice",
+      "id": "NETUNITPRICE",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"NetUnitPrice\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "NetAmount",
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "NetAmount",
+      "id": "NETAMOUNT",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"NetAmount\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "Currency",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Currency",
+      "id": "CURRENCY",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"Currency\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "CreationTime",
+      "columnType": "DATE",
+      "description": null,
+      "displayName": "CreationTime",
+      "id": "CREATIONTIME",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"CreationTime\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "ChangeDate",
+      "columnType": "DATE",
+      "description": null,
+      "displayName": "ChangeDate",
+      "id": "CHANGEDATE",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"ChangeDate\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Id",
+      "id": "ID",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "CreatedBy_ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "CreatedBy Id",
+      "id": "CREATEDBY_ID",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"CreatedBy_ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "RequestedBy_ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "RequestedBy Id",
+      "id": "REQUESTEDBY_ID",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"RequestedBy_ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "Material_ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Material Id",
+      "id": "MATERIAL_ID",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"Material_ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "Header_ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Header Id",
+      "id": "HEADER_ID",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"Header_ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "string",
+      "description": null,
+      "displayName": "Deletion Indicator",
+      "id": "IsDeletedFormatted",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "string",
+      "description": "Whether goods can be delivered against a Purchase Document Line.",
+      "displayName": "Goods Receipt Indicator",
+      "id": "IsGoodsReceiptRequiredFormatted",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "date",
+      "description": "Date on which the last shipment (first in case of scheduling agreement) as part of a Purchase Document has been received.",
+      "displayName": "Purchase Document Goods Receipt Date",
+      "id": "GoodsReceiptDate",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": null,
+      "displayName": "Months in Purchase History Timeframe",
+      "id": "MonthsSinceGoodsReceipt",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": null,
+      "description": null,
+      "displayName": "Actual Purchase Document Lead Time",
+      "id": "ActualLeadTime",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "Days from Due Date",
+      "id": "DaysFromDueDate",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Is Open?",
+      "id": "IsOpen",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "DATETIME",
+      "description": null,
+      "displayName": "Month",
+      "id": "MonthGoodsReceiptDate",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "DATETIME",
+      "description": null,
+      "displayName": "Month of Order Creation",
+      "id": "CreationTimeMonth",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "Is Late",
+      "id": "GracePeriodIsLate",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Is Early",
+      "id": "GracePeriodIsEarly",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "Converted Net Unit Price",
+      "id": "NetUnitPriceConverted",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "DATETIME",
+      "description": "Date on which the last shipment (first in case of scheduling agreement) as part of a Purchase Document has been received.",
+      "displayName": "Line Delivery Date",
+      "id": "LineDeliveryDate",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": "Indicates whether a Purchase Document was received on time. The KPI is negatively impacted by early (tolerance: ${im_graceperiodpurchasedocumentlineisearlyindays} days) and late (tolerance: ${im_graceperiodpurchasedocumentlineislateindays} days) deliveries.",
+      "displayName": "Purchase Document Received Outcomes",
+      "id": "PurchaseDocumentReceivedOutcomes",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "Delivered Late?",
+      "id": "DeliveredLate",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": "Indicates whether a Purchase Document was received on time. The KPI is negatively impacted by early deliveries.",
+      "displayName": "Delivered On Time?",
+      "id": "DeliveredOnTime",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "Net Amount Converted",
+      "id": "NetAmountConverted",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Purchase Document Line & No.",
+      "id": "PurchaseDocumentLineNum",
+      "type": "ATTRIBUTE"
+     }
+    ],
+    "augmentedAttributes": [],
+    "description": null,
+    "displayName": "PurchaseDocumentLine",
+    "id": "O_CELONIS_PURCHASEDOCUMENTLINE",
+    "identifier": null,
+    "newAttributes": [],
+    "pql": "\"o_celonis_PurchaseDocumentLine\"",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "PurchaseRequisitionLine",
+    "id": "O_CELONIS_PURCHASEREQUISITIONLINE",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "PurchaseRequisitionLine Vendor",
+    "id": "O_CELONIS_PURCHASEREQUISITIONLINE__VENDOR",
+    "type": "RECORD"
+   },
+   {
+    "attributes": [
+     {
+      "columnName": "LineNumber",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "LineNumber",
+      "id": "LINENUMBER",
+      "pql": "\"o_celonis_PurchaseScheduleLine\".\"LineNumber\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "CreationTime",
+      "columnType": "DATE",
+      "description": null,
+      "displayName": "CreationTime",
+      "id": "CREATIONTIME",
+      "pql": "\"o_celonis_PurchaseScheduleLine\".\"CreationTime\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "SourceSystemInstance",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "SourceSystemInstance",
+      "id": "SOURCESYSTEMINSTANCE",
+      "pql": "\"o_celonis_PurchaseScheduleLine\".\"SourceSystemInstance\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "DeliveryNumber",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "DeliveryNumber",
+      "id": "DELIVERYNUMBER",
+      "pql": "\"o_celonis_PurchaseScheduleLine\".\"DeliveryNumber\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "PurchaseDocumentNumber",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "PurchaseDocumentNumber",
+      "id": "PURCHASEDOCUMENTNUMBER",
+      "pql": "\"o_celonis_PurchaseScheduleLine\".\"PurchaseDocumentNumber\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "ExpectedQuantity",
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "ExpectedQuantity",
+      "id": "EXPECTEDQUANTITY",
+      "pql": "\"o_celonis_PurchaseScheduleLine\".\"ExpectedQuantity\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "QuantityUnit",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "QuantityUnit",
+      "id": "QUANTITYUNIT",
+      "pql": "\"o_celonis_PurchaseScheduleLine\".\"QuantityUnit\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "ExpectedDeliveryDate",
+      "columnType": "DATE",
+      "description": null,
+      "displayName": "ExpectedDeliveryDate",
+      "id": "EXPECTEDDELIVERYDATE",
+      "pql": "\"o_celonis_PurchaseScheduleLine\".\"ExpectedDeliveryDate\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "ReceivedQuantity",
+      "columnType": "FLOAT",
+      "description": null,
+      "displayName": "ReceivedQuantity",
+      "id": "RECEIVEDQUANTITY",
+      "pql": "\"o_celonis_PurchaseScheduleLine\".\"ReceivedQuantity\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Id",
+      "id": "ID",
+      "pql": "\"o_celonis_PurchaseScheduleLine\".\"ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "Plant_ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Plant Id",
+      "id": "PLANT_ID",
+      "pql": "\"o_celonis_PurchaseScheduleLine\".\"Plant_ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "MaterialMasterPlant_ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "MaterialMasterPlant Id",
+      "id": "MATERIALMASTERPLANT_ID",
+      "pql": "\"o_celonis_PurchaseScheduleLine\".\"MaterialMasterPlant_ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "PurchaseDocumentLine_ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "PurchaseDocumentLine Id",
+      "id": "PURCHASEDOCUMENTLINE_ID",
+      "pql": "\"o_celonis_PurchaseScheduleLine\".\"PurchaseDocumentLine_ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "string",
+      "description": null,
+      "displayName": "Purchase Document No.",
+      "id": "PurchaseDocumentNumber",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "string",
+      "description": null,
+      "displayName": "Purchase Document Line",
+      "id": "PurchaseDocumentLine",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "string",
+      "description": null,
+      "displayName": "Purchase Order Schedule Line",
+      "id": "PurchaseOrderScheduleLine",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "date",
+      "description": "Date a Purchase Document is expected to arrive based on current planning parameters.",
+      "displayName": "Delivery Date",
+      "id": "DeliveryDate",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "float",
+      "description": "This KPI is the scheduled quantity to be delivered in a given Purchase Order Schedule Line converted to Stock Keeping Units.",
+      "displayName": "Scheduled Quantity",
+      "id": "ExpectedQuantityConverted",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "float",
+      "description": "This KPI is the goods received quantity to be delivered in a given Purchase Order Schedule Line converted to Stock Keeping Units.",
+      "displayName": "Goods Receipt Quantity",
+      "id": "ReceivedQuantityConverted",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "string",
+      "description": "Indicates whether the order is open.",
+      "displayName": "Is Open",
+      "id": "IsOpen",
+      "type": "ATTRIBUTE"
+     }
+    ],
+    "augmentedAttributes": [],
+    "description": null,
+    "displayName": "PurchaseScheduleLine",
+    "id": "O_CELONIS_PURCHASESCHEDULELINE",
+    "identifier": null,
+    "newAttributes": [],
+    "pql": "\"o_celonis_PurchaseScheduleLine\"",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "QuantityConversion",
+    "id": "O_CELONIS_QUANTITYCONVERSION",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "RelationshipBillOfMaterials",
+    "id": "O_CELONIS_RELATIONSHIPBILLOFMATERIALS",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "SalesOrder",
+    "id": "O_CELONIS_SALESORDER",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "Sales Order Schedule Line",
+    "id": "O_CELONIS_SALESORDERSCHEDULELINE",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "StockHistory",
+    "id": "O_CELONIS_STOCKHISTORY",
+    "type": "RECORD"
+   },
+   {
+    "attributes": [
+     {
+      "columnName": "SourceSystemInstance",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "SourceSystemInstance",
+      "id": "SOURCESYSTEMINSTANCE",
+      "pql": "\"o_celonis_Vendor\".\"SourceSystemInstance\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "VendorNumber",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "VendorNumber",
+      "id": "VENDORNUMBER",
+      "pql": "\"o_celonis_Vendor\".\"VendorNumber\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "IsBlockedForPayment",
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "IsBlockedForPayment",
+      "id": "ISBLOCKEDFORPAYMENT",
+      "pql": "\"o_celonis_Vendor\".\"IsBlockedForPayment\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "Country",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Country",
+      "id": "COUNTRY",
+      "pql": "\"o_celonis_Vendor\".\"Country\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "City",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "City",
+      "id": "CITY",
+      "pql": "\"o_celonis_Vendor\".\"City\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "IsInternalVendor",
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "IsInternalVendor",
+      "id": "ISINTERNALVENDOR",
+      "pql": "\"o_celonis_Vendor\".\"IsInternalVendor\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "Name",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Name",
+      "id": "NAME",
+      "pql": "\"o_celonis_Vendor\".\"Name\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "ID",
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Id",
+      "id": "ID",
+      "pql": "\"o_celonis_Vendor\".\"ID\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": "epoch",
+      "columnType": "INTEGER",
+      "description": null,
+      "displayName": "Epoch",
+      "id": "EPOCH",
+      "pql": "\"o_celonis_Vendor\".\"epoch\"",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "string",
+      "description": "Unique ID and Name of a Supplier company. ",
+      "displayName": "Supplier No. & Name",
+      "id": "SupplierNumberNameConcat",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "string",
+      "description": "Country a given Supplier is located in. ",
+      "displayName": "Country",
+      "id": "Country",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "string",
+      "description": "City a given Supplier is located in. ",
+      "displayName": "City",
+      "id": "City",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": null,
+      "displayName": "Internal Supplier",
+      "id": "IsInternalSupplier",
+      "type": "ATTRIBUTE"
+     },
+     {
+      "columnName": null,
+      "columnType": "STRING",
+      "description": "Supplier Identifier as an attribute",
+      "displayName": "Supplier ID",
+      "id": "IDENTIFIER_AS_ATTRIBUTE",
+      "type": "ATTRIBUTE"
+     }
+    ],
+    "augmentedAttributes": [],
+    "description": null,
+    "displayName": "Supplier",
+    "id": "O_CELONIS_VENDOR",
+    "identifier": {
+     "autoGenerated": null,
+     "customAttributes": null,
+     "description": null,
+     "displayName": "Supplier ID",
+     "filterIds": null,
+     "id": "Record_Supplier_ID",
+     "internalNote": null,
+     "knowledgeSource": null,
+     "pql": "\"o_celonis_Vendor\".\"ID\"\n",
+     "scope": null,
+     "shortDisplayName": null
+    },
+    "newAttributes": [],
+    "pql": "o_celonis_Vendor",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "Py Repro Schema 3681a0ee",
+    "id": "PY_REPRO_SCHEMA_3681A0EE",
+    "type": "RECORD"
+   },
+   {
+    "displayName": "Relationships DeliveryLine.SalesOrderScheduleLines",
+    "id": "R_O_CELONIS_DELIVERYLINE__SALESORDERSCHEDULELINES",
+    "type": "RECORD"
+   }
+  ]
+ },
+ "format_version": 1,
+ "source": {
+  "key": "inventory-km",
+  "mode": "draft",
+  "package_id": "fixture-package",
+  "space_id": "fixture-space",
+  "tenant_id": "fixture-tenant"
+ }
+}

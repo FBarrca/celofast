@@ -9,7 +9,7 @@ from pycelonis.ems.apps.content_node.view.content import ViewContent
 from pycelonis.ems.studio.content_node.view import View
 
 from celofast import ComponentVariableError, DateRange
-from celofast.resources.knowledge_model import KnowledgeModelHandle
+from celofast.resources.knowledge_model import KnowledgeModelConnection
 from celofast.resources.view import ViewHandle
 from celofast.resources.view_input import InputBoxHandle
 
@@ -125,7 +125,7 @@ def make_handle(*, variable_key: str = "dropdown_value"):
             ),
         ],
     )
-    km = MagicMock(spec=KnowledgeModelHandle)
+    km = MagicMock(spec=KnowledgeModelConnection)
     km.native = native_km
     km.mode = "draft"
     native_view = SimpleNamespace(
@@ -202,7 +202,7 @@ def test_component_value_uses_view_node_and_km_reference():
 
 def test_dropdown_options_execute_distinct_native_attribute_query():
     view, km, _ = make_handle()
-    km.execute.return_value = pd.DataFrame(
+    km._execute.return_value = pd.DataFrame(
         {"value": ["EMEA", "AMER", None]}
     )
 
@@ -212,7 +212,7 @@ def test_dropdown_options_execute_distinct_native_attribute_query():
         ("EMEA", "EMEA"),
         ("AMER", "AMER"),
     ]
-    km.execute.assert_called_once_with(
+    km._execute.assert_called_once_with(
         {
             "columns": {"value": '"Orders"."REGION"'},
             "filters": ["FILTER @active_regions;"],

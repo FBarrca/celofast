@@ -8,7 +8,8 @@ from pathlib import Path
 
 from celofast.sdk.capture import Capture
 
-RUNTIME_API_VERSION = 5
+# 6: object SDK (value classes, definitions, links); the query API was removed.
+RUNTIME_API_VERSION = 6
 
 
 class SDKCompatibilityError(ImportError):

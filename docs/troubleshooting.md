@@ -3,7 +3,7 @@
 [Documentation](index.md) · [API reference](api-reference.md)
 
 Start with the layer named by the exception: authentication, resource selection,
-generated definitions, query construction, execution, or output writes.
+generated packages, object retrieval, Views, or output writes.
 
 ## Connection and resource selection
 
@@ -16,56 +16,38 @@ generated definitions, query construction, execution, or output writes.
 | `ResourceResolutionError` mentioning a Data Model | Confirm the KM has a final Data Model ID and the client can access that model through a Data Pool. |
 | Published resources are missing | Pass the published Space/Package IDs and `mode="published"`. There is no draft fallback. |
 
-`cf.client`, `cf.space`, `cf.package`, `cf.mode`, `km.native`, and `km.data_model`
-help identify the actual resources selected by your application.
+`cf.client`, `cf.space`, `cf.package`, `cf.mode`, `client.native`, and
+`client.data_model` help identify the actual resources selected by your application.
 
-## Generated definitions and imports
+## Generating object packages
 
 | Symptom | Check / next step |
 | --- | --- |
-| `ModuleNotFoundError` for `generated.inventory` | Run the configured pull and make its output importable from the application's working directory or package. |
-| `SDKCompatibilityError` on import | Include all four generated files and use a compatible Celofast runtime. Regenerate rather than editing generated files. |
-| Missing `plant.country` field | Iterate over `plant` and use `plant["ExactID"]`. Colliding field names have suffixes listed in `schema.json`; ambiguous IDs need `get_attribute(..., collection="attributes")`. Regenerate older packages. |
-| Unknown collection member | Generated names come from your captured IDs. Use iteration/autocomplete or `collection["ExactID"]`; absent IDs raise `KeyError`. |
-| Missing `inventory.select` or `km.records` | Read fields from the generated `inventory`; call query methods on `km = cf.km(inventory)`. See the [0.4 migration guide](migration-0.4.md). |
-| `QueryValidationError` about source or Data Model | Connect to the matching tenant, Space, Package, lifecycle, and Data Model. Do not mix expressions from other sources. |
-| Cloud edits are missing after pull | Restart Python or reload the generated module, then reconnect the new root. Existing objects retain their previous capture. |
-| Whole-record columns appear ID-sorted | Pull again: older captures sorted attribute lists by ID. New captures preserve definition order. |
+| `ObjectMappingError` during pull | Every listed item needs a decision: set a `key`, declare `types`, add `exclude-fields`, exclude the record, or fix a link. See [Generation is strict](knowledge-model-sdk.md#generation-is-strict). |
+| A record you need is only listed as "no declared identifier" | Choose its business key yourself (`key = ["ID"]`, or several attribute IDs for a composite key). Celofast never guesses keys from field names. |
 | Pull refuses the output directory | Keep application code outside the managed directory. Use a separate output for a different KM source. |
+| `ModuleNotFoundError` for `generated.inventory` | Run the configured pull and make its output importable from the application's working directory or package. |
+| `SDKCompatibilityError` on import | The package was generated for another runtime (for example the 0.4 query API). Rerun `celofast km pull` and restart Python; keep all generated files together. |
+| A field has an unexpected name | Reserved or colliding names get suffixes, such as `key_attribute`; `schema.json` lists every generated symbol. Look fields up by attribute ID with `Plant.fields["ID"]`. |
+| Missing `km.select`, `km.execute`, or `inventory.records` | The query API was removed. See the [0.5 migration guide](migration-0.5.md). |
+| `TypeError` from `cf.km("key")` | Pass the generated model: `cf.km(inventory)`. Use `cf.augmentation_tables("key")` for output tables. |
+| `QueryValidationError` about source or Data Model | Connect to the matching tenant, Space, Package, lifecycle, and Data Model. |
+| Cloud edits are missing after pull | Restart Python so every generated module reloads with the new capture. |
 
-See [KM compatibility](knowledge-model-sdk.md#connections-and-compatibility)
-and [reload instructions](knowledge-model-sdk.md#reload-in-a-running-python-process).
-
-## Query construction and execution
+## Retrieving objects
 
 | Symptom | Check / next step |
 | --- | --- |
-| Empty selection / no queryable attributes | Select at least one expression. Whole-record attributes need non-empty IDs and PQL. |
-| Duplicate output name or record attribute ID | Use explicit aliases for the intended fields. |
-| `UnresolvedVariableError` | Supply the missing exact string binding. Both raw and generated expressions require explicit bindings; captured defaults are metadata only. |
-| `eq()` rejects a value | Use a supported scalar/date or `None`. Numbers must be finite; datetimes need millisecond precision. |
-| Python `and`/`or` on predicates raises an error | Chain `.where(...)` calls, or pass several filters to one call, to combine them with AND. |
-| Invalid raw filter | Supply a complete `FILTER condition;` statement. Check quotes, comments, parentheses, and operands. |
-| Invalid pagination | Use non-negative integers for `limit` and `offset`, and a boolean for `distinct`. Booleans are not valid limits. |
-| `QueryValidationError` before export | Check the query shape, captured source, bindings, and execution options. PQL grammar is validated by Celonis during execution. |
-| Native execution/export error | Inspect the exception chain for source resolution, syntax, permission, or service failures. Builder, dictionary, and View execution preserve native errors. |
+| `ObjectNotFoundError` | No object has that key. Composite keys are tuples in key-field order (`Plant.fields.key_fields`). |
+| `ObjectIdentityError` | The key is null, or one key produced different values. The key is not unique for that record, or a field's expression joins to several rows; choose another key or exclude the field. |
+| `ObjectValueError` | A retrieved value does not match the declared type, or a filter value has the wrong type. Correct `types` in the mapping, or pass a value of the field's type. |
+| `UnresolvedVariableError` | A loaded field uses a `${name}` KM input variable. Pass `variables=` to `cf.km(...)`, or exclude the field. |
+| `QueryValidationError` from `where()` | Use predicates from the collection's own class, such as `Plant.fields.country.eq(...)`. Raw PQL is not accepted. |
+| Native export error, such as an error in another record's calculated attribute | A loaded field depends on a definition that fails in Celonis. Inspect the exception chain and exclude the affected fields until the KM is fixed. |
+| Python `and`/`or` on predicates raises an error | Pass several predicates to `where()` or chain calls; they combine with AND. |
 
-Inspect the exact PQL after binding without exporting data:
-
-```python
-native_pql = query.build()
-for column in native_pql.columns:
-    print(column.name, column.query)
-for filter_ in native_pql.filters:
-    print(filter_.query)
-```
-
-Pass the same `variables=` mapping to `build()` that you use for execution.
-Printed PQL and metadata can contain business information; review the content
-before sharing a diagnostic.
-
-A Data Model PQL debugger does not validate unresolved KM expressions in their
-KM context. See [native PQL tools](knowledge-model-sdk.md#native-pql-tools).
+Printed metadata can contain business information; review the content before
+sharing a diagnostic.
 
 ## Views and controls
 

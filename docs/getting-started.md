@@ -86,27 +86,10 @@ Space/Package IDs and KM/View keys are explicit arguments or pull configuration;
 Celofast does not read them from environment variables. A missing published
 resource does not fall back to its Studio draft.
 
-## 4. Run a first query without generation
+## 4. Describe and generate your KM objects
 
-Replace the KM key and PQL expression with ones valid in your package:
-
-```python
-km = cf.km("inventory-km")
-plants = km.select({"Plant number": '"Plant"."Number"'}).execute(limit=5)
-print(plants)
-```
-
-KM selection uses the exact KM key, not its display name. The result is a
-pandas DataFrame. `limit=5` bounds this preview; omitting the limit requests all
-matching rows. Physical table and column names in PQL are tenant-specific.
-
-This confirms the authentication, resource selection, Data Model access, and
-query path before introducing generation. See [Troubleshooting](troubleshooting.md)
-if one of those steps fails.
-
-## 5. Add typed KM objects
-
-Add this table to your application's `pyproject.toml`:
+Add this table to your application's `pyproject.toml`, using the exact KM key
+(not its display name):
 
 ```toml
 [tool.celofast.knowledge-models.inventory]
@@ -117,34 +100,47 @@ mode = "draft"
 output = "generated/inventory"
 ```
 
-From the application directory, run:
+Check what the KM needs before anything is generated:
+
+```bash
+uv run celofast km pull inventory --check
+```
+
+Generation requires a verified key for every generated object type. The command
+lists each record, key, type, and relationship that needs a mapping entry or an
+explicit exclusion; add them under
+`[tool.celofast.knowledge-models.inventory.mapping]` as shown in
+[Describe your objects](knowledge-model-sdk.md#1-describe-your-objects). Then:
 
 ```bash
 uv run celofast km pull inventory
 ```
 
-Then import the offline definitions and obtain an execution handle:
+## 5. Retrieve your first objects
 
 ```python
-from generated.inventory import km as inventory
+from generated.inventory import Plant, km as inventory
 
-km = cf.km(inventory)
-plant = inventory.records.o_celonis_plant
-plants = km.select(plant).execute(limit=5)
+client = cf.km(inventory)
+page = client.objects(Plant).fetch_page(page_size=5)
+for plant in page.items:
+    print(plant.key, plant.country)
 ```
 
 Run from a directory where `generated` is importable, or package that directory
-with your application. Use your editor's autocomplete to select your actual
-record name. The import itself is offline; `cf.km(inventory)` validates its source and returns
-the same handle as `cf.km(inventory.key)`. Use `inventory` for fields and `km`
-for queries. Inline `${name}` placeholders require explicit `variables=` bindings.
+with your application. Use your editor's autocomplete for your actual class and
+field names. The import itself is offline; `cf.km(inventory)` validates the
+package's source against the connected KM and its Data Model. The result is a
+page of immutable `Plant` objects with plain Python values.
 
-Continue with the [KM guide](knowledge-model-sdk.md) for filters, column names,
-metadata, variables, and refreshing captures.
+This confirms the authentication, resource selection, Data Model access, and
+read path. See [Troubleshooting](troubleshooting.md) if one of those steps fails.
+
+Continue with the [KM guide](knowledge-model-sdk.md) for filters, relationships,
+composite keys, input variables, and refreshing captures.
 
 ## Next steps
 
-- [Dictionary queries](dictionary-queries.md): reuse existing PQL definitions.
 - [Views and inputs](views-and-inputs.md): use configured tables and control values.
 - [Augmentation tables](augmentation-tables.md): persist application output.
 - [API reference](api-reference.md): look up arguments and return types.

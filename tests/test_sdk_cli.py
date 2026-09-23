@@ -11,13 +11,18 @@ package-id = "package"
 key = "inventory-km"
 mode = "published"
 output = "generated/inventory"
+
+[tool.celofast.knowledge-models.inventory.mapping.objects.Plant]
+key = ["ID"]
 """)
     calls = []
     payload = {
         "layer": {
             "tenantId": "tenant",
             "nodeEntityId": "node",
-            "records": [{"id": "Plant"}],
+            "records": [{"id": "Plant", "attributes": [
+                {"id": "ID", "pql": '"Plant"."ID"', "columnType": "STRING"},
+            ]}],
         }
     }
 
@@ -57,6 +62,14 @@ output = "generated/inventory"
     assert main([*args, "--check"]) == 0
     assert calls[0]["params"] == {"isDraft": False}
     assert "up to date" in capsys.readouterr().out
+    assert (tmp_path / "generated" / "inventory" / "objects.py").is_file()
+
+    # An explicit mapping file replaces the configured table.
+    (tmp_path / "unmapped.toml").write_text("exclude = []")
+    monkeypatch.chdir(tmp_path)
+    assert main([*args, "--mapping", "unmapped.toml", "--check"]) == 2
+    error = capsys.readouterr().err
+    assert "Plant (map it under objects or add it to exclude): no declared identifier" in error
 
 
 def test_configuration_error_is_distinct_from_drift(capsys):

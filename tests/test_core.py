@@ -53,8 +53,8 @@ def test_celofast_resolves_scope_once_and_caches_native_contexts():
     client, space, package, knowledge_model, _, data_pool = make_client()
     cf = CeloFast("space-id", "package-id", client=cast(Celonis, client))
 
-    first_km = cf.km("orders-km")
-    second_km = cf.km("orders-km")
+    first_km = cf._km_connection("orders-km")
+    second_km = cf._km_connection("orders-km")
     first_view = cf.view("orders-view")
     second_view = cf.view("orders-view")
 
@@ -87,11 +87,12 @@ def test_kms_sharing_a_data_model_share_augmentation_collection():
     ]
     cf = CeloFast("space-id", "package-id", client=cast(Celonis, client))
 
-    first = cf.km("orders-km")
-    second = cf.km("second-km")
+    first = cf._km_connection("orders-km")
+    second = cf._km_connection("second-km")
 
     assert first.data_model is second.data_model
     assert first.augmentation_tables is second.augmentation_tables
+    assert cf.augmentation_tables("second-km") is first.augmentation_tables
 
 
 def test_exporting_view_table_does_not_resolve_knowledge_model_or_data_model():
@@ -122,7 +123,7 @@ def test_exact_missing_resource_key_has_contextual_error():
     cf = CeloFast("space-id", "package-id", client=cast(Celonis, client))
 
     with pytest.raises(ResourceNotFoundError, match="missing-km"):
-        cf.km("missing-km")
+        cf.augmentation_tables("missing-km")
 
 
 def make_published_client(*, missing_km: bool = False):
@@ -229,7 +230,7 @@ def test_published_km_uses_canonical_root_key_and_apps_connector():
     )
 
     with patch("celofast.resolution.KnowledgeModel.get_content", get_content):
-        handle = cf.km("orders-km")
+        handle = cf._km_connection("orders-km")
 
     assert handle.native.root_with_key == "published-package-root.orders-km"
     assert handle.native.id == "published-package-root.orders-km"
@@ -249,7 +250,7 @@ def test_missing_published_km_is_mapped_to_resource_not_found():
 
     with patch("celofast.resolution.KnowledgeModel.get_content", get_content):
         with pytest.raises(ResourceNotFoundError, match="orders-km"):
-            cf.km("orders-km")
+            cf._km_connection("orders-km")
 
 
 def test_invalid_resource_mode_is_rejected_before_client_resolution():
@@ -268,10 +269,10 @@ def test_invalid_resource_mode_is_rejected_before_client_resolution():
 
 
 @pytest.mark.parametrize("mode", ["draft", "published"])
-@pytest.mark.parametrize("raw_first", [False, True])
-def test_generated_model_binding_checks_each_source_and_shares_native_handle(mode, raw_first):
-    from celofast.sdk import Capture, KnowledgeModel, Source
+def test_object_client_checks_each_source_and_shares_native_connection(mode):
     from celofast.exceptions import QueryValidationError
+    from celofast.resources.knowledge_model import KnowledgeModelClient
+    from celofast.sdk import Capture, ObjectModel, Source
 
     client = make_client()[0] if mode == "draft" else make_published_client()[0]
     source = Source(
@@ -290,54 +291,31 @@ def test_generated_model_binding_checks_each_source_and_shares_native_handle(mod
             return_value=SimpleNamespace(data_model_id="dm-id"),
         ),
     ):
-        initial = cf.km("orders-km") if raw_first else None
-        handle = cf.km(KnowledgeModel(capture))
-        if initial is not None:
-            assert handle is initial
-        assert cf.km("orders-km") is handle
-        changed = Capture.create(source, {"dataModelId": "dm-id", "kpis": [{"id": "new", "pql": "1"}]})
-        changed_model = cf.km(KnowledgeModel(changed))
-        assert changed_model is handle
-        assert not hasattr(handle, "capture")
-        assert cf.km(KnowledgeModel(capture)) is handle
-        assert handle.mode == mode
-        assert handle._source == capture.source
+        first = cf.km(ObjectModel(capture, ()))
+        second = cf.km(ObjectModel(capture, ()))
+        assert isinstance(first, KnowledgeModelClient)
+        assert first._connection is second._connection is cf._km_connection("orders-km")
+        assert first.mode == mode
+        assert first._connection._source == capture.source
         assert retrieve.call_args.kwargs["mode"] == mode
         assert retrieve.call_count == 1
         other_source = source.model_copy(update={"tenant_id": "other-tenant"})
         other = Capture.create(other_source, {"dataModelId": "dm-id"})
         with pytest.raises(QueryValidationError, match="different KM source"):
-            cf.km(KnowledgeModel(other))
+            cf.km(ObjectModel(other, ()))
         wrong_dm = Capture.create(source, {"dataModelId": "other-dm"})
         with pytest.raises(QueryValidationError, match="Data Model"):
-            cf.km(KnowledgeModel(wrong_dm))
+            cf.km(ObjectModel(wrong_dm, ()))
         wrong_mode = source.model_copy(
             update={"mode": "published" if mode == "draft" else "draft"}
         )
         with pytest.raises(QueryValidationError, match="lifecycle"):
-            cf.km(KnowledgeModel(Capture.create(wrong_mode, {"dataModelId": "dm-id"})))
+            cf.km(ObjectModel(Capture.create(wrong_mode, {"dataModelId": "dm-id"}), ()))
 
 
-@pytest.mark.parametrize("record", [False, True])
-def test_string_handle_recovers_provenance_only_when_typed_objects_need_it(record):
-    from celofast.sdk import Attribute, Capture, Record, Source
-
+def test_km_rejects_keys_and_removed_query_roots():
     client, *_ = make_client()
-    source = Source(tenant_id="tenant", space_id="space-id", package_id="package-id",
-                    key="orders-km", mode="draft")
-    capture = Capture.create(source, {"dataModelId": "dm-id", "records": [
-        {"id": "Order", "attributes": [{"id": "ID", "pql": "1"}]}]})
     cf = CeloFast("space-id", "package-id", client=cast(Celonis, client))
-    with patch("celofast.core.retrieve", return_value=capture) as retrieve:
-        handle = cf.km("orders-km")
-        handle.build({"columns": {"raw": "1"}})
-        retrieve.assert_not_called()
-        if record:
-            handle.select(Record(capture, ("records", "Order"))).build()
-        else:
-            attr = Attribute(capture, ("records", "Order", "attributes", "ID"))
-            handle.build({"columns": {"typed": attr}})
-        retrieve.assert_called_once()
-        assert handle._source == source
-        handle.build({"columns": {"raw": "1"}})
-        assert retrieve.call_count == 1
+    with pytest.raises(TypeError, match="celofast km pull"):
+        cf.km("orders-km")  # type: ignore[arg-type]
+    client.data_integration.get_data_pools.assert_not_called()

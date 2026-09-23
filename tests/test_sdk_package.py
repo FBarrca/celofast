@@ -19,6 +19,7 @@ def capture(pql='"Plant"."Number"'):
             "records": [
                 {
                     "id": "Plant",
+                    "identifier": {"pql": pql},
                     "attributes": [
                         {"id": "Number", "columnType": "string", "pql": pql}
                     ],
@@ -47,10 +48,15 @@ def test_input_default_drift_and_reload(tmp_path, monkeypatch):
             },
         )
 
+    def fresh_import():
+        for name in [n for n in sys.modules if n.split(".")[0] == "input_snapshot"]:
+            del sys.modules[name]
+        return importlib.import_module("input_snapshot")
+
     target = tmp_path / "input_snapshot"
     write_package(snapshot("3"), target)
     monkeypatch.syspath_prepend(str(tmp_path))
-    module = importlib.import_module("input_snapshot")
+    module = fresh_import()
     try:
         old = module.km
         before = files(target)
@@ -62,12 +68,13 @@ def test_input_default_drift_and_reload(tmp_path, monkeypatch):
         )
         assert files(target) == before
         write_package(snapshot("12"), target)
-        importlib.reload(module)
+        module = fresh_import()
         assert old.input_variables["months"]["defaultValue"] == "3"
         assert module.km.input_variables["months"]["defaultValue"] == "12"
         assert not write_package(snapshot("12"), target, check=True)
     finally:
-        sys.modules.pop("input_snapshot", None)
+        for name in [n for n in sys.modules if n.split(".")[0] == "input_snapshot"]:
+            del sys.modules[name]
 
 
 def test_check_never_writes_and_pull_is_repeatable(tmp_path):
@@ -152,6 +159,7 @@ def test_check_reports_symbol_renames_and_field_categories(tmp_path):
     layer = original.to_dict()
     attributes = layer["records"][0]["attributes"]
     attributes[0].update(columnType="integer", pql="42", description="Updated docs")
+    layer["records"][0]["identifier"]["pql"] = "42"
     # Both source IDs normalize to number, so the existing symbol must change.
     attributes.append({"id": "NUMBER", "columnType": "string", "pql": "'new'"})
     changes = write_package(Capture.create(original.source, layer), target, check=True)
@@ -164,7 +172,7 @@ def test_check_reports_symbol_renames_and_field_categories(tmp_path):
         "files",
     }
     assert any(
-        "symbols/km.records.plant.number -> " in change.path
+        "symbols/Plant.number -> Plant.number_attribute_" in change.path
         for change in changes
     )
     assert any(
@@ -214,3 +222,32 @@ def test_metadata_only_categories_still_report_drift(tmp_path):
     changes = write_package(Capture.create(original.source, layer), target, check=True)
     assert any(change.path.endswith("activities.Review.description") for change in changes)
     assert files(target) == before
+
+
+def test_mapping_changes_are_drift_and_invalid_mappings_write_nothing(tmp_path):
+    from celofast.exceptions import ObjectMappingError
+
+    target = tmp_path / "inventory"
+    write_package(capture(), target)
+    renamed = {"objects": {"Plant": {"class": "Site"}}}
+    changes = write_package(capture(), target, mapping=renamed, check=True)
+    assert any(change.path == "symbols/Plant -> Site" for change in changes)
+    before = files(target)
+    broken = capture().to_dict()
+    del broken["records"][0]["identifier"]
+    with pytest.raises(ObjectMappingError, match="no declared identifier"):
+        write_package(Capture.create(capture().source, broken), target)
+    assert files(target) == before
+
+
+def test_packages_from_the_query_runtime_are_replaced_with_the_object_layout(tmp_path):
+    target = tmp_path / "inventory"
+    target.mkdir()
+    (target / "__init__.py").write_text("from celofast.sdk.objects import KnowledgeModel")
+    (target / "capture.json").write_text(capture().to_json())
+    (target / "schema.json").write_text('{"managed_by": "celofast.km", "runtime_api": 5}')
+    (target / "py.typed").write_text("")
+    assert write_package(capture(), target)
+    assert sorted(files(target)) == sorted(
+        ["__init__.py", "capture.json", "definitions.py", "links.py", "objects.py", "py.typed", "schema.json"]
+    )

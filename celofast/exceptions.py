@@ -96,3 +96,23 @@ class UnresolvedVariableError(QueryValidationError):
     Placeholders inside line or block comments are intentionally ignored by
     the binder and therefore do not trigger this exception.
     """
+
+
+class ObjectMappingError(CeloFastError, ValueError):
+    """Raised when captured records cannot be generated as identified objects.
+
+    Generation lists every record, key, type, or relationship that needs an
+    explicit mapping or exclusion instead of weakening the object contract.
+    """
+
+
+class ObjectNotFoundError(ResourceNotFoundError):
+    """Raised when ``get(key)`` finds no object with that business key."""
+
+
+class ObjectIdentityError(CeloFastError):
+    """Raised when retrieved rows have a null key or conflicting values for one key."""
+
+
+class ObjectValueError(CeloFastError, ValueError):
+    """Raised when a retrieved or filter value does not match its declared type."""

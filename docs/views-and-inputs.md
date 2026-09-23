@@ -147,20 +147,19 @@ properties for ranges; the single `variable_key` and single-variable
 `details()` interface do not represent both values. Dates must be returned as
 ISO dates, and checkbox values must decode from `true`/`false`.
 
-## Values and query bindings
+## Values and object filters
 
-Reading a control does not automatically inject it into a typed KM query. Use
-the returned value explicitly when that is the intended application behavior:
+Reading a control does not automatically filter KM objects. Use the returned
+value explicitly when that is the intended application behavior:
 
 ```python
-# inventory contains generated definitions; km = cf.km(inventory).
-plant = inventory.records.o_celonis_plant
+# client = cf.km(inventory); Plant is a generated value class.
 country = input_view.input_box("Country").get()
 
-query = km.select(plant)
+plants = client.objects(Plant)
 if country:
-    query = query.where(plant.country.eq(country))
-plants = query.execute(limit=100)
+    plants = plants.where(Plant.fields.country.eq(country))
+page = plants.fetch_page(page_size=100)
 ```
 
 These control handles expose reads and inspection; Celofast does not expose a
@@ -171,7 +170,8 @@ the source your application needs explicitly.
 ## Native access and errors
 
 - `view.native` gives the native View; `view.content` gives parsed View content.
-- `view.km` lazily resolves its native KM handle.
+- `view.km` lazily resolves a `KnowledgeModelConnection` exposing `native`,
+  `data_model`, and `augmentation_tables`; it has no query methods.
 - `table.component` and `control.component` expose native components.
 - `control.settings` exposes a read-only mapping of serialized settings.
 - `view.input_definitions` exposes the KM input definitions; first access may

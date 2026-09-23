@@ -12,6 +12,9 @@ wheels/
 # Local environment configuration
 .env
 .celofast-validation/
+.inventory-playground/
+mlruns/
+mlartifacts/
 
-# Tenant-specific definitions used by main.py; regenerate with celofast km pull.
+# Tenant-specific definitions for the opt-in live tests; regenerate with celofast km pull.
 /generated/inventory/

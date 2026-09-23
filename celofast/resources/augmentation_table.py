@@ -18,8 +18,8 @@ MAX_AUGMENTATION_BATCH_SIZE = 1_000
 class AugmentationTableCollection:
     """Create and locate augmentation tables in one resolved Data Model.
 
-    The collection is normally accessed through
-    :attr:`KnowledgeModelHandle.augmentation_tables`. The Knowledge Model is
+    The collection is normally accessed through ``cf.augmentation_tables(km_key)``
+    or :attr:`KnowledgeModelClient.augmentation_tables`. The Knowledge Model is
     only used to locate its final Data Model; all mutations happen directly at
     the Data Model layer and are not isolated by CeloFast's draft/published
     mode.

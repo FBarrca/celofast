@@ -39,7 +39,9 @@ def _configuration(name: str, project: Path | None) -> tuple[dict[str, Any], Pat
     settings = models[name]
     if not isinstance(settings, dict):
         raise TypeError(f"Knowledge Model {name!r} configuration must be a table.")
-    unexpected = set(settings) - {"space-id", "package-id", "key", "mode", "output"}
+    unexpected = set(settings) - {
+        "space-id", "package-id", "key", "mode", "output", "mapping"
+    }
     if unexpected:
         raise ValueError(
             f"Unknown KM configuration fields: {', '.join(sorted(unexpected))}"
@@ -47,10 +49,21 @@ def _configuration(name: str, project: Path | None) -> tuple[dict[str, Any], Pat
     return settings, project.parent
 
 
+def _mapping(value: Any, base: Path) -> dict[str, Any] | None:
+    """Read an inline mapping table or a TOML file relative to ``base``."""
+    if value is None or isinstance(value, dict):
+        return value
+    if not isinstance(value, (str, Path)):
+        raise TypeError("KM mapping must be a table or a path to a TOML file.")
+    path = Path(value)
+    with (path if path.is_absolute() else base / path).open("rb") as stream:
+        return tomllib.load(stream)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="celofast",
-        description="Capture Celonis definitions as typed Python objects.",
+        description="Generate typed Python object classes from Celonis Knowledge Models.",
     )
     commands = parser.add_subparsers(dest="command", required=True)
     km = commands.add_parser("km", help="Generate Knowledge Model SDKs")
@@ -65,6 +78,11 @@ def main(argv: list[str] | None = None) -> int:
     pull.add_argument("--km", dest="key", help="Exact Knowledge Model key")
     pull.add_argument("--mode", choices=("draft", "published"))
     pull.add_argument("--output", type=Path)
+    pull.add_argument(
+        "--mapping",
+        type=Path,
+        help="TOML file with object keys, types, exclusions, and links",
+    )
     pull.add_argument(
         "--check",
         action="store_true",
@@ -94,6 +112,11 @@ def main(argv: list[str] | None = None) -> int:
         for key in ("space-id", "package-id", "key"):
             if not isinstance(settings[key], str) or not settings[key].strip():
                 raise ValueError(f"KM {key} must be a non-empty string.")
+        mapping = (
+            _mapping(args.mapping, Path.cwd())
+            if args.mapping is not None
+            else _mapping(settings.get("mapping"), root)
+        )
         output = Path(settings["output"])
         # Explicit output paths are relative to the shell; configured paths
         # remain relative to their pyproject.toml even when invoked elsewhere.
@@ -113,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
             package_id=settings["package-id"],
             mode=settings["mode"],
         )
-        changes = write_package(capture, output, check=args.check)
+        changes = write_package(capture, output, mapping=mapping, check=args.check)
         for change in changes:
             print(change)
         if args.check:

@@ -12,12 +12,15 @@ import tempfile
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 from celofast.sdk.capture import Capture, CaptureError
-from celofast.sdk.generate import generate
+from celofast.sdk.generate import PACKAGE_FILES, generate
+from celofast.sdk.mapping import MappingConfig
 
-_FILES = frozenset({"__init__.py", "capture.json", "schema.json", "py.typed"})
+# Every file any generation has owned; older layouts are replaced in place.
+_FILES = frozenset(PACKAGE_FILES)
 
 
 def _is_link(path: Path) -> bool:
@@ -182,14 +185,17 @@ def _remove_owned(directory: Path, parent: Path) -> None:
 
 
 def _verify_import(stage: Path) -> None:
+    # Import as a package so the generated modules' relative imports resolve.
     script = (
-        "import importlib.util,sys; "
-        "spec=importlib.util.spec_from_file_location('_celofast_generated_check',sys.argv[1]); "
+        "import importlib.util,pathlib,sys; "
+        "path=pathlib.Path(sys.argv[1]); "
+        "spec=importlib.util.spec_from_file_location('_celofast_generated_check',"
+        "path/'__init__.py',submodule_search_locations=[str(path)]); "
         "module=importlib.util.module_from_spec(spec); "
         "sys.modules[spec.name]=module; spec.loader.exec_module(module)"
     )
     result = subprocess.run(
-        [sys.executable, "-B", "-c", script, str(stage / "__init__.py")],
+        [sys.executable, "-B", "-c", script, str(stage)],
         capture_output=True,
         text=True,
         timeout=60,
@@ -202,9 +208,15 @@ def _verify_import(stage: Path) -> None:
 
 
 def write_package(
-    capture: Capture, output: str | Path, *, check: bool = False
+    capture: Capture,
+    output: str | Path,
+    *,
+    mapping: Mapping[str, Any] | MappingConfig | None = None,
+    check: bool = False,
 ) -> tuple[Change, ...]:
     """Generate, review, and safely install; check performs no filesystem writes.
+
+    ``mapping`` supplies object keys, types, exclusions, and relationships.
 
     Returns differences from the existing package. An empty tuple means output
     already matches. Failed staging or replacement preserves the previous package.
@@ -215,7 +227,7 @@ def write_package(
     target = requested.resolve()
     if target == target.parent:
         raise CaptureError("A filesystem root cannot be a generated output directory.")
-    expected = generate(capture)
+    expected = generate(capture, mapping)
     before = _existing(target)
     changed_files = tuple(
         Change("~" if name in before else "+", f"files/{name}")

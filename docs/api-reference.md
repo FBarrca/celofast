@@ -3,91 +3,74 @@
 [Documentation](index.md) · [KM guide](knowledge-model-sdk.md)
 
 This is a compact reference to Celofast's public workflows. Examples use
-`cf` for a `CeloFast` instance, `inventory` for offline generated definitions, `km` for an execution handle,
-and `query` for a builder
-query. `/` in a signature marks a positional-only argument; `*` marks the
-start of keyword-only arguments.
+`cf` for a `CeloFast` instance, `inventory` for a generated object model,
+`client` for a `KnowledgeModelClient`, and `Plant` for a generated value class.
+`*` in a signature marks the start of keyword-only arguments.
 
 ## Connection and selection
 
 ```python
-from celofast import CeloFast, Query, QueryDefinition, get_celonis
+from celofast import CeloFast, KnowledgeModelClient, get_celonis
 ```
 
 | Call | Returns / behavior |
 | --- | --- |
 | `get_celonis(base_url=None)` | Cached OAuth-authenticated PyCelonis client. Uses environment/`.env` when no URL is supplied. |
 | `CeloFast(space_id, package_id, *, mode="draft", client=None)` | A package-scoped connection. Mode is `draft` or `published`. |
-| `cf.km("exact-key")` | Cached `KnowledgeModelHandle`. |
-| `cf.km(generated_root)` | Same cached `KnowledgeModelHandle` as a key lookup. Validates source and Data Model; never attaches or mutates the definitions. |
+| `cf.km(inventory, *, variables=None)` | `KnowledgeModelClient` for a generated object model. Validates tenant, Space, Package, lifecycle, KM, and Data Model. KM keys raise `TypeError`. |
+| `cf.augmentation_tables("exact-km-key")` | Augmentation tables of the Data Model behind a KM; no generated package needed. |
 | `cf.view("exact-key", *, variables=None)` | A View handle, cached for that key and set of bindings. |
 
 `cf.client`, `cf.space`, and `cf.package` expose the native resources.
-`cf.mode` exposes the selected lifecycle. A KM exposes `native`, `data_model`,
-and `augmentation_tables` for the resolved resources.
+`cf.mode` exposes the selected lifecycle. `client.native`, `client.data_model`,
+`client.augmentation_tables`, and `client.mode` expose the resolved KM resources.
 
 Source: [core.py](../celofast/core.py), [client.py](../celofast/client.py).
 
-## Generated objects
+## Generated packages
 
-| Object / member | Behavior |
+| Member | Behavior |
 | --- | --- |
-| `inventory.records`, `inventory.kpis`, `inventory.filters` | Collections generated from the source definition. Available members depend on the capture. |
-| `plant.country` | Stored typed attribute directly on the record. Colliding Python names receive suffixes. |
-| `iter(plant)`, `len(plant)` | All captured attributes, in source collection and field order; iteration returns `Attribute[Any]`. |
-| `plant["SourceID"]` | Exact-ID lookup returning the stored `Attribute[Any]`; absent or ambiguous IDs raise `KeyError`. |
-| `plant.get_attribute(source_id, *, collection=None)` | Exact-ID lookup, optionally scoped to `attributes`, `newAttributes`, or `augmentedAttributes`. |
-| `collection["SourceID"]` | Exact-ID lookup; raises `KeyError` when absent or ambiguous. Static return type is the common object type. |
-| `attribute.eq(value)` | Immutable equality predicate. `None` means `IS NULL`. |
-| `attribute.asc()` / `.desc()` | Immutable sorting descriptor; also supported by KPIs. |
-| `object.id`, `.description`, `.display_name`, `.column_type`, `.pql` | Captured metadata; optional fields can be `None`. |
-| `object.metadata` | Complete, deeply immutable captured definition. |
-| `inventory.input_variables` | Captured Studio input definitions by key; `None` for old captures without this snapshot. |
-| `inventory.key`, `.mode`, `.capture` | KM identity, lifecycle, and underlying capture. |
+| `inventory` (`km` in the package) | `ObjectModel`: `iter()`, `len()`, `inventory["RECORD_ID"]` returns the class, `.source`, `.capture`, `.input_variables`. |
+| `Plant` | Frozen dataclass: `key` plus one plain-valued attribute per loaded field. |
+| `Plant.fields` | `PlantDefinition`: one `Field` per loaded field; iteration in generated order; `["ATTRIBUTE_ID"]` exact lookup. |
+| `Plant.fields.object_type`, `.key_fields`, `.links`, `.metadata` | Captured record ID, key fields, `LinkDefinition`s by name, complete captured record. |
+| `Field.name`, `.value_type`, `.nullable`, `.id`, `.description`, `.display_name`, `.metadata` | Generated name, declared type, nullability (false for keys), and captured metadata. |
+| `Field.eq(x)`, `.ne(x)` | `Predicate`. `x` is a value of the field's type or another field of the same object type; `None` is a value. |
+| `Field.lt(x)`, `.lte(x)`, `.gt(x)`, `.gte(x)` | `Predicate`; false when either side is null. Not available for `bool`. |
+| `Field.asc()`, `Field.desc()` | `Sort` for `order_by()`. |
+| `a & b`, `a \| b`, `~a` | Combined `Predicate` of the same object type; `~` is an exact complement. |
+| `Plant.relations.<to_one>.has(predicate=None)` | `Predicate`: the related object exists and matches. |
+| `Plant.relations.<to_many>.any(predicate=None)` | `Predicate`: some related object exists and matches. |
+| `plant.key` | Business key; a tuple for composite keys. |
+| `plant.ref` | `ObjectRef(source, object_type, key)`. |
+| `plant.links.<name>` | `ObjectCollection[Target]` (to-many) or `ToOne[Target]` (to-one), declared by the mapping. |
 
-Records represent definitions, not rows. They can be expanded by `select(record)`.
-Other captured categories remain available through `inventory.metadata` or an
-individual object's `.metadata`; they have no generated navigation. The available value types and equality encoding are explained in the
-[KM guide](knowledge-model-sdk.md#attribute-equality-and-raw-filters).
+Value types are `str`, `int`, `float`, `bool`, `date`, and `datetime`. Keys are
+`str`, `int`, `date`, or `datetime`.
 
-Source: [objects.py](../celofast/sdk/objects.py),
-[expressions.py](../celofast/expressions.py).
+Source: [definitions.py](../celofast/sdk/definitions.py),
+[objects.py](../celofast/sdk/objects.py), [generate.py](../celofast/sdk/generate.py).
 
-## Query builder
+## Object retrieval
 
 | Signature | Returns / behavior |
 | --- | --- |
-| `km.select(columns=None, /, **named_columns)` | `Query`. `columns` may be a record or a mapping; named columns are aliases. Empty selections and duplicate aliases fail. |
-| `query.where(*filters)` | New `Query` with appended generated filters, equality predicates, or raw PQL filters. Conditions combine with AND. |
-| `query.order_by(*expressions)` | New `Query` replacing the ordering. Plain expressions ascend; `.asc()`/`.desc()` choose direction. No arguments clears sorting. |
-| `query.to_query()` | Fresh `QueryDefinition` dictionary retaining captured objects. |
-| `query.build(*, variables=None)` | Native `pycelonis.pql.PQL`, with no data export. |
-| `query.execute(*, variables=None, limit=None, offset=None, distinct=False)` | pandas DataFrame. `limit=None` requests all matching rows. |
+| `client.objects(Plant)` | `ObjectCollection[Plant]`; the class must come from the connected package. |
+| `collection.where(*predicates)` | New collection; predicates combine with AND and must belong to the collection's type. |
+| `collection.order_by(*sorts)` | New collection ordered by fields of its type (`Sort` or field, ascending); the key breaks ties. |
+| `collection.get(key)` | `Plant`; `ObjectNotFoundError` if absent. |
+| `collection.fetch_page(page_size=100, *, offset=0)` | `ObjectPage[Plant]` in `order_by` order, then key order; `page_size` is 1–10,000. |
+| `page.items`, `.offset`, `.page_size`, `.has_more` | Loaded objects and paging state; pages iterate and have a length. |
+| `page.next_page()` | Following `ObjectPage`, or `None` after the last page. |
+| `to_one.fetch()` | `Target \| None`. |
 
-Named columns accept raw PQL strings, generated attributes, or generated KPIs.
-Whole-record selection uses exact attribute IDs as aliases and captured order
-within source collections `attributes`, `newAttributes`, and `augmentedAttributes`, in that
-collection order. Attributes need a non-empty ID and PQL expression.
+Every read loads all fields. `ObjectIdentityError` means a null key or
+conflicting values for one key; `ObjectValueError` means a value does not match
+its declared type. Native export errors propagate unchanged.
 
-Limits and offsets must be non-negative integers, excluding booleans.
-`distinct` must be a boolean. `variables` must map non-empty string names to
-exact string replacements. Queries and generated objects are immutable.
-
-Source: [builder.py](../celofast/builder.py).
-
-## Dictionary execution
-
-| Signature | Returns |
-| --- | --- |
-| `km.build(query, *, variables=None)` | Native PQL. |
-| `km.execute(query, *, variables=None, limit=None, offset=None, distinct=False)` | pandas DataFrame. |
-
-`QueryDefinition` has required `columns` and optional `filters`/`order_by`.
-`OrderByDefinition` has required `pql` and optional `ascending=True`.
-See [Dictionary queries](dictionary-queries.md) for complete examples and
-the shared validation and explicit-binding contract.
-
-Source: [query.py](../celofast/query.py),
+Source: [objects.py](../celofast/sdk/objects.py),
+[hydration.py](../celofast/sdk/hydration.py),
 [knowledge_model.py](../celofast/resources/knowledge_model.py).
 
 ## Views and controls
@@ -116,7 +99,7 @@ Source: [view.py](../celofast/resources/view.py),
 
 ## Augmentation tables
 
-Let `tables = km.augmentation_tables` and `table = tables.table(...)`.
+Let `tables = cf.augmentation_tables("km-key")` (or `client.augmentation_tables`) and `table = tables.table(...)`.
 
 | Signature | Returns / behavior |
 | --- | --- |
@@ -148,10 +131,11 @@ uv run celofast km pull --space-id SPACE_ID --package-id PACKAGE_ID --km invento
 | `--space-id`, `--package-id`, `--km` | Explicit source identifiers, overriding configured values. `--km` is the exact KM key. |
 | `--mode` | `draft` or `published`; defaults to `draft` if not configured. |
 | `--output` | Explicit output path, relative to the working directory. Configured output paths are relative to their `pyproject.toml`. |
+| `--mapping` | TOML file with `exclude` and `objects`; replaces a configured `mapping`. Relative to the working directory. |
 | `--check` | Read cloud definitions and report drift without changing files. |
 
 Exit codes: **0** means success/up to date; **1** means `--check` detected drift;
-**2** means configuration, retrieval, generation, or installation failed.
+**2** means configuration, retrieval, mapping, generation, or installation failed.
 Run `uv run celofast km pull --help` for the installed command's help.
 
 Source: [cli.py](../celofast/cli.py). See
@@ -160,11 +144,13 @@ Source: [cli.py](../celofast/cli.py). See
 ## Exceptions
 
 Most Celofast exceptions are importable from `celofast`. `CeloFastError` is the
-common base; `QueryValidationError` and `AugmentationValidationError` also
-subclass `ValueError`. Generated import compatibility errors use
+common base; `QueryValidationError`, `AugmentationValidationError`,
+`ObjectMappingError`, and `ObjectValueError` also subclass `ValueError`.
+`ObjectNotFoundError` subclasses `ResourceNotFoundError`; `ObjectIdentityError`
+reports null keys and conflicting values. Generated import compatibility errors use
 `celofast.sdk.loading.SDKCompatibilityError`, an `ImportError` subclass.
 
-Builder, dictionary, and View execution preserve native exception types and
-cause chains. Celofast validates local query contracts and source identity;
+Object reads and View execution preserve native exception types and cause
+chains. Celofast validates mappings, predicates, identity, and values;
 Celonis validates PQL syntax and semantics. Use the
 [troubleshooting table](troubleshooting.md) to identify the failing layer.

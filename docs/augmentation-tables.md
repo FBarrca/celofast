@@ -50,14 +50,14 @@ import pandas as pd
 from celofast import CeloFast
 
 cf = CeloFast("SPACE_ID", "PACKAGE_ID")
-km = cf.km("orders-km")
+tables = cf.augmentation_tables("orders-km")
 
 prediction_frame = pd.DataFrame({
     "ORDER_ID": ["PO-1001", "PO-1002"],
     "RISK_SCORE": [0.82, 0.14],
 })
 
-predictions = km.augmentation_tables.table(
+predictions = tables.table(
     "ML_ORDER_PREDICTIONS",
     key="ORDER_ID",
 )
@@ -79,7 +79,7 @@ Use this alternative when the table has not been created yet. The initial
 DataFrame must be non-empty; PyCelonis infers its schema from that frame.
 
 ```python
-predictions = km.augmentation_tables.create(
+predictions = tables.create(
     prediction_frame,
     table_name="ML_ORDER_PREDICTIONS",
     key="ORDER_ID",
@@ -114,7 +114,7 @@ predictions.remove(obsolete)
 If the handle has no remembered key, pass it explicitly:
 
 ```python
-table = km.augmentation_tables.table("OTHER_PREDICTIONS")
+table = tables.table("OTHER_PREDICTIONS")
 table.remove(pd.DataFrame({"ID": ["obsolete-id"]}), key="ID")
 ```
 

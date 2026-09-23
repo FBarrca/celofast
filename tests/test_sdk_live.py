@@ -1,8 +1,9 @@
 """Opt-in read-only integration checks; never author or update cloud KM items.
 
 Set CELOFAST_LIVE_KM=1, CELOFAST_LIVE_SPACE_ID, CELOFAST_LIVE_PACKAGE_ID,
-CELOFAST_LIVE_KM_KEY, CELOFAST_LIVE_RECORD_ID, and CELOFAST_LIVE_ATTRIBUTE_ID.
-Use normal Celofast OAuth environment configuration for authentication.
+CELOFAST_LIVE_KM_KEY, CELOFAST_LIVE_RECORD_ID, and CELOFAST_LIVE_KEY_ID (the
+attribute ID that identifies that record's objects). Every other record is
+excluded. Use normal Celofast OAuth environment configuration.
 """
 
 import importlib.util
@@ -12,8 +13,8 @@ import sys
 import pytest
 
 from celofast import CeloFast
-from celofast.sdk import KPI, Attribute, Capture, KnowledgeModel
 from celofast.sdk.capture import retrieve
+from celofast.sdk.mapping import normalize, parse_mapping
 from celofast.sdk.package import write_package
 
 pytestmark = pytest.mark.skipif(
@@ -27,66 +28,56 @@ def live_context():
     cf = CeloFast(
         os.environ["CELOFAST_LIVE_SPACE_ID"], os.environ["CELOFAST_LIVE_PACKAGE_ID"]
     )
-    key = os.environ["CELOFAST_LIVE_KM_KEY"]
-    native = cf._resolver.knowledge_model(key)
+    native = cf._resolver.knowledge_model(os.environ["CELOFAST_LIVE_KM_KEY"])
     capture = retrieve(
         native,
         space_id=os.environ["CELOFAST_LIVE_SPACE_ID"],
         package_id=os.environ["CELOFAST_LIVE_PACKAGE_ID"],
         mode="draft",
     )
-    path = (
-        "records",
-        os.environ["CELOFAST_LIVE_RECORD_ID"],
-        "attributes",
-        os.environ["CELOFAST_LIVE_ATTRIBUTE_ID"],
-    )
-    return cf, capture, path
+    record_id = os.environ["CELOFAST_LIVE_RECORD_ID"]
+    record = next(r for r in capture.to_dict()["records"] if r.get("id") == record_id)
+    others = [r["id"] for r in capture.to_dict()["records"] if r.get("id") != record_id]
+    # Load only typed attributes with expressions; the rest are excluded explicitly.
+    loadable = [
+        a["id"] for c in ("attributes", "newAttributes", "augmentedAttributes")
+        for a in record.get(c) or () if a.get("pql") and a.get("columnType")
+    ]
+    all_ids = [
+        a["id"] for c in ("attributes", "newAttributes", "augmentedAttributes")
+        for a in record.get(c) or () if a.get("id")
+    ]
+    mapping = parse_mapping({
+        "exclude": others,
+        "objects": {record_id: {
+            "class": "LiveObject",
+            "key": [os.environ["CELOFAST_LIVE_KEY_ID"]],
+            "exclude-fields": sorted(set(all_ids) - set(loadable)),
+        }},
+    })
+    normalize(capture, mapping)
+    return cf, capture, mapping
 
 
-def test_live_pull_import_and_captured_attribute_query(live_context, tmp_path):
-    cf, capture, path = live_context
+def test_live_pull_import_and_object_page(live_context, tmp_path):
+    cf, capture, mapping = live_context
     output = tmp_path / "inventory"
-    write_package(capture, output)
-    assert not write_package(capture, output, check=True)
+    write_package(capture, output, mapping=mapping)
+    assert not write_package(capture, output, mapping=mapping, check=True)
     spec = importlib.util.spec_from_file_location(
-        "live_generated_inventory", output / "__init__.py"
+        "live_generated_inventory", output / "__init__.py",
+        submodule_search_locations=[str(output)],
     )
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     try:
         spec.loader.exec_module(module)
-        assert module.km.capture == capture
-        record = module.km.records[path[1]]
-        attribute = record[path[3]]
-        result = cf.km(module.km).execute({"columns": {"Anchor": attribute}}, limit=1)
-        assert len(result) == 1
-        assert list(result.columns) == ["Anchor"]
+        client = cf.km(module.km)
+        page = client.objects(module.LiveObject).fetch_page(page_size=2)
+        assert all(isinstance(item, module.LiveObject) for item in page.items)
+        if page.items:
+            first = page.items[0]
+            assert client.objects(module.LiveObject).get(first.key) == first
     finally:
-        sys.modules.pop(spec.name, None)
-
-
-@pytest.mark.parametrize("dependency", ["kpi", "column"])
-def test_live_unresolved_dependencies_fail(live_context, dependency):
-    from saolapy.errors import DataExportFailedError
-
-    cf, capture, path = live_context
-    layer = capture.to_dict()
-    missing = "CELOFAST_MISSING_3F6DB6908A"
-    if dependency == "kpi":
-        expression = f'KPI("{missing}")'
-    else:
-        # A unique physical table/column reference cannot resolve in the DM.
-        expression = f'"{missing}"."{missing}"'
-    layer["kpis"] = [{"id": "sdk_probe_missing", "type": "KPI", "pql": expression}]
-    variant = Capture.create(capture.source, layer)
-    with pytest.raises(DataExportFailedError, match=missing):
-        cf.km(KnowledgeModel(variant)).execute(
-            {
-                "columns": {
-                    "Probe": KPI(variant, ("kpis", "sdk_probe_missing")),
-                    "Anchor": Attribute(variant, path),
-                }
-            },
-            limit=1,
-        )
+        for name in [n for n in sys.modules if n.split(".")[0] == spec.name]:
+            del sys.modules[name]

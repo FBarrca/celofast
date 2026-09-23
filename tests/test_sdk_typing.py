@@ -1,108 +1,83 @@
 import subprocess
 import sys
 
-from celofast.sdk import Capture, Source
-from celofast.sdk.generate import generate
+from objects_fixture import write
 
-
-def test_static_analyzer_resolves_generated_attribute_types(tmp_path):
-    capture = Capture.create(
-        Source(
-            tenant_id="t",
-            space_id="s",
-            package_id="p",
-            key="inventory-km",
-            mode="draft",
-        ),
-        {
-            "records": [
-                {
-                    "id": "Plant",
-                    "attributes": [
-                        {"id": "Number", "columnType": "string", "pql": "'123'"}
-                    ],
-                }
-            ]
-        },
-    )
-    package = tmp_path / "inventory"
-    package.mkdir()
-    for name, data in generate(capture).items():
-        (package / name).write_bytes(data)
-    consumer = tmp_path / "consumer.py"
-    prefix = """from inventory import CapturedKnowledgeModel, Records, RecordsPlant, km as inventory_km
+PREFIX = """from datetime import date
 from typing_extensions import assert_type
-from typing import Any
-from celofast.sdk.objects import Attribute
-from celofast.resources.knowledge_model import KnowledgeModelHandle
-from celofast import CeloFast, Query, QueryDefinition
-def needs_string(value: Attribute[str]) -> None: ...
-def needs_integer(value: Attribute[int]) -> None: ...
-assert_type(inventory_km, CapturedKnowledgeModel)
-assert_type(inventory_km.records, Records)
-assert_type(inventory_km.records.plant, RecordsPlant)
-assert_type(inventory_km.records.plant.number, Attribute[str])
-assert_type(inventory_km.records.plant["Number"], Attribute[Any])
-assert_type(inventory_km.records.plant.get_attribute("Number"), Attribute[Any])
-assert_type(next(iter(inventory_km.records.plant)), Attribute[Any])
-attribute = inventory_km.records.plant.number
-needs_string(attribute)
-needs_string(inventory_km.records.plant.number)
+from celofast import CeloFast, KnowledgeModelClient
+from celofast.sdk import Field, ObjectCollection, ObjectModel, ObjectPage, ObjectRef, ToOne
+from inventory import Material, Plant, StockLine, km as inventory
+
+assert_type(inventory, ObjectModel)
+assert_type(Plant.fields.country, Field[str | None])
+assert_type(Plant.fields.id, Field[str])
 cf = CeloFast("s", "p")
-connected: KnowledgeModelHandle = cf.km(inventory_km)
-by_key: KnowledgeModelHandle = cf.km("inventory-km")
-built: Query = (
-    connected.select(number=inventory_km.records.plant.number)
-    .order_by(inventory_km.records.plant.number.desc())
+client: KnowledgeModelClient = cf.km(inventory, variables={"factor": "2"})
+plants = client.objects(Plant)
+assert_type(plants, ObjectCollection[Plant])
+plant = plants.get("P1")
+assert_type(plant, Plant)
+assert_type(plant.country, str | None)
+assert_type(plant.opened, date | None)
+assert_type(plant.key, str)
+assert_type(plant.ref, ObjectRef)
+page = plants.where(Plant.fields.country.eq("DE")).fetch_page(page_size=100)
+assert_type(page, ObjectPage[Plant])
+assert_type(page.items[0], Plant)
+assert_type(plant.links.materials, ObjectCollection[Material])
+assert_type(plant.links.materials.fetch_page(), ObjectPage[Material])
+material = plant.links.materials.fetch_page().items[0]
+assert_type(material.links.plant, ToOne[Plant])
+assert_type(material.links.plant.fetch(), Plant | None)
+line = client.objects(StockLine).get(("P1", date(2024, 1, 1)))
+assert_type(line.key, tuple[str, date])
+from celofast.sdk import Predicate, ToManyRelation, ToOneRelation
+assert_type(Plant.relations.materials, ToManyRelation[Material])
+assert_type(Material.relations.plant, ToOneRelation[Plant])
+rule: Predicate = (
+    Plant.fields.country.ne("FR")
+    & Plant.fields.opened.gte(date(2020, 1, 1))
+    & ~Plant.relations.materials.any(Material.fields.stock.lt(Material.fields.count))
 )
-record_query: Query = connected.select(inventory_km.records.plant)
-filtered: Query = record_query.where(inventory_km.records.plant.number.eq("123"))
-query: QueryDefinition = {"columns": {"Number": attribute}, "order_by": [{"pql": attribute}]}
+ordered = plants.where(rule).order_by(Plant.fields.opened.desc(), Plant.fields.country)
+assert_type(ordered, ObjectCollection[Plant])
+assert_type(Material.relations.plant.has(Plant.fields.country.eq("DE")), Predicate)
 """
-    consumer.write_text(prefix)
-    command = [
-        sys.executable,
-        "-m",
-        "mypy",
-        "--follow-imports=silent",
-        "--ignore-missing-imports",
-        "--cache-dir",
-        str(tmp_path / "mypy-cache"),
-        str(package / "__init__.py"),
-        str(consumer),
-    ]
-    good = subprocess.run(
-        command, capture_output=True, text=True, timeout=60, check=False
+
+
+def run_mypy(tmp_path, source):
+    consumer = tmp_path / "consumer.py"
+    consumer.write_text(source)
+    return subprocess.run(
+        [
+            sys.executable, "-m", "mypy", "--follow-imports=silent",
+            "--ignore-missing-imports", "--cache-dir", str(tmp_path / "mypy-cache"),
+            str(tmp_path / "inventory"), str(consumer),
+        ],
+        capture_output=True, text=True, timeout=120, check=False, cwd=tmp_path,
     )
+
+
+def test_static_analyzer_sees_values_definitions_and_links(tmp_path):
+    write(tmp_path / "inventory")
+    good = run_mypy(tmp_path, PREFIX)
     assert good.returncode == 0, good.stdout + good.stderr
-    consumer.write_text(prefix + "needs_integer(inventory_km.records.plant.number)\n")
-    bad = subprocess.run(
-        command, capture_output=True, text=True, timeout=60, check=False
-    )
-    assert bad.returncode == 1, bad.stdout + bad.stderr
-    assert 'expected "Attribute[int]"' in bad.stdout
-    consumer.write_text(prefix + "inventory_km.records.plant.number.eq(123)\n")
-    bad_comparison = subprocess.run(
-        command, capture_output=True, text=True, timeout=60, check=False
-    )
-    assert bad_comparison.returncode == 1, bad_comparison.stdout + bad_comparison.stderr
-    assert 'expected "str | None"' in bad_comparison.stdout
-    consumer.write_text(prefix + "inventory_km.records.plant.number = attribute\n")
-    bad_assignment = subprocess.run(
-        command, capture_output=True, text=True, timeout=60, check=False
-    )
-    assert bad_assignment.returncode == 1, bad_assignment.stdout + bad_assignment.stderr
-    assert 'read-only' in bad_assignment.stdout
-    consumer.write_text(prefix + "inventory_km.records.plant.attributes\n")
-    old_navigation = subprocess.run(
-        command, capture_output=True, text=True, timeout=60, check=False
-    )
-    assert old_navigation.returncode == 1, old_navigation.stdout + old_navigation.stderr
-    assert 'has no attribute "attributes"' in old_navigation.stdout
-    consumer.write_text(prefix + "connected.records\ninventory_km.select(number=attribute)\n")
-    bad_interface = subprocess.run(
-        command, capture_output=True, text=True, timeout=60, check=False
-    )
-    assert bad_interface.returncode == 1, bad_interface.stdout + bad_interface.stderr
-    assert 'has no attribute "records"' in bad_interface.stdout
-    assert 'has no attribute "select"' in bad_interface.stdout
+
+    cases = {
+        "Plant.fields.country.eq(123)\n": 'Argument 1 to "eq" of "Field" has incompatible type "int"',
+        "Plant.fields.id.eq(None)\n": 'incompatible type "None"',
+        "plant.country = 'FR'\n": "read-only",
+        "plant.links.materials.fetch()\n": 'has no attribute "fetch"',
+        "client.select(Plant)\n": 'has no attribute "select"',
+        "client.execute({})\n": 'has no attribute "execute"',
+        "Plant.fields.opened.lt('2020-01-01')\n": 'Argument 1 to "lt" of "Field" has incompatible type "str"',
+        "Plant.relations.materials.has()\n": 'has no attribute "has"',
+        "Material.relations.plant.any()\n": 'has no attribute "any"',
+        "inventory.records\n": 'has no attribute "records"',
+        "x: int = plant.country\n": "Incompatible types in assignment",
+    }
+    for line, expected in cases.items():
+        bad = run_mypy(tmp_path, PREFIX + line)
+        assert bad.returncode == 1, line + bad.stdout + bad.stderr
+        assert expected in bad.stdout, line + bad.stdout

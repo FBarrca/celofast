@@ -22,7 +22,7 @@ from celofast.query import (
     validate_query,
     validate_variables,
 )
-from celofast.resources.knowledge_model import KnowledgeModelHandle
+from celofast.resources.knowledge_model import KnowledgeModelConnection
 from celofast.resources.view_input import (
     CheckboxHandle,
     DatePickerHandle,
@@ -61,14 +61,14 @@ class ViewHandle:
         self,
         view: NativeView,
         content: ViewContent,
-        knowledge_model: Callable[[], KnowledgeModelHandle],
+        knowledge_model: Callable[[], KnowledgeModelConnection],
         *,
         variables: Mapping[str, str] | None = None,
     ) -> None:
         self._native = view
         self._content = content
         self._km_factory = knowledge_model
-        self._km: KnowledgeModelHandle | None = None
+        self._km: KnowledgeModelConnection | None = None
 
         defaults: dict[str, str] = {}
         for definition in view.input_variable_definitions or []:
@@ -118,11 +118,11 @@ class ViewHandle:
         return self._content
 
     @property
-    def km(self) -> KnowledgeModelHandle:
+    def km(self) -> KnowledgeModelConnection:
         """Return the lazily resolved Knowledge Model associated with the View.
 
         Returns:
-            A cached :class:`KnowledgeModelHandle` selected using
+            A cached :class:`KnowledgeModelConnection` selected using
             ``content.metadata.knowledge_model_key``.
 
         Raises:
@@ -489,7 +489,7 @@ class ViewTableHandle:
 
         merged_variables = dict(self._view.variables)
         merged_variables.update(validate_variables(variables))
-        return self._view.km.execute(
+        return self._view.km._execute(
             self.to_query(
                 inherit_filters_from=inherit_filters_from,
                 extra_filters=extra_filters,

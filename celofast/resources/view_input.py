@@ -362,7 +362,7 @@ class DropdownHandle(ViewInputHandle):
 
         self._ensure_defined_variables()
         pql, filters = self._option_query()
-        frame = self._view.km.execute(
+        frame = self._view.km._execute(
             {"columns": {"value": pql}, "filters": filters},
             limit=limit,
             offset=offset,

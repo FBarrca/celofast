@@ -14,12 +14,15 @@ from celofast.resolution import (
     resolver_for,
 )
 from celofast.resources.augmentation_table import AugmentationTableCollection
-from celofast.resources.knowledge_model import KnowledgeModelHandle
+from celofast.resources.knowledge_model import (
+    KnowledgeModelClient,
+    KnowledgeModelConnection,
+)
 from celofast.resources.view import ViewHandle
 from celofast.types import ResourceMode
 from celofast.sdk.capture import Source, retrieve
 from celofast.exceptions import QueryValidationError
-from celofast.sdk.objects import KnowledgeModel as CapturedKnowledgeModel
+from celofast.sdk.objects import ObjectModel
 
 
 class CeloFast:
@@ -47,9 +50,9 @@ class CeloFast:
             propagated with their original types and exception chains.
 
     Example:
+        >>> from generated.inventory import Plant, km as inventory
         >>> cf = CeloFast("space-id", "package-id")
-        >>> km = cf.km("inventory-km-key")
-        >>> frame = km.execute({"columns": {"Supplier": '"Vendor"."Name"'}})
+        >>> plant = cf.km(inventory).objects(Plant).get("PLANT-1000")
 
     Notes:
         The supplied client, Space, and Package are exposed as read-only
@@ -105,7 +108,7 @@ class CeloFast:
             package_id=package_id,
             mode=mode,
         )
-        self._km_handles: dict[str, KnowledgeModelHandle] = {}
+        self._km_connections: dict[str, KnowledgeModelConnection] = {}
         self._augmentation_collections: dict[str, AugmentationTableCollection] = {}
         self._view_handles: dict[
             tuple[str, tuple[tuple[str, str], ...]], ViewHandle
@@ -152,29 +155,64 @@ class CeloFast:
         """
         return self._resolver.package
 
-    def km(self, key: str | CapturedKnowledgeModel) -> KnowledgeModelHandle:
-        """Return one cached execution handle by exact key or offline definitions.
+    def km(
+        self,
+        model: ObjectModel,
+        *,
+        variables: Mapping[str, str] | None = None,
+    ) -> KnowledgeModelClient:
+        """Return an object client for a generated Knowledge Model package.
 
-        Generated roots validate the tenant, Space, Package, lifecycle, KM key,
-        and Data Model. They remain offline and are never attached to the handle.
+        Args:
+            model: The ``km`` registry exported by a package generated with
+                ``celofast km pull``. It stays offline and is never mutated.
+            variables: Exact string bindings for ``${name}`` placeholders in
+                captured field expressions, such as KM input variables.
+
+        Returns:
+            A :class:`KnowledgeModelClient` retrieving generated objects.
+
+        Raises:
+            TypeError: If ``model`` is not a generated object model.
+            QueryValidationError: If the model targets another tenant, Space,
+                Package, lifecycle, KM, or Data Model.
         """
 
-        model = key if isinstance(key, CapturedKnowledgeModel) else None
-        capture = model.capture if model is not None else None
-        if capture is not None:
-            expected = capture.source
-            if (expected.space_id, expected.package_id, expected.mode) != (
-                self._resolver.space_id,
-                self._resolver.package_id,
-                self.mode,
-            ):
-                raise QueryValidationError(
-                    "Generated model targets a different Space, Package, or lifecycle."
-                )
-            key = expected.key
+        if not isinstance(model, ObjectModel):
+            raise TypeError(
+                "cf.km() requires a generated object model, for example "
+                "`from generated.inventory import km`. Run `celofast km pull` to "
+                "generate one; KM keys and query definitions are no longer accepted."
+            )
+        expected = model.capture.source
+        if (expected.space_id, expected.package_id, expected.mode) != (
+            self._resolver.space_id,
+            self._resolver.package_id,
+            self.mode,
+        ):
+            raise QueryValidationError(
+                "Generated model targets a different Space, Package, or lifecycle."
+            )
+        return KnowledgeModelClient(
+            self._km_connection(expected.key), model, variables=variables
+        )
+
+    def augmentation_tables(self, km_key: str) -> AugmentationTableCollection:
+        """Return augmentation-table operations for the Data Model behind a KM.
+
+        Args:
+            km_key: Exact Studio/Apps Knowledge Model key used to locate its
+                final Data Model. No generated package is required.
+        """
+
+        return self._km_connection(km_key).augmentation_tables
+
+    def _km_connection(self, key: str) -> KnowledgeModelConnection:
+        """Resolve and cache native KM resources by exact key."""
+
         if not isinstance(key, str) or not key:
             raise ValueError("Knowledge Model key must be a non-empty string.")
-        if key not in self._km_handles:
+        if key not in self._km_connections:
             native = self._resolver.knowledge_model(key)
             data_model = self._resolver.data_model(native)
             content = self._resolver._knowledge_model_content[native.id]
@@ -192,7 +230,7 @@ class CeloFast:
             if augmentation_tables is None:
                 augmentation_tables = AugmentationTableCollection(data_model)
                 self._augmentation_collections[data_model.id] = augmentation_tables
-            self._km_handles[key] = KnowledgeModelHandle(
+            self._km_connections[key] = KnowledgeModelConnection(
                 native,
                 data_model,
                 draft=self._resolver.draft,
@@ -205,10 +243,7 @@ class CeloFast:
                     mode=self.mode,
                 ),
             )
-        handle = self._km_handles[key]
-        if model is not None:
-            handle.bind(model)
-        return handle
+        return self._km_connections[key]
 
     def view(
         self,
@@ -253,7 +288,7 @@ class CeloFast:
         handle = ViewHandle(
             native,
             content,
-            lambda: self.km(content.metadata.knowledge_model_key),
+            lambda: self._km_connection(content.metadata.knowledge_model_key),
             variables=validated_variables,
         )
         self._view_handles[cache_key] = handle

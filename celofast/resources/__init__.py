@@ -4,7 +4,10 @@ from celofast.resources.augmentation_table import (
     AugmentationTableCollection,
     AugmentationTableHandle,
 )
-from celofast.resources.knowledge_model import KnowledgeModelHandle
+from celofast.resources.knowledge_model import (
+    KnowledgeModelClient,
+    KnowledgeModelConnection,
+)
 from celofast.resources.view import ViewHandle, ViewTableHandle
 from celofast.resources.view_input import (
     CheckboxHandle,
@@ -27,7 +30,8 @@ __all__ = [
     "DropdownOption",
     "InputBoxHandle",
     "InputVariableValue",
-    "KnowledgeModelHandle",
+    "KnowledgeModelClient",
+    "KnowledgeModelConnection",
     "SelectorHandle",
     "ViewHandle",
     "ViewTableHandle",

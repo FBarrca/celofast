@@ -1,20 +1,19 @@
 # Celofast
 
-**Read Celonis data as pandas DataFrames. Write application results through
-augmentation tables.**
+**Work with Celonis Knowledge Models as typed Python objects. Write application
+results through augmentation tables.**
 
 Celofast is a Python library for the inputs and outputs of Machine Learning
-Workbench (MLWB) apps. Query Knowledge Models (KMs), read configured View tables
-and controls, and write results back through augmentation tables. Optional typed
-KM definitions provide autocomplete. Execution uses PyCelonis.
+Workbench (MLWB) apps. Retrieve business objects from Knowledge Models (KMs) and
+follow their relationships, read configured View tables and controls, and write
+results back through augmentation tables. Execution uses PyCelonis.
 
 ## Choose your starting point
 
 | I want to… | Start here |
 | --- | --- |
 | Install Celofast and connect to a tenant | [Getting started](docs/getting-started.md) |
-| Query a whole record with autocomplete | [Knowledge Model guide](docs/knowledge-model-sdk.md) |
-| Use existing PQL or a JSON query definition | [Dictionary queries](docs/dictionary-queries.md) |
+| Retrieve typed business objects and relationships | [Knowledge Model guide](docs/knowledge-model-sdk.md) |
 | Read a configured table or input control | [Views and inputs](docs/views-and-inputs.md) |
 | Store predictions, scores, or other app output | [Augmentation tables](docs/augmentation-tables.md) |
 | Look up a method or diagnose an error | [API reference](docs/api-reference.md) · [Troubleshooting](docs/troubleshooting.md) |
@@ -34,25 +33,10 @@ Configure `CELONIS_URL`, `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, and
 `OAUTH_SCOPES` in your environment or `.env`. You can also supply an authenticated
 PyCelonis client. Follow [Getting started](docs/getting-started.md) for both paths.
 
-## Query a Knowledge Model
+## Work with Knowledge Model objects
 
 After [configuring authentication](docs/getting-started.md#2-configure-authentication),
-select a KM by its exact key. No generation is required:
-
-```python
-from celofast import CeloFast
-
-cf = CeloFast(space_id="SPACE_ID", package_id="PACKAGE_ID")
-km = cf.km("inventory-km")
-plants = km.select({"Plant number": '"Plant"."Number"'}).execute(limit=5)
-```
-
-Replace the IDs, KM key, and PQL expression with values from your tenant.
-Existing dictionaries also work with `km.execute(query_definition)`.
-
-## Add optional typed definitions
-
-Register your KM in your application's `pyproject.toml`, replacing the IDs and
+register your KM in your application's `pyproject.toml`, replacing the IDs and
 key with your own:
 
 ```toml
@@ -62,59 +46,61 @@ package-id = "PACKAGE_ID"
 key = "inventory-km"
 mode = "draft"
 output = "generated/inventory"
+
+[tool.celofast.knowledge-models.inventory.mapping]
+exclude = ["EL_CELONIS_DELIVERYLINE"]      # records that are not business objects
+
+[tool.celofast.knowledge-models.inventory.mapping.objects.O_CELONIS_PLANT]
+class = "Plant"
+key = ["ID"]
+
+[tool.celofast.knowledge-models.inventory.mapping.objects.O_CELONIS_PLANT.links.materials]
+target = "O_CELONIS_MATERIALMASTERPLANT"
+cardinality = "many"
+on = { ID = "PLANT_ID" }
 ```
 
-Pull its definitions into a typed Python package:
+Every generated object type needs a verified key. `--check` lists each record,
+key, type, and relationship that still needs a mapping or an explicit exclusion:
 
 ```bash
+uv run celofast km pull inventory --check
 uv run celofast km pull inventory
 ```
 
-The following example assumes the KM contains the illustrated plant record,
-country attribute, and filter. Your generated names come from your KM's IDs.
+Then retrieve typed objects:
 
 ```python
 from celofast import CeloFast
-from generated.inventory import km as inventory
+from generated.inventory import Plant, km as inventory
 
 cf = CeloFast(space_id="SPACE_ID", package_id="PACKAGE_ID")
-km = cf.km(inventory)
-plant = inventory.records.o_celonis_plant
+client = cf.km(inventory)
 
-plants = (
-    km.select(plant)
-    .where(inventory.filters.active_inventory)
-    .where(plant.country.eq("DE"))
-    .execute(distinct=True)
+plant = client.objects(Plant).get("PLANT-1000")
+print(plant.country)                               # str | None
+
+page = (
+    client.objects(Plant)
+    .where(Plant.fields.country.eq("DE"))
+    .fetch_page(page_size=100)
 )
+materials = plant.links.materials.fetch_page(page_size=50)
 ```
 
-`plants` is a pandas DataFrame containing all queryable plant attributes for
-active plants in Germany. Columns use captured attribute IDs and definition
-order. With no `limit`, execution requests all matching rows; use
-`.execute(limit=100)` to preview a result.
-
-Select named columns, reuse a base query, or inspect its PQL:
-
-```python
-base = km.select(plant_number=plant.number_formatted, plant_name=plant.name)
-german_plants = base.where(plant.country.eq("DE"))
-
-native_pql = german_plants.build()
-query_definition = german_plants.to_query()
-```
-
-The base query stays unchanged. `inventory` contains offline definitions; `km`
-is the execution handle. Generated definitions stay fixed until you pull
-and reload them; query data and referenced cloud dependencies remain live.
-See the [KM guide](docs/knowledge-model-sdk.md) for sorting, explicit variable
-bindings, and source validation. Upgrading? Follow the
-[0.4 migration guide](docs/migration-0.4.md).
+`Plant.fields.country` is a definition used for filtering; `plant.country` is a
+loaded value. Objects are immutable, fully loaded snapshots: reading a value
+never performs a request, while `get`, `fetch_page`, and relationship fetches
+do. Keys are validated, values are decoded to their declared types, and a
+failed request is an error, never an empty page. See the
+[KM guide](docs/knowledge-model-sdk.md). Upgrading from the query API? Follow
+the [0.5 migration guide](docs/migration-0.5.md).
 
 ## Reuse a View table
 
-With the `cf` connection above, select a View by its exact key and a table by
-its component ID or unique display name:
+For tabular inputs already configured in Studio, select a View by its exact key
+and a table by its component ID or unique display name. View tables return
+pandas DataFrames:
 
 ```python
 table = cf.view("operations-view").table("Orders")
@@ -129,7 +115,8 @@ The query includes the table's configured columns, filters, and sorting. See
 For an existing augmentation table and a pandas DataFrame `prediction_frame`:
 
 ```python
-output = km.augmentation_tables.table("ML_ORDER_PREDICTIONS", key="ORDER_ID")
+tables = cf.augmentation_tables("orders-km")   # the KM locates its Data Model
+output = tables.table("ML_ORDER_PREDICTIONS", key="ORDER_ID")
 output.upsert(prediction_frame)
 ```
 
@@ -147,14 +134,6 @@ uv run pytest
 Read [Development](docs/development.md) for repository structure, documentation
 checks, and the opt-in live tests.
 
-The sample `main.py` uses tenant-specific resources. Its Inventory KM is
-configured in `pyproject.toml`; update that configuration and the sample's
-Space, Package, View, and table constants when using another tenant. Generate its
-local definitions, then run the sample:
-
-```bash
-uv run celofast km pull inventory
-uv run python main.py
-```
-
-The generated sample package is ignored by Git and must be pulled in each checkout.
+The repository's Inventory KM (configured in `pyproject.toml`, with its object
+mapping in `inventory-objects.toml`) backs the opt-in live tests. Its generated
+package is ignored by Git and must be pulled in each checkout.

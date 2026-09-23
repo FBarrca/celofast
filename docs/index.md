@@ -3,23 +3,24 @@
 [Project overview](../README.md) · [Getting started](getting-started.md)
 
 Celofast connects Python applications to Celonis business definitions and live
-data. Its main workflow is: select the right input, fetch a pandas DataFrame,
-process it in Python, and write results to an augmentation table when needed.
+data. Knowledge Models become typed business objects you retrieve and traverse
+in Python; View tables provide configured tabular inputs; results can be written
+to augmentation tables.
 
 ## Reading paths
 
 | Task | Guide |
 | --- | --- |
-| First connection and first query | [Getting started](getting-started.md) |
-| Typed records, attributes, KPIs, filters, and reusable queries | [Knowledge Models](knowledge-model-sdk.md) |
-| Plain PQL, dictionary definitions, and serialization | [Dictionary queries](dictionary-queries.md) |
+| First connection and first objects | [Getting started](getting-started.md) |
+| Typed business objects, keys, filters, and relationships | [Knowledge Models](knowledge-model-sdk.md) |
 | Tables already configured in Studio and current control values | [Views and inputs](views-and-inputs.md) |
+| Query dictionaries exported from View tables | [View query dictionaries](dictionary-queries.md) |
 | Create, update, or remove application output | [Augmentation tables](augmentation-tables.md) |
 | Augmentation architecture, naming rules, and exact service limits | [Architecture and limit notes](Augmentated_tables.md) |
 | TAA/V2, legacy RAA/V1, Annotation Builder, and migration | [Detailed augmentation reference](Augmentated_tables%20copy.md) |
 | Method signatures and return values | [API reference](api-reference.md) |
 | Common failures and their next steps | [Troubleshooting](troubleshooting.md) |
-| Upgrade existing KM applications to 0.4 | [Migration guide](migration-0.4.md) |
+| Upgrade KM applications from the 0.4 query API | [Migration guide](migration-0.5.md) |
 | Local tests, code layout, and documentation maintenance | [Development](development.md) |
 
 ## The objects you work with
@@ -27,35 +28,35 @@ process it in Python, and write results to an augmentation table when needed.
 | Object | What it represents | Example |
 | --- | --- | --- |
 | `CeloFast` | A connection scoped to one Space, Package, and lifecycle | `cf = CeloFast("SPACE_ID", "PACKAGE_ID")` |
-| Generated `inventory` | A local, immutable snapshot of KM definitions | `from generated.inventory import km as inventory` |
-| KM handle `km` | A cached connection for query execution | `km = cf.km(inventory)` |
-| Record | A business-object definition, not one data row | `plant = inventory.records.o_celonis_plant` |
-| Attribute or KPI | A captured expression and its metadata | `plant.country`, `inventory.kpis.inventory_value` |
-| `Query` | An immutable selection, filters, and ordering | `km.select(plant).where(plant.country.eq("DE"))` |
-| pandas DataFrame | The materialized query result | `query.execute()` |
+| Generated `inventory` | An offline registry of object types captured from one KM | `from generated.inventory import Plant, km as inventory` |
+| `KnowledgeModelClient` | Retrieves objects from the connected KM | `client = cf.km(inventory)` |
+| `Plant.fields` | The definition of an object type and its typed fields | `Plant.fields.country.eq("DE")` |
+| `Plant` instance | One loaded, immutable business object | `plant = client.objects(Plant).get("P1")` |
+| `ObjectCollection` / `ObjectPage` | A filterable set of objects / one fetched page | `client.objects(Plant).fetch_page()` |
+| Relationship | A declared link to related objects | `plant.links.materials.fetch_page()` |
 | View table handle | A table component whose query comes from View configuration | `cf.view("operations-view").table("Orders")` |
-| Augmentation table handle | A destination for rows in the resolved Data Model | `km.augmentation_tables.table("PREDICTIONS")` |
+| Augmentation table handle | A destination for rows in the resolved Data Model | `cf.augmentation_tables("inventory-km").table("PREDICTIONS")` |
 
 The names in these examples are illustrative. Resource selectors use your exact
-IDs or keys; generated Python members derive from your captured KM IDs.
+IDs or keys; generated class and field names derive from your KM and mapping.
 
 ## What is local and what is live?
 
 ```text
-Cloud KM definitions -- celofast km pull --> generated Python package
-                                               |
-                                      inspect and compose locally
-                                               |
-                                      cf.km(inventory)
-                                               |
-                                   query.execute() --> live DataFrame
+Cloud KM definitions + object mapping -- celofast km pull --> generated object classes
+                                                                     |
+                                                            cf.km(inventory)
+                                                                     |
+                                   client.objects(Plant).fetch_page() --> live Plant objects
+                                   plant.links.materials.fetch_page() --> live related objects
 ```
 
-- Importing a generated package and inspecting metadata are offline operations.
-- Creating `CeloFast` resolves the Space and Package. Selecting a KM resolves
-  its native handle and Data Model and validates a generated source.
-- Once connected, composing a query, `build()`, and `to_query()` do not fetch
-  query data. `execute()` does.
+- Importing a generated package and inspecting definitions are offline.
+- Creating `CeloFast` resolves the Space and Package. `cf.km(inventory)`
+  resolves the KM and Data Model and validates the generated source.
+- Building collections, predicates, and relationship accessors, and reading
+  values from loaded objects, never fetch data. `get()`, `fetch_page()`,
+  `next_page()`, and `ToOne.fetch()` do.
 - View discovery loads View content. Its KM is resolved lazily when needed.
   Control `get()`/`details()` calls fetch current values; dropdown `options()`
   performs a separate data query.
@@ -63,29 +64,24 @@ Cloud KM definitions -- celofast km pull --> generated Python package
 
 ## Three distinctions that matter
 
-**Captured definitions and live data.** Pulling captures expressions and
-metadata, not rows. A captured expression can still reference a KPI whose
-definition is resolved live. Pull and reload when you want new captured
-definitions. See [KM execution semantics](knowledge-model-sdk.md#query-behavior).
+**Definitions and loaded objects.** `Plant.fields.country` is a definition used
+to filter; `plant.country` is a loaded value. Pulling captures definitions, not
+data. Pull and restart Python when you want new definitions.
 
 **Draft and published resources.** `mode="draft"` selects Studio resources;
 `mode="published"` selects published Apps resources. The modes do not fall back
 to each other. Use matching Space and Package IDs for the selected context.
 
 **Defaults and current user input.** Captured KM defaults, View template
-bindings, and a user's current control values are separate sources. KM queries
-require explicit `variables=` bindings; captured defaults are metadata only. Reading a
-control does not automatically apply its value to every KM query. See
-[View values and query bindings](views-and-inputs.md#values-and-query-bindings).
+bindings, and a user's current control values are separate sources. KM input
+variables require explicit `variables=` bindings on `cf.km(...)`; captured
+defaults are metadata only. Reading a control does not automatically filter
+objects. See [View values and object filters](views-and-inputs.md#values-and-object-filters).
 
-## Pick the right query path
+## Objects or View tables?
 
-Use **generated KM objects** for discoverability, metadata, autocomplete, and
-reusable business queries. Use **dictionary queries** for existing PQL and
-serializable configuration. Use **View tables** when Studio already defines
-the columns and filters you need.
-
-All three execute through the native Knowledge Model connector. A generated
-query's `to_query()` bridges to the dictionary API while retaining its captured
-objects and source information. Only dictionaries containing plain values such
-as PQL strings can be serialized directly to JSON.
+Use **KM objects** to retrieve identified business objects, filter them by
+field values, and follow declared relationships. Use **View tables** when
+Studio already defines the columns, KPIs, and filters of a tabular result you
+need; they return DataFrames. The object SDK deliberately has no column
+selection, aggregation, or PQL.

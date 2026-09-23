@@ -1,130 +1,44 @@
-# Dictionary queries and raw PQL
+# View query dictionaries
 
-[Documentation](index.md) · [Typed KM queries](knowledge-model-sdk.md)
+[Documentation](index.md) · [Views and inputs](views-and-inputs.md)
 
-Use a dictionary when you already have PQL, want to store query definitions as
-configuration, or need to consume a query exported from a View. Generation is
-optional for this API.
+View tables export their configured query as a plain dictionary. This is part
+of the View feature. The [Knowledge Model object SDK](knowledge-model-sdk.md)
+does not accept or return query dictionaries.
 
-## Execute a reusable definition
-
-Configure authentication as described in [Getting started](getting-started.md).
-Replace the IDs, KM key, and PQL names in this example with your own:
+## Export and inspect a table query
 
 ```python
-from celofast import CeloFast, QueryDefinition
-
-cf = CeloFast("SPACE_ID", "PACKAGE_ID")
-km = cf.km("inventory-km")
-
-query: QueryDefinition = {
-    "columns": {
-        "Plant": '"Plant"."Number"',
-        "Value": 'KPI("inventory_value")',
-    },
-    "filters": [
-        'FILTER "Plant"."Country" = \'DE\';',
-        "FILTER @active_inventory;",
-    ],
-    "order_by": [
-        {"pql": 'KPI("inventory_value")', "ascending": False},
-    ],
-}
-
-native_pql = km.build(query)
-result = km.execute(query, limit=100, offset=0, distinct=True)
+table = cf.view("operations-view").table("Orders")
+query = table.to_query(extra_filters=['FILTER "Plant"."Country" = \'DE\';'])
 ```
 
-`build()` returns native PyCelonis PQL without executing it. `execute()` returns
-a pandas DataFrame. Omitting `limit` requests all matching rows. Filters combine
-with AND, and columns retain their dictionary insertion order.
+| Field | Value |
+| --- | --- |
+| `columns` | Non-empty mapping of output names to PQL strings, in table order. |
+| `filters` | Complete PQL filter strings: the table's own, then inherited, then extra filters. |
+| `order_by` | List of mappings with `pql` and optional `ascending` (default `True`). |
 
-## Definition fields
+`to_query()` returns a fresh dictionary containing only strings, so it can be
+serialized as JSON or YAML. KPI and KM filter references such as
+`FILTER @active_inventory;` remain symbolic for server-side resolution.
 
-| Field | Required | Value |
-| --- | --- | --- |
-| `columns` | Yes | Non-empty mapping of output names to PQL strings, generated attributes, or generated KPIs. |
-| `filters` | No | List of complete PQL filter strings, generated KM filters, or attribute equality predicates. |
-| `order_by` | No | List of mappings with `pql` and optional `ascending`. The latter defaults to `True`. |
-
-Unknown fields are rejected. Put `limit`, `offset`, `distinct`, and `variables`
-in method arguments, not in the dictionary. Aliases must be non-empty strings;
-expressions must have non-empty PQL. Execution limits and offsets must be
-non-negative integers, excluding booleans.
-
-## Serialize plain-string definitions
-
-The example above contains only JSON-compatible values:
-
-```python
-import json
-
-saved_query = json.dumps(query, indent=2)
-restored_query = json.loads(saved_query)
-result = km.execute(restored_query, limit=100)
-```
-
-Generated attributes and predicates are Python objects. A builder's
-`to_query()` retains them to preserve source metadata;
-it does not turn them into JSON. Replacing an object with `.pql` makes it a raw
-string and discards source validation for that expression. Explicit bindings
-are required for placeholders in both forms.
-
-## Bind raw template variables
+## Bind template variables
 
 `${name}` replacement is textual. Supply exact PQL fragments, including quotes
 when the replacement is a string literal:
 
 ```python
-query = {
-    "columns": {"Plant": '"Plant"."Number"'},
-    "filters": ['FILTER "Plant"."Country" = ${country};'],
-}
-
-result = km.execute(query, variables={"country": "'DE'"}, limit=100)
+result = table.execute(variables={"country": "'DE'"}, limit=100)
 ```
 
-For Python values in typed queries, prefer `plant.country.eq("DE")`; it handles
-literal encoding. `variables=` is not a parameterized query interface. It does
-not automatically quote or escape user-provided text, and it does not update
-server-managed KM variables or View controls.
-
-Raw and generated PQL placeholders need explicit bindings. Missing values raise
-`UnresolvedVariableError`, even when captured metadata contains a default. See
-[KM execution semantics](knowledge-model-sdk.md#query-behavior).
-
-## Mix generated objects with existing dictionaries
-
-After [pulling a KM](knowledge-model-sdk.md#configure-and-pull):
-
-```python
-from generated.inventory import km as inventory
-
-km = cf.km(inventory)
-plant = inventory.records.o_celonis_plant
-
-result = km.execute({
-    "columns": {
-        "Plant": plant.number_formatted,
-        "Live KPI": 'KPI("inventory_value")',
-    },
-    "filters": [plant.country.eq("DE")],
-}, limit=100)
-```
-
-Generated KPIs contribute their captured `.pql` expression. A raw `KPI(...)`
-call uses the live KM reference, including its native filter/parameter
-semantics. Capturing a definition does not freeze the dependencies it refers to.
+Bindings merge after published View input defaults and View-level variables.
+They do not automatically quote user text, update View controls, or override
+server-managed KM variables. A missing binding raises `UnresolvedVariableError`.
 
 ## Validation and native errors
 
-The builder and dictionary API share compilation, explicit variable binding,
-source checks, and execution. They reject invalid shapes, object categories,
-empty expressions, incompatible sources, and invalid execution options locally.
-Captured objects are checked against the connected KM and Data Model at compilation.
-
-Celonis validates PQL syntax and semantics. Native PyCelonis/SaolaPy execution
-errors propagate unchanged with their cause chains.
-
-Inspect the query sent to PyCelonis with `km.build(query, variables=...)`.
+Unknown fields, empty expressions, duplicate aliases, and invalid execution
+options are rejected locally. Celonis validates PQL syntax and semantics;
+native PyCelonis/SaolaPy errors propagate unchanged with their cause chains.
 For deeper failures, see [Troubleshooting](troubleshooting.md).

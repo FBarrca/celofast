@@ -7,7 +7,7 @@ from pycelonis.ems.apps.content_node.view.content import ViewContent
 from pycelonis.ems.studio.content_node.view import View
 
 from celofast import AmbiguousTableError, QueryValidationError, TableNotFoundError
-from celofast.resources.knowledge_model import KnowledgeModelHandle
+from celofast.resources.knowledge_model import KnowledgeModelConnection
 from celofast.resources.view import ViewHandle
 
 
@@ -104,7 +104,7 @@ def make_view_handle(*, duplicate_name: bool = False):
             SimpleNamespace(key="days", default_value="30")
         ],
     )
-    km = MagicMock(spec=KnowledgeModelHandle)
+    km = MagicMock(spec=KnowledgeModelConnection)
     handle = ViewHandle(
         cast(View, native),
         make_content(duplicate_name=duplicate_name),
@@ -143,7 +143,7 @@ def test_native_table_query_preserves_hidden_attributes_filter_refs_and_sorting(
 def test_table_execution_merges_variables_and_composes_filters():
     view, km = make_view_handle()
     expected = object()
-    km.execute.return_value = expected
+    km._execute.return_value = expected
 
     result = view.table("Orders").execute(
         inherit_filters_from=("Events",),
@@ -153,13 +153,13 @@ def test_table_execution_merges_variables_and_composes_filters():
     )
 
     assert result is expected
-    query = km.execute.call_args.args[0]
+    query = km._execute.call_args.args[0]
     assert query["filters"] == [
         "FILTER @active_orders;",
         "FILTER ${days} > 0;",
         'FILTER "Orders"."VALID" = 1;',
     ]
-    assert km.execute.call_args.kwargs == {
+    assert km._execute.call_args.kwargs == {
         "variables": {"days": "7", "region": "'EMEA'"},
         "limit": 10,
         "offset": None,

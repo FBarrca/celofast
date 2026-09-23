@@ -4,7 +4,6 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from celofast.builder import Query
     from celofast.client import get_celonis
     from celofast.core import CeloFast
     from celofast.exceptions import (
@@ -14,6 +13,10 @@ if TYPE_CHECKING:
         CeloFastError,
         ComponentNotFoundError,
         ComponentVariableError,
+        ObjectIdentityError,
+        ObjectMappingError,
+        ObjectNotFoundError,
+        ObjectValueError,
         QueryValidationError,
         ResourceAmbiguityError,
         ResourceNotFoundError,
@@ -23,6 +26,7 @@ if TYPE_CHECKING:
         ViewContentError,
     )
     from celofast.query import OrderByDefinition, QueryDefinition
+    from celofast.resources.knowledge_model import KnowledgeModelClient
     from celofast.resources.augmentation_table import (
         AugmentationTableCollection,
         AugmentationTableHandle,
@@ -56,8 +60,12 @@ __all__ = [
     "DropdownOption",
     "InputBoxHandle",
     "InputVariableValue",
+    "KnowledgeModelClient",
+    "ObjectIdentityError",
+    "ObjectMappingError",
+    "ObjectNotFoundError",
+    "ObjectValueError",
     "OrderByDefinition",
-    "Query",
     "QueryDefinition",
     "QueryValidationError",
     "ResourceAmbiguityError",
@@ -73,12 +81,12 @@ __all__ = [
 
 
 _MODULES = {
-    "Query": "celofast.builder",
     "get_celonis": "celofast.client",
     "CeloFast": "celofast.core",
     "OrderByDefinition": "celofast.query",
     "QueryDefinition": "celofast.query",
     "ResourceMode": "celofast.types",
+    "KnowledgeModelClient": "celofast.resources.knowledge_model",
     "AugmentationTableCollection": "celofast.resources.augmentation_table",
     "AugmentationTableHandle": "celofast.resources.augmentation_table",
 }

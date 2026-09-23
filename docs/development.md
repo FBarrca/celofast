@@ -13,13 +13,13 @@ uv run pytest
 
 The lockfile and [pyproject.toml](../pyproject.toml) define the development
 environment, including wheel sources for the pinned Celonis packages. The
-normal test suite uses local fixtures and mocks. It covers generation, typing,
-native connector delegation, validation, Views, controls, and output batching.
+normal test suite uses local fixtures and mocks. It covers mapping validation, generation, typing,
+object hydration, native connector delegation, validation, Views, controls, and output batching.
 
 For a targeted KM change:
 
 ```bash
-uv run pytest tests/test_builder.py tests/test_record_queries.py tests/test_sdk_typing.py
+uv run pytest tests/test_sdk_generate.py tests/test_object_runtime.py tests/test_inventory_rules.py tests/test_sdk_typing.py
 ```
 
 ## Repository map
@@ -28,10 +28,13 @@ uv run pytest tests/test_builder.py tests/test_record_queries.py tests/test_sdk_
 | --- | --- |
 | [client.py](../celofast/client.py) | OAuth client creation and caching. |
 | [core.py](../celofast/core.py), [resolution.py](../celofast/resolution.py) | Package scope, lifecycle selection, lookup and caches. |
-| [sdk](../celofast/sdk) | Capture, immutable objects, generation, package integrity, and drift reporting. |
-| [builder.py](../celofast/builder.py), [expressions.py](../celofast/expressions.py) | Immutable composition and attribute equality predicates. |
-| [query.py](../celofast/query.py) | Shared query validation, explicit binding, and native PQL compilation. |
-| [resources](../celofast/resources) | KM, View, control, and augmentation-table handles. |
+| [sdk/capture.py](../celofast/sdk/capture.py) | Lossless KM captures and retrieval. |
+| [sdk/mapping.py](../celofast/sdk/mapping.py) | Normalization: object mappings, keys, value types, and links. |
+| [sdk/definitions.py](../celofast/sdk/definitions.py), [sdk/objects.py](../celofast/sdk/objects.py) | Offline definitions (`Field`, `ObjectDefinition`); loaded objects, collections, pages, and links. |
+| [sdk/planning.py](../celofast/sdk/planning.py), [sdk/hydration.py](../celofast/sdk/hydration.py) | Private read planning; identity and value validation. |
+| [sdk/generate.py](../celofast/sdk/generate.py), [sdk/package.py](../celofast/sdk/package.py), [sdk/loading.py](../celofast/sdk/loading.py) | Generated packages, safe installation, drift reporting, and runtime compatibility. |
+| [query.py](../celofast/query.py) | View query dictionaries, explicit binding, and native PQL compilation. |
+| [resources](../celofast/resources) | KM client and connection, View, control, and augmentation-table handles. |
 | [cli.py](../celofast/cli.py) | `celofast km pull` and `--check`. |
 | [tests](../tests) | Local tests and opt-in cloud checks. |
 | [docs](.) | Markdown guides and references. |
@@ -47,7 +50,7 @@ CELOFAST_LIVE_SPACE_ID=SPACE_ID
 CELOFAST_LIVE_PACKAGE_ID=PACKAGE_ID
 CELOFAST_LIVE_KM_KEY=inventory-km
 CELOFAST_LIVE_RECORD_ID=O_CELONIS_PLANT
-CELOFAST_LIVE_ATTRIBUTE_ID=NumberFormatted
+CELOFAST_LIVE_KEY_ID=ID
 ```
 
 Then run:
@@ -55,6 +58,27 @@ Then run:
 ```bash
 uv run pytest tests/test_sdk_live.py
 ```
+
+[test_inventory_acceptance.py](../tests/test_inventory_acceptance.py) holds
+online end-to-end acceptance tests. They run as part of `uv run pytest` whenever
+Celonis credentials are configured (`.env`). They run the real
+`celofast km pull inventory` into a temporary directory, execute the documented
+inventory questions exactly as an application writes them, and assert both the
+API (typed objects, generated names) and the values: every result satisfies the
+rule (checked through its links), and nothing is missing (checked in plain
+Python over every loaded object). They take about six minutes and only read
+data. Exclude them with:
+
+```bash
+uv run pytest -m "not live"
+```
+
+[test_inventory_rules.py](../tests/test_inventory_rules.py) runs the same
+questions offline over hand-built objects that cover every branch.
+
+After changing `inventory-objects.toml`, refresh the offline fixture with
+`uv run python tests/fixtures/build_inventory_fixture.py`
+so `tests/fixtures/inventory_km.json` uses the same records and fields.
 
 The live suite is skipped unless `CELOFAST_LIVE_KM=1` is set when tests are
 collected. Inspect [test_sdk_live.py](../tests/test_sdk_live.py) before selecting
@@ -85,18 +109,17 @@ without removing the original findings.
 
 ## Generated application packages
 
-Application-generated KM packages contain `__init__.py`, `capture.json`,
-`schema.json`, and `py.typed`. Keep all four together. Change definitions in the
-source KM, pull again, and review the diff rather than editing generated files.
+Application-generated KM packages contain `__init__.py`, `definitions.py`,
+`objects.py`, `links.py`, `capture.json`, `schema.json`, and `py.typed`. Keep
+them together. Change definitions in the source KM or the object mapping, pull
+again, and review the diff rather than editing generated files.
 
-The generator emits frozen dataclasses with typed fields for records and
-root collections. Each record declares one flat set of business fields. A private
-builder wires one object per captured path; the shared Record API handles
-iteration and exact-ID lookup over those same fields. Keep construction separate from class
-declarations so the generated API is easy to scan. Generated navigation needs no
-properties or constructor-binding defaults; stored children preserve the old
-hierarchy when a package is reloaded. Generator version 7 uses
-runtime API version 5; regenerate packages after upgrading.
+For each object type the generator emits a frozen definition dataclass of
+`Field`s (`definitions.py`), a frozen value dataclass (`objects.py`), and, for
+declared links, `Links` and `Relations` classes (`links.py`). `objects.py` and
+`links.py` import each other and resolve names only at call time. Generator
+version 9 uses runtime API version 6; older packages fail at import with a
+regeneration message.
 
 Run `uv run celofast km pull inventory --check` in an application that has that
 KM configured to verify drift. This is a cloud read and needs its credentials;
