@@ -204,7 +204,7 @@ returns an immutable `ObjectCollection[Plant]`.
 | --- | --- |
 | `collection.get(key)` | One object; raises `ObjectNotFoundError` if absent. Composite keys are tuples. |
 | `collection.where(*predicates)` | A narrower collection; predicates combine with AND. |
-| `collection.order_by(*sorts)` | A reordered collection: `Type.fields.x.asc()`/`.desc()`, or a field (ascending). The key breaks ties. |
+| `collection.order_by(*sorts)` | A reordered collection by fields or relation aggregates: `.asc()`/`.desc()`, or ascending when given plainly. The key breaks ties. |
 | `collection.fetch_page(page_size=100, *, offset=0)` | `ObjectPage` in the requested order, then key order. `page_size` is 1–10,000. |
 | `page.items`, `iter(page)`, `len(page)` | The loaded objects. |
 | `page.has_more`, `page.next_page()` | Whether more objects exist; fetch the following page or `None`. |
@@ -235,6 +235,7 @@ below_safety_stock = (
 | `a & b`, `a \| b`, `~a` | And, or, and exact complement: `~f.eq(x)` is `f.ne(x)`, including nulls. |
 | `Type.relations.one.has(p)` | The related object of a to-one link exists (and matches `p`, if given). |
 | `Type.relations.many.any(p)` | At least one related object of a to-many link exists (and matches `p`, if given). |
+| `Type.relations.many.count(p)`, `.sum(f, p)`, `.avg(f, p)`, … | An aggregate over related objects that compares and sorts like a field; see below. |
 
 Values are validated against the field's type when the predicate is created.
 Combining predicates of different types is rejected. Reach related objects
@@ -259,6 +260,43 @@ overdue = (
     .fetch_page(page_size=100)
 )
 ```
+
+### Aggregates over relations
+
+A to-many relation that follows a Data Model foreign key also yields one
+aggregate value per object. It compiles to a Pull-Up function on the object's
+table, so it can be compared with values, fields of the same type, or other
+aggregates, and used in `order_by`:
+
+```python
+supplies = MaterialMasterPlant.relations.planned_supplies
+firm = PlannedSupply.fields.is_firm_order.eq(1)
+
+short = (
+    client.objects(MaterialMasterPlant)
+    .where(
+        supplies.sum(PlannedSupply.fields.order_quantity, firm)
+        .lt(MaterialMasterPlant.fields.safety_stock_quantity)
+    )
+    .order_by(supplies.count().desc())
+    .fetch_page(page_size=50)
+)
+```
+
+| Aggregate | PQL | Result |
+| --- | --- | --- |
+| `count(p=None)` | `PU_COUNT` | `int`, 0 without related objects |
+| `count_distinct(f, p=None)` | `PU_COUNT_DISTINCT` | `int`, 0 without values |
+| `sum(f, p=None)` | `PU_SUM` | the field's numeric type |
+| `avg(f, p=None)` | `PU_AVG` | `float` |
+| `min(f, p=None)`, `max(f, p=None)` | `PU_MIN`, `PU_MAX` | the field's type |
+| `median(f, p=None)` | `PU_MEDIAN` | the field's numeric type; for an even count, the upper middle value |
+
+`p` restricts which related objects count, and may itself use relations.
+Aggregates other than the counts are NULL when no related value exists: an
+ordering comparison is then false, and `.eq(None)` finds those objects. Null
+field values are ignored, as in PQL. Pull-Up functions ignore global filters
+and are evaluated per object.
 
 Every read is **one** PQL query, however many relations it nests. Relationship
 predicates compile into the same filter:

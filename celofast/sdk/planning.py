@@ -13,7 +13,9 @@ Relationship predicates are rendered in the same query:
   with ``BIND`` (Data Model foreign key) or ``LOOKUP`` (value join without a
   join path), so unmatched rows see NULL;
 * to-many ``any()`` counts matching related rows with ``PU_COUNT`` on the
-  filtered row's table, rendering the nested condition on the related table.
+  filtered row's table, rendering the nested condition on the related table;
+* aggregates (``count``, ``sum``, ``avg``, ...) render as the matching
+  Pull-Up function and compare or sort like any column.
 """
 
 from __future__ import annotations
@@ -22,15 +24,18 @@ import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from typing import Any
 
 from celofast.exceptions import QueryValidationError
 from celofast.query import bind_variables
 from celofast.sdk.definitions import (
+    Aggregate,
     And,
     Comparison,
     Field,
     Not,
     ObjectDefinition,
+    Operand,
     Or,
     Predicate,
     Related,
@@ -85,15 +90,29 @@ class ReadPlan:
     columns: tuple[tuple[str, str], ...]
     filters: tuple[str, ...]
     order_by: tuple[tuple[str, bool], ...]
+    loaded: int = 0
+    """How many leading columns are loaded fields; later ones only support sorting."""
 
 
 class _Renderer:
     def __init__(self, variables: Mapping[str, str]) -> None:
         self.variables = variables
 
-    def expression(self, field: Field[object], pull: Pull = _identity) -> str:
+    def expression(self, operand: Operand[Any], pull: Pull = _identity) -> str:
+        if isinstance(operand, Aggregate):
+            # A Pull-Up function on the source table; its condition is
+            # evaluated on the related table itself.
+            condition = (
+                "" if operand.predicate is None
+                else f", {self.condition(operand.predicate, _identity)}"
+            )
+            argument = self.expression(operand.field)
+            return pull(
+                f"PU_{operand.function.upper()}({_table(operand.source)}, {argument}{condition})"
+            )
+        assert isinstance(operand, Field)
         # A newline keeps a trailing line comment from consuming what follows.
-        return pull(f"({bind_variables(field.expression, self.variables)}\n)")
+        return pull(f"({bind_variables(operand.expression, self.variables)}\n)")
 
     def condition(self, predicate: Predicate, pull: Pull = _identity, negate: bool = False) -> str:
         if isinstance(predicate, (And, Or)):
@@ -133,7 +152,7 @@ class _Renderer:
             return case(f"{left} LIKE {_literal(operand)}"), False
         if operand is None:
             return case(f"{left} IS NULL"), op == "ne"
-        if isinstance(operand, Field):
+        if isinstance(operand, Operand):
             right = self.expression(operand, pull)
             if op in ("eq", "ne"):
                 both_null = f"{left} IS NULL AND {right} IS NULL"
@@ -192,9 +211,19 @@ def plan_read(
 ) -> ReadPlan:
     """Plan a complete-object read; unbound ``${name}`` placeholders fail here."""
     renderer = _Renderer(variables)
-    columns = tuple(
+    columns = [
         (f"f{index}", renderer.expression(field)) for index, field in enumerate(definition)
-    )
+    ]
     ordering = [(renderer.expression(sort.field), sort.ascending) for sort in order]
     ordering += [(renderer.expression(field), True) for field in definition.key_fields]
-    return ReadPlan(columns, renderer.filters(predicates), tuple(ordering))
+    # With DISTINCT, Celonis ignores ORDER BY expressions that are not selected
+    # (verified live), so sort-only expressions such as aggregates are also
+    # selected as extra columns after the loaded fields.
+    selected = {expression for _, expression in columns}
+    for expression, _ in ordering:
+        if expression not in selected:
+            columns.append((f"s{len(columns) - len(definition)}", expression))
+            selected.add(expression)
+    return ReadPlan(
+        tuple(columns), renderer.filters(predicates), tuple(ordering), loaded=len(definition)
+    )

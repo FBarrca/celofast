@@ -22,10 +22,10 @@ from generated.inventory import (
 
 AS_OF = date(2026, 9, 23)  # Example planning date.
 
-import logging
-# Enable to show the PQL queries in the logs
-logging.basicConfig()
-logging.getLogger("celofast.km").setLevel(logging.DEBUG)
+# import logging
+# # Enable to show the PQL queries in the logs
+# logging.basicConfig()
+# logging.getLogger("celofast.km").setLevel(logging.DEBUG)
 
 
 def at_risk_materials(client: KnowledgeModelClient, as_of: date):

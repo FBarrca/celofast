@@ -259,7 +259,8 @@ class KnowledgeModelClient:
         # visible to hydration, which rejects them.
         frame = self._connection._export(_native(plan), limit=limit, offset=offset, distinct=True)
         rows = _rows(frame, [alias for alias, _ in plan.columns])
-        return hydrate(object_type, rows, context=self)
+        # Columns after the loaded fields exist only for sorting.
+        return hydrate(object_type, (row[: plan.loaded] for row in rows), context=self)
 
     @property
     def mode(self) -> ResourceMode:

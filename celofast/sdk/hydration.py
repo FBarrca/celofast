@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal, TypeVar
 from celofast.exceptions import ObjectIdentityError, ObjectValueError
 
 if TYPE_CHECKING:
-    from celofast.sdk.definitions import Field
+    from celofast.sdk.definitions import Field, Operand
     from celofast.sdk.objects import Object, _Session
 
 ValueType = Literal["str", "int", "float", "bool", "date", "datetime"]
@@ -43,7 +43,7 @@ def _accepts(value_type: ValueType, value: object) -> bool:
     return isinstance(value, datetime)
 
 
-def check_filter_value(field: Field[Any], value: object) -> None:
+def check_filter_value(field: Operand[Any], value: object) -> None:
     """Reject filter values a field can never hold."""
     if value is None:
         if not field.nullable:

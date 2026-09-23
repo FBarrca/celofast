@@ -2,6 +2,7 @@
 
 from celofast.sdk.capture import Capture, CaptureError, Source
 from celofast.sdk.definitions import (
+    Aggregate,
     Field,
     LinkDefinition,
     ModelInfo,
@@ -23,6 +24,7 @@ from celofast.sdk.objects import (
 )
 
 __all__ = [
+    "Aggregate",
     "Capture",
     "CaptureError",
     "Field",

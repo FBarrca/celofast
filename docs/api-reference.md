@@ -43,6 +43,8 @@ Source: [core.py](../celofast/core.py), [client.py](../celofast/client.py).
 | `a & b`, `a \| b`, `~a` | Combined `Predicate` of the same object type; `~` is an exact complement. |
 | `Plant.relations.<to_one>.has(predicate=None)` | `Predicate`: the related object exists and matches. |
 | `Plant.relations.<to_many>.any(predicate=None)` | `Predicate`: some related object exists and matches. |
+| `Plant.relations.<to_many>.count(p=None)`, `.count_distinct(f, p=None)` | `Aggregate[int]` (`PU_COUNT`, `PU_COUNT_DISTINCT`); 0 without related values. |
+| `Plant.relations.<to_many>.sum(f, p=None)`, `.avg(...)`, `.min(...)`, `.max(...)`, `.median(...)` | `Aggregate` (`PU_SUM`, `PU_AVG`, `PU_MIN`, `PU_MAX`, `PU_MEDIAN` with the upper middle value); NULL without related values. Compares (`eq` … `between`) and sorts like a field. Foreign-key links only. |
 | `plant.key` | Business key; a tuple for composite keys. |
 | `plant.ref` | `ObjectRef(source, object_type, key)`. |
 | `plant.links.<name>` | `ObjectCollection[Target]` (to-many) or `ToOne[Target]` (to-one), declared by the mapping. |
@@ -63,7 +65,7 @@ Source: [definitions.py](../celofast/sdk/definitions.py),
 | --- | --- |
 | `client.objects(Plant)` | `ObjectCollection[Plant]`; the class must come from the connected package. |
 | `collection.where(*predicates)` | New collection; predicates combine with AND and must belong to the collection's type. |
-| `collection.order_by(*sorts)` | New collection ordered by fields of its type (`Sort` or field, ascending); the key breaks ties. |
+| `collection.order_by(*sorts)` | New collection ordered by fields or relation aggregates of its type (`Sort`, or ascending when given plainly); the key breaks ties. |
 | `collection.get(key)` | `Plant`; `ObjectNotFoundError` if absent. |
 | `collection.fetch_page(page_size=100, *, offset=0)` | `ObjectPage[Plant]` in `order_by` order, then key order; `page_size` is 1–10,000. |
 | `page.items`, `.offset`, `.page_size`, `.has_more` | Loaded objects and paging state; pages iterate and have a length. |

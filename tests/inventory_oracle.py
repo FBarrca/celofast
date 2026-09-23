@@ -10,10 +10,22 @@ from __future__ import annotations
 
 import operator
 import re
+import statistics
 from collections.abc import Iterable, Mapping, Sequence
 
 from celofast.sdk import Object, ObjectCollection
-from celofast.sdk.definitions import And, Comparison, Field, Not, Or, Predicate, Related, Sort
+from celofast.sdk.definitions import (
+    Aggregate,
+    And,
+    Comparison,
+    Field,
+    Not,
+    Operand,
+    Or,
+    Predicate,
+    Related,
+    Sort,
+)
 
 _ORDERING = {"lt": operator.lt, "lte": operator.le, "gt": operator.gt, "gte": operator.ge}
 Population = Mapping[str, Sequence[Object]]
@@ -27,10 +39,10 @@ def matches(predicate: Predicate, obj: Object, population: Population) -> bool:
     if isinstance(predicate, Not):
         return not matches(predicate.part, obj, population)
     if isinstance(predicate, Comparison):
-        left = getattr(obj, predicate.field.name)
+        left = value(predicate.field, obj, population)
         right = predicate.operand
-        if isinstance(right, Field):
-            right = getattr(obj, right.name)
+        if isinstance(right, Operand):
+            right = value(right, obj, population)
         if predicate.op == "eq":
             return left == right
         if predicate.op == "ne":
@@ -48,15 +60,43 @@ def matches(predicate: Predicate, obj: Object, population: Population) -> bool:
             return False
         return _ORDERING[predicate.op](left, right)
     if isinstance(predicate, Related):
-        values = [(getattr(obj, left), right) for left, right in predicate.link.on]
-        if any(value is None for value, _ in values):
-            return False
-        return any(
-            all(getattr(related, right) == value for value, right in values)
-            and (predicate.predicate is None or matches(predicate.predicate, related, population))
-            for related in population[predicate.target.object_type]
-        )
+        return bool(_related(predicate, obj, population))
     raise TypeError(type(predicate))
+
+
+def _related(relation, obj, population) -> list:
+    """Related objects on a link (Related or Aggregate) that match its predicate."""
+    keys = [(getattr(obj, left), right) for left, right in relation.link.on]
+    if any(key is None for key, _ in keys):
+        return []
+    return [
+        related for related in population[relation.target.object_type]
+        if all(getattr(related, right) == key for key, right in keys)
+        and (relation.predicate is None or matches(relation.predicate, related, population))
+    ]
+
+
+def value(operand: Operand, obj: Object, population: Population):
+    """A field's loaded value, or an aggregate computed like Celonis PU functions."""
+    if isinstance(operand, Field):
+        return getattr(obj, operand.name)
+    assert isinstance(operand, Aggregate)
+    related = _related(operand, obj, population)
+    values = [getattr(r, operand.field.name) for r in related]
+    values = [v for v in values if v is not None]  # PU functions ignore nulls.
+    if operand.function == "count":
+        return len(values)
+    if operand.function == "count_distinct":
+        return len(set(values))
+    if not values:
+        return None
+    if operand.function == "sum":
+        return sum(values)
+    if operand.function == "avg":
+        return statistics.fmean(values)
+    if operand.function == "median":
+        return statistics.median_high(values)  # PU_MEDIAN takes the upper middle.
+    return min(values) if operand.function == "min" else max(values)
 
 
 def _like(pattern: str) -> re.Pattern[str]:
@@ -66,11 +106,11 @@ def _like(pattern: str) -> re.Pattern[str]:
     ), re.DOTALL)
 
 
-def _sort_key(obj: Object, order: Iterable[Sort]) -> tuple:
+def _sort_key(obj: Object, order: Iterable[Sort], population: Population) -> tuple:
     key = []
     for sort in order:
-        value = getattr(obj, sort.field.name)
-        key.append((value is None, value) if sort.ascending else _Reverse((value is None, value)))
+        result = value(sort.field, obj, population)
+        key.append((result is None, result) if sort.ascending else _Reverse((result is None, result)))
     parts = obj.key if isinstance(obj.key, tuple) else (obj.key,)
     return (*key, *parts)
 
@@ -91,7 +131,7 @@ def select(object_type, predicates, order, population: Population) -> list:
         obj for obj in population[object_type.fields.object_type]
         if all(matches(p, obj, population) for p in predicates)
     ]
-    return sorted(items, key=lambda obj: _sort_key(obj, order))
+    return sorted(items, key=lambda obj: _sort_key(obj, order, population))
 
 
 class MemoryClient:

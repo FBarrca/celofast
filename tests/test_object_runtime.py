@@ -352,3 +352,76 @@ def test_relations_without_a_join_are_not_predicates(sdk):
     relation = ToManyRelation("stock", sdk.Plant, sdk.StockLine)
     with pytest.raises(QueryValidationError, match="no Data Model foreign key or lookup path"):
         relation.any()
+
+
+def test_relation_aggregates_render_pull_up_functions(sdk, client, transport):
+    Plant, Material = sdk.Plant, sdk.Material
+    materials = Plant.relations.materials
+    # The sort-only aggregate comes back as an extra column after the fields.
+    transport.replies.append(pd.DataFrame(
+        [["P1", "DE", None, pd.Timestamp("2020-01-01"), "Main", 7]],
+        columns=["f0", "f1", "f2", "f3", "f4", "s0"],
+    ))
+    page = client.objects(Plant).where(
+        materials.count(Material.fields.active.eq(True)).gt(2)
+        & materials.avg(Material.fields.stock).lt(10.0)
+        & materials.max(Material.fields.updated).eq(None)
+    ).order_by(materials.sum(Material.fields.count).desc()).fetch_page()
+    query = transport.requests[0].query
+    condition = query.filters[0].query
+    plant, material_id = '"o_Plant"', wrapped('"o_Material"."ID"')
+    active_column = wrapped('"o_Material"."Active"')
+    active = f"CASE WHEN {active_column} = 1 THEN 1 ELSE 0 END = 1"
+    assert f"CASE WHEN PU_COUNT({plant}, {material_id}, {active}) > 2 THEN 1 ELSE 0 END = 1" in condition
+    stock = wrapped('"o_Material"."Stock" * 2')
+    assert f"CASE WHEN PU_AVG({plant}, {stock}) < 10.0 THEN 1 ELSE 0 END = 1" in condition
+    updated = wrapped('"o_Material"."Updated"')
+    assert f"CASE WHEN PU_MAX({plant}, {updated}) IS NULL THEN 1 ELSE 0 END = 1" in condition
+    count = wrapped('"o_Material"."Count"')
+    assert [o.query for o in query.order_by_columns] == [
+        f"PU_SUM({plant}, {count})", wrapped('"o_Plant"."ID"'),
+    ]
+    assert [o.ascending for o in query.order_by_columns] == [False, True]
+    # Celonis ignores ORDER BY expressions that are not selected under DISTINCT.
+    assert (query.columns[-1].name, query.columns[-1].query) == ("s0", f"PU_SUM({plant}, {count})")
+    assert page.items[0].key == "P1" and page.items[0].description == "Main"
+    assert len(transport.requests) == 1
+
+
+def test_aggregates_compare_with_other_aggregates(sdk, client, transport):
+    Material = sdk.Material
+    materials = sdk.Plant.relations.materials
+    transport.reply(columns=PLANT_COLUMNS)
+    # More counted units than materials: both sides are Pull-Ups on the plant.
+    client.objects(sdk.Plant).where(
+        materials.sum(Material.fields.count).gt(materials.count())
+    ).fetch_page()
+    condition = transport.requests[0].query.filters[0].query
+    plant = '"o_Plant"'
+    units, keys = wrapped('"o_Material"."Count"'), wrapped('"o_Material"."ID"')
+    total, count = f"PU_SUM({plant}, {units})", f"PU_COUNT({plant}, {keys})"
+    assert condition == f"FILTER CASE WHEN {total} > {count} THEN 1 ELSE 0 END = 1;"
+
+
+def test_aggregate_validation(sdk):
+    Plant, Material, Stock = sdk.Plant, sdk.Material, sdk.StockLine
+    materials = Plant.relations.materials
+    with pytest.raises(ObjectValueError, match="numeric"):
+        materials.sum(Material.fields.untyped)
+    with pytest.raises(ObjectValueError, match="boolean"):
+        materials.max(Material.fields.active)
+    with pytest.raises(QueryValidationError, match="aggregates fields of O_MATERIAL"):
+        materials.sum(Plant.fields.country)
+    with pytest.raises(QueryValidationError, match="relates to O_MATERIAL"):
+        materials.count(Plant.fields.country.eq("DE"))
+    with pytest.raises(ObjectValueError, match="never null"):
+        materials.count().eq(None)
+    with pytest.raises(ObjectValueError, match="expects int"):
+        materials.count().gt(2.5)
+    with pytest.raises(QueryValidationError, match="same type"):
+        materials.count().gt(Stock.fields.qty)
+    from celofast.sdk.objects import ToManyRelation
+
+    # Plant.stock has no foreign key: no Pull-Up path to aggregate over.
+    with pytest.raises(QueryValidationError, match="Pull-Up aggregates need one"):
+        ToManyRelation("stock", Plant, Stock).count()

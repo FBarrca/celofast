@@ -33,42 +33,39 @@ class ModelInfo:
     """``${name}`` placeholders used by generated field expressions."""
 
 
-@dataclass(frozen=True, kw_only=True)
-class Field(Generic[T]):
-    """A typed, queryable object property. Values live on loaded objects."""
+class Operand(Generic[T]):
+    """A value per object of one type: a field, or an aggregate over a relation.
 
+    Comparisons follow Python semantics for None: eq/ne treat None as a value,
+    and ordering with a null operand is false. ``~`` is an exact complement, so
+    ``~x.eq(v)`` equals ``x.ne(v)``.
+    """
+
+    # Provided by subclasses.
     model: ModelInfo
     owner: str
     name: str
-    id: str
-    """The captured attribute ID."""
-    expression: str
     value_type: ValueType
-    nullable: bool = True
-    display_name: str | None = None
-    description: str | None = None
+    nullable: bool
 
-    # Comparisons follow Python semantics for None: eq/ne treat None as a
-    # value, and ordering with a null operand is false. ``~`` is an exact
-    # complement, so ``~f.eq(x)`` equals ``f.ne(x)``.
-    def eq(self, other: T | Field[Any]) -> Predicate:
-        """Equal to a value or another field; ``None`` matches nulls."""
+    def eq(self, other: T | Operand[Any]) -> Predicate:
+        """Equal to a value or another operand; ``None`` matches nulls."""
         return self._compare("eq", other)
 
-    def ne(self, other: T | Field[Any]) -> Predicate:
-        """Not equal to a value or another field; nulls differ from values."""
+    def ne(self, other: T | Operand[Any]) -> Predicate:
+        """Not equal to a value or another operand; nulls differ from values."""
         return self._compare("ne", other)
 
-    def lt(self, other: T | Field[Any]) -> Predicate:
+    def lt(self, other: T | Operand[Any]) -> Predicate:
         return self._compare("lt", other)
 
-    def lte(self, other: T | Field[Any]) -> Predicate:
+    def lte(self, other: T | Operand[Any]) -> Predicate:
         return self._compare("lte", other)
 
-    def gt(self, other: T | Field[Any]) -> Predicate:
+    def gt(self, other: T | Operand[Any]) -> Predicate:
         return self._compare("gt", other)
 
-    def gte(self, other: T | Field[Any]) -> Predicate:
+    def gte(self, other: T | Operand[Any]) -> Predicate:
         return self._compare("gte", other)
 
     def is_in(self, values: Iterable[T]) -> Predicate:
@@ -95,7 +92,7 @@ class Field(Generic[T]):
     def like(self, pattern: str) -> Predicate:
         """Matches a PQL ``LIKE`` pattern: ``%`` any text, ``_`` one character."""
         if self.value_type != "str":
-            raise ObjectValueError(f"{self.owner}.{self.name} is not a string field.")
+            raise ObjectValueError(f"{self.owner}.{self.name} is not a string value.")
         if not isinstance(pattern, str):
             raise ObjectValueError("like() needs a string pattern.")
         return Comparison(self, "like", pattern)
@@ -108,10 +105,10 @@ class Field(Generic[T]):
 
     def _compare(self, op: Operator, other: object) -> Predicate:
         ordering = op not in ("eq", "ne")
-        if isinstance(other, Field):
+        if isinstance(other, Operand):
             if other.owner != self.owner or other.model is not self.model:
                 raise QueryValidationError(
-                    f"{self.owner}.{self.name} can only be compared with fields of the same type."
+                    f"{self.owner}.{self.name} can only be compared with values of the same type."
                 )
             types = {self.value_type, other.value_type}
             if len(types) > 1 and not types <= {"int", "float"}:
@@ -128,14 +125,56 @@ class Field(Generic[T]):
         return Comparison(self, op, other)
 
 
+@dataclass(frozen=True, kw_only=True)
+class Field(Operand[T]):
+    """A typed, queryable object property. Values live on loaded objects."""
+
+    model: ModelInfo
+    owner: str
+    name: str
+    id: str
+    """The captured attribute ID."""
+    expression: str
+    value_type: ValueType
+    nullable: bool = True
+    display_name: str | None = None
+    description: str | None = None
+
+
+AggregateFunction = Literal["count", "count_distinct", "sum", "avg", "min", "max", "median"]
+
+
+@dataclass(frozen=True, kw_only=True, eq=False)
+class Aggregate(Operand[T]):
+    """One value per source object, aggregated over its related objects.
+
+    Built with ``Type.relations.<to_many>.count()``, ``.sum(field)``, and so on;
+    compare it like a field. It is NULL when no related value exists, except
+    ``count`` and ``count_distinct``, which are 0.
+    """
+
+    model: ModelInfo
+    owner: str
+    name: str
+    value_type: ValueType
+    nullable: bool
+    function: AggregateFunction
+    link: LinkDefinition
+    source: ObjectDefinition
+    target: ObjectDefinition
+    field: Field[Any]
+    """The aggregated field of the related type (its key for ``count``)."""
+    predicate: Predicate | None
+
+
 Operator = Literal["eq", "ne", "lt", "lte", "gt", "gte", "in", "between", "like"]
 
 
 @dataclass(frozen=True)
 class Sort:
-    """Ordering by one field; the business key always breaks ties."""
+    """Ordering by a field or aggregate; the business key always breaks ties."""
 
-    field: Field[Any]
+    field: Operand[Any]
     ascending: bool = True
 
 
@@ -165,9 +204,9 @@ class Predicate:
 
 @dataclass(frozen=True, eq=False)
 class Comparison(Predicate):
-    """A field compared with a value or with another field of the same type."""
+    """A field or aggregate compared with a value or another operand of the same type."""
 
-    field: Field[Any]
+    field: Operand[Any]
     op: Operator
     operand: object
 

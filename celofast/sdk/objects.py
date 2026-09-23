@@ -12,16 +12,21 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeVar
 
 from celofast.exceptions import (
+    ObjectValueError,
     ObjectIdentityError,
     ObjectNotFoundError,
     QueryValidationError,
 )
 from celofast.sdk.capture import Source
+from celofast.sdk.hydration import ValueType
 from celofast.sdk.definitions import (
+    Aggregate,
+    AggregateFunction,
     Field,
     LinkDefinition,
     ModelInfo,
     ObjectDefinition,
+    Operand,
     Predicate,
     Related,
     Sort,
@@ -31,6 +36,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 O = TypeVar("O", bound="Object")
+T = TypeVar("T")
 MAX_PAGE_SIZE = 10_000
 
 
@@ -100,6 +106,80 @@ class ToManyRelation(_Relation[O]):
     def any(self, predicate: Predicate | None = None) -> Predicate:
         """At least one related object exists and, if given, matches ``predicate``."""
         return self._related(predicate)
+
+    # Aggregates compile to Pull-Up functions (PU_COUNT, PU_SUM, ...) on the
+    # source table. ``predicate`` limits which related objects count. Results
+    # are NULL when no related value exists, except the two counts (0).
+    def count(self, predicate: Predicate | None = None) -> Aggregate[int]:
+        """Number of related objects (PU_COUNT)."""
+        return self._aggregate("count", None, predicate)
+
+    def count_distinct(
+        self, field: Field[Any], predicate: Predicate | None = None
+    ) -> Aggregate[int]:
+        """Number of distinct non-null values of a related field (PU_COUNT_DISTINCT)."""
+        return self._aggregate("count_distinct", field, predicate)
+
+    def sum(self, field: Field[T], predicate: Predicate | None = None) -> Aggregate[T]:
+        """Sum of a numeric related field (PU_SUM)."""
+        return self._aggregate("sum", field, predicate)
+
+    def avg(self, field: Field[Any], predicate: Predicate | None = None) -> Aggregate[float | None]:
+        """Average of a numeric related field, as a float (PU_AVG)."""
+        return self._aggregate("avg", field, predicate)
+
+    def min(self, field: Field[T], predicate: Predicate | None = None) -> Aggregate[T]:
+        """Smallest related value (PU_MIN)."""
+        return self._aggregate("min", field, predicate)
+
+    def max(self, field: Field[T], predicate: Predicate | None = None) -> Aggregate[T]:
+        """Largest related value (PU_MAX)."""
+        return self._aggregate("max", field, predicate)
+
+    def median(self, field: Field[T], predicate: Predicate | None = None) -> Aggregate[T]:
+        """Median related value (PU_MEDIAN); for an even count, the upper middle value."""
+        return self._aggregate("median", field, predicate)
+
+    def _aggregate(
+        self, function: AggregateFunction, field: Field[Any] | None, predicate: Predicate | None
+    ) -> Aggregate[Any]:
+        link = self.source.fields.links[self.name]
+        if link.join != "fk":
+            raise QueryValidationError(
+                f"Relation {self.name!r} has no Data Model foreign key; Pull-Up "
+                "aggregates need one."
+            )
+        self._related(predicate)  # Validates the predicate's type.
+        target = self.target.fields
+        if field is None:
+            field = target.key_fields[0]
+        elif field.owner != target.object_type or field.model is not target.model:
+            raise QueryValidationError(
+                f"{function}() aggregates fields of {target.object_type}, not {field.owner}."
+            )
+        numeric = field.value_type in ("int", "float")
+        if function in ("sum", "avg", "median") and not numeric:
+            raise ObjectValueError(f"{function}() needs a numeric field; {field.name} is {field.value_type}.")
+        if function in ("min", "max") and field.value_type == "bool":
+            raise ObjectValueError(f"{function}() needs an ordered field; {field.name} is boolean.")
+        value_type: ValueType = (
+            "int" if function in ("count", "count_distinct")
+            else "float" if function == "avg"
+            else field.value_type
+        )
+        return Aggregate(
+            model=self.source.fields.model,
+            owner=self.source.fields.object_type,
+            name=f"{self.name}.{function}({'' if function == 'count' else field.name})",
+            value_type=value_type,
+            nullable=function not in ("count", "count_distinct"),
+            function=function,
+            link=link,
+            source=self.source.fields,
+            target=target,
+            field=field,
+            predicate=predicate,
+        )
 
 
 class Relations:
@@ -253,12 +333,13 @@ class ObjectCollection(Generic[O]):
                 )
         return replace(self, _predicates=(*self._predicates, *predicates))
 
-    def order_by(self, *sorts: Sort | Field[Any]) -> ObjectCollection[O]:
-        """Replace the ordering; fields sort ascending. The key breaks ties."""
+    def order_by(self, *sorts: Sort | Operand[Any]) -> ObjectCollection[O]:
+        """Replace the ordering by fields or aggregates (ascending unless
+        ``.desc()``). The key breaks ties."""
         definition = self._type.fields
         order = []
         for sort in sorts:
-            sort = sort.asc() if isinstance(sort, Field) else sort
+            sort = sort.asc() if isinstance(sort, Operand) else sort
             if not isinstance(sort, Sort) or sort.field.owner != definition.object_type or (
                 sort.field.model is not definition.model
             ):

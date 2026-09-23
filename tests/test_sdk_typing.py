@@ -3,7 +3,7 @@ import sys
 
 from objects_fixture import write
 
-PREFIX = """from datetime import date
+PREFIX = """from datetime import date, datetime
 from typing_extensions import assert_type
 from celofast import CeloFast, KnowledgeModelClient
 from celofast.sdk import Field, ObjectCollection, ObjectModel, ObjectPage, ObjectRef, ToOne
@@ -43,6 +43,16 @@ rule: Predicate = (
 ordered = plants.where(rule).order_by(Plant.fields.opened.desc(), Plant.fields.country)
 assert_type(ordered, ObjectCollection[Plant])
 assert_type(Material.relations.plant.has(Plant.fields.country.eq("DE")), Predicate)
+from celofast.sdk.definitions import Aggregate
+materials = Plant.relations.materials
+assert_type(materials.count(), Aggregate[int])
+assert_type(materials.sum(Material.fields.stock), Aggregate[float | None])
+assert_type(materials.avg(Material.fields.count), Aggregate[float | None])
+assert_type(materials.max(Material.fields.updated), Aggregate[datetime | None])
+busy: Predicate = materials.count(Material.fields.active.eq(True)).gt(2) & materials.avg(
+    Material.fields.stock).lt(10.0)
+by_size = plants.where(busy).order_by(materials.count().desc())
+assert_type(by_size, ObjectCollection[Plant])
 """
 
 
@@ -65,17 +75,19 @@ def test_static_analyzer_sees_values_definitions_and_links(tmp_path):
     assert good.returncode == 0, good.stdout + good.stderr
 
     cases = {
-        "Plant.fields.country.eq(123)\n": 'Argument 1 to "eq" of "Field" has incompatible type "int"',
+        "Plant.fields.country.eq(123)\n": 'Argument 1 to "eq" of "Operand" has incompatible type "int"',
         "Plant.fields.id.eq(None)\n": 'incompatible type "None"',
         "plant.country = 'FR'\n": "read-only",
         "plant.links.materials.fetch()\n": 'has no attribute "fetch"',
         "client.select(Plant)\n": 'has no attribute "select"',
         "client.execute({})\n": 'has no attribute "execute"',
-        "Plant.fields.opened.lt('2020-01-01')\n": 'Argument 1 to "lt" of "Field" has incompatible type "str"',
+        "Plant.fields.opened.lt('2020-01-01')\n": 'Argument 1 to "lt" of "Operand" has incompatible type "str"',
         "Plant.relations.materials.has()\n": 'has no attribute "has"',
         "Material.relations.plant.any()\n": 'has no attribute "any"',
         "inventory.records\n": 'has no attribute "records"',
         "x: int = plant.country\n": "Incompatible types in assignment",
+        "Plant.relations.materials.count().gt('many')\n": 'Argument 1 to "gt" of "Operand" has incompatible type "str"',
+        "Material.relations.plant.count()\n": 'has no attribute "count"',
     }
     for line, expected in cases.items():
         bad = run_mypy(tmp_path, PREFIX + line)

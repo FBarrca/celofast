@@ -491,6 +491,29 @@ def conformance_cases(sdk):
             sdk.PurchaseScheduleLine.relations.purchase_document_line.has(L.is_canceled.eq(1))), ()),
         "has(any) (PU through BIND)": (Schedule, Schedule.relations.material_master_plant.has(
             R.planned_supplies.any(PS.is_firm_order.eq(1))), ()),
+        # Relation aggregates (Pull-Up functions), compared with the oracle's own
+        # aggregation; PU_MEDIAN takes the upper middle value.
+        "count(p) > 1": (Stock, R.planned_supplies.count(PS.is_firm_order.eq(1)).gt(1), ()),
+        "avg > 50": (Stock, R.planned_supplies.avg(PS.order_quantity).gt(50.0), ()),
+        "avg is null": (Stock, R.planned_supplies.avg(PS.order_quantity).eq(None), ()),
+        "sum(p) > 100": (Stock, R.planned_supplies.sum(
+            PS.order_quantity, PS.is_firm_order.eq(1)).gt(100.0), ()),
+        "min < 20": (Stock, R.planned_supplies.min(PS.order_quantity).lt(20.0), ()),
+        "max between": (Stock, R.planned_supplies.max(PS.order_quantity).between(60.0, 95.0), ()),
+        "median > 50": (Stock, R.planned_supplies.median(PS.order_quantity).gt(50.0), ()),
+        "latest finish": (Stock, R.planned_supplies.max(PS.order_finish_date).gte(date(2025, 6, 1)), ()),
+        "count_distinct": (Stock, R.planned_supplies.count_distinct(PS.object_type_attribute).gte(1), ()),
+        "sum < own field": (Stock, R.planned_supplies.sum(PS.order_quantity).lt(
+            S.safety_stock_quantity), ()),
+        "aggregate vs aggregate": (Stock, R.planned_supplies.sum(PS.order_quantity).gt(
+            R.planned_supplies.max(PS.order_quantity)), ()),
+        "has(count)": (Schedule, Schedule.relations.material_master_plant.has(
+            R.planned_supplies.count().gte(2)), ()),
+        "count(any) (PU in PU)": (sdk.Plant, sdk.Plant.relations.materials.count(
+            R.planned_supplies.any(PS.is_firm_order.eq(1))).gte(30), ()),
+        "order by count desc": (Stock, R.planned_supplies.count().gt(0),
+                                (R.planned_supplies.count().desc(),)),
+        "vendor documents": (Vendor, Vendor.relations.purchase_documents.count().gte(5), ()),
     }
 
 
