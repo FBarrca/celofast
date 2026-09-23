@@ -309,3 +309,24 @@ def test_a_relation_without_matches_filters_everything_out(offline):
     assert "IN (" not in condition
     assert "= 2 THEN 1 ELSE 0 END = 1" in condition  # has(): always false
     assert "= 2 THEN 1 ELSE 0 END = 0" in condition  # ~any(): always true
+
+
+def test_relation_lookups_are_logged_before_the_read(offline, caplog):
+    import logging
+
+    caplog.set_level(logging.DEBUG, logger="celofast.km")
+    transport = Transport(["P-DE"], ["B"])
+    offline.rules.below_safety_stock_without_firm_supply(real_client(offline.sdk, transport), AS_OF)
+    titles = [record.getMessage().splitlines()[0] for record in caplog.records]
+    assert titles == [
+        "Resolve relation 'plant': O_CELONIS_PLANT.id values for "
+        "O_CELONIS_MATERIALMASTERPLANT.plant_id (limit=10001, offset=0, distinct)",
+        "Resolve relation 'planned_supplies': O_CELONIS_PLANNEDSUPPLY.material_master_plant_id "
+        "values for O_CELONIS_MATERIALMASTERPLANT.id (limit=10001, offset=0, distinct)",
+        "Read O_CELONIS_MATERIALMASTERPLANT objects (MaterialMasterPlant) "
+        "(limit=101, offset=0, distinct)",
+    ]
+    # The logged object read contains the resolved keys, exactly as sent.
+    read = caplog.records[-1].getMessage()
+    assert "IN ('P-DE')" in read and "IN ('B')" in read
+    assert read.count("\nFILTER ") == 1

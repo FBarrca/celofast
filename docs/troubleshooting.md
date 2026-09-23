@@ -45,6 +45,7 @@ generated packages, object retrieval, Views, or output writes.
 | `QueryValidationError` from `where()` | Use predicates from the collection's own class, such as `Plant.fields.country.eq(...)`. Raw PQL is not accepted. |
 | Native export error, such as an error in another record's calculated attribute | A loaded field depends on a definition that fails in Celonis. Inspect the exception chain and exclude the affected fields until the KM is fixed. |
 | Python `and`/`or` on predicates raises an error | Pass several predicates to `where()` or chain calls; they combine with AND. |
+| Results differ from what you expect | Enable DEBUG on the `celofast.km` logger to see the exact PQL of every request. See [Inspect the PQL that runs](knowledge-model-sdk.md#inspect-the-pql-that-runs). |
 
 Printed metadata can contain business information; review the content before
 sharing a diagnostic.

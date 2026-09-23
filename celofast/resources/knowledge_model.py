@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from typing import TypeVar
 
@@ -22,6 +23,7 @@ from celofast.sdk.planning import ReadPlan, plan_read, plan_values
 from celofast.types import ResourceMode
 
 O = TypeVar("O", bound=Object)
+logger = logging.getLogger("celofast.km")
 # Relationship predicates are resolved to value lists before the object read.
 MAX_RELATED_VALUES = 10_000
 
@@ -160,6 +162,34 @@ def _rows(frame: pd.DataFrame, columns: Sequence[str]) -> Iterator[tuple[object,
         yield tuple(_plain(value) for value in row)
 
 
+def _log_plan(
+    title: str,
+    plan: ReadPlan,
+    *,
+    limit: int | None,
+    offset: int | None = None,
+    names: Sequence[str] = (),
+) -> None:
+    """Log the exact PQL of one export at DEBUG level on ``celofast.km``."""
+    if not logger.isEnabledFor(logging.DEBUG):
+        return
+    last = len(plan.columns) - 1
+    columns = "\n".join(
+        f'    {query} AS "{alias}"'
+        + ("" if index == last else ",")
+        + (f"  -- {names[index]}" if index < len(names) else "")
+        for index, (alias, query) in enumerate(plan.columns)
+    )
+    lines = [f"{title} (limit={limit}, offset={offset or 0}, distinct)", f"TABLE (\n{columns}\n)"]
+    lines += list(plan.filters)
+    if plan.order_by:
+        lines.append(
+            "ORDER BY "
+            + ", ".join(f"{query} {'ASC' if ascending else 'DESC'}" for query, ascending in plan.order_by)
+        )
+    logger.debug("\n".join(lines))
+
+
 def _native(plan: ReadPlan) -> pql.PQL:
     return pql.PQL(
         columns=[pql.PQLColumn(name=alias, query=query) for alias, query in plan.columns],
@@ -230,6 +260,13 @@ class KnowledgeModelClient:
         plan = plan_read(
             object_type.fields, predicates, order, variables=self._variables, resolve=resolve
         )
+        _log_plan(
+            f"Read {object_type.fields.object_type} objects ({object_type.__name__})",
+            plan,
+            limit=limit,
+            offset=offset,
+            names=[field.name for field in object_type.fields],
+        )
         # Distinct rows collapse repeated identical objects; conflicts remain
         # visible to hydration, which rejects them.
         frame = self._connection._export(_native(plan), limit=limit, offset=offset, distinct=True)
@@ -241,6 +278,12 @@ class KnowledgeModelClient:
     ) -> list[object]:
         plan = plan_values(
             related.target, related.predicate, variables=self._variables, resolve=resolve
+        )
+        _log_plan(
+            f"Resolve relation {related.link!r}: {related.target.owner}.{related.target.name} "
+            f"values for {related.source.owner}.{related.source.name}",
+            plan,
+            limit=MAX_RELATED_VALUES + 1,
         )
         frame = self._connection._export(
             _native(plan), limit=MAX_RELATED_VALUES + 1, distinct=True

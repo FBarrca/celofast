@@ -286,3 +286,26 @@ def test_order_by_rejects_other_types(sdk, client):
         client.objects(sdk.Plant).order_by(sdk.Material.fields.count.asc())
     # int and float fields compare with each other.
     assert sdk.Material.fields.stock.gt(sdk.Material.fields.count) is not None
+
+
+def test_exported_pql_is_logged_at_debug(sdk, client, transport, caplog):
+    import logging
+
+    transport.reply(columns=PLANT_COLUMNS)
+    client.objects(sdk.Plant).fetch_page()
+    assert not caplog.records  # Silent unless DEBUG is enabled for celofast.km.
+
+    caplog.set_level(logging.DEBUG, logger="celofast.km")
+    transport.reply(plant_row(), columns=PLANT_COLUMNS)
+    client.objects(sdk.Plant).where(sdk.Plant.fields.country.eq("DE")).order_by(
+        sdk.Plant.fields.opened.desc()
+    ).fetch_page(page_size=10)
+    (record,) = caplog.records
+    assert record.name == "celofast.km" and record.levelname == "DEBUG"
+    text = record.getMessage()
+    assert text.startswith("Read O_PLANT objects (Plant) (limit=11, offset=0, distinct)")
+    assert '"o_Plant"."Country"\n) AS "f1",  -- country' in text
+    assert '"o_Plant"."Text"\n) AS "f4"  -- description\n)' in text  # No trailing comma.
+    assert eq_filter('"o_Plant"."Country"', "'DE'") in text
+    opened, key = wrapped('"o_Plant"."Opened"'), wrapped('"o_Plant"."ID"')
+    assert text.endswith(f"ORDER BY {opened} DESC, {key} ASC")

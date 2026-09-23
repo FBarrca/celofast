@@ -324,6 +324,26 @@ field expressions only; cloud dependencies such as another record's calculated
 attribute resolve with the KM's own values in Celonis. If a dependency fails
 there, exclude the affected fields.
 
+### Inspect the PQL that runs
+
+PQL is not part of the object API, but every export is logged at DEBUG level on
+the `celofast.km` logger:
+
+```python
+import logging
+
+logging.basicConfig()
+logging.getLogger("celofast.km").setLevel(logging.DEBUG)
+```
+
+Each read logs one entry per request, in order: first every relationship
+lookup (`Resolve relation 'plant': ...`), then the object read
+(`Read O_CELONIS_MATERIALMASTERPLANT objects ...`). Each entry shows the limit,
+offset, columns (annotated with field names), filter, and ordering exactly as
+sent, including the related keys resolved into `IN (...)` lists. Logs can
+contain business data such as keys and filter values; review them before
+sharing.
+
 ## 4. Review changes and check CI
 
 ```bash
