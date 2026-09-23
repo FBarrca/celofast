@@ -229,6 +229,9 @@ below_safety_stock = (
 | `f.eq(x)`, `f.ne(x)` | Equal / not equal. `None` is a value: `eq(None)` matches nulls, `ne(None)` non-nulls, and a null differs from every value. |
 | `f.lt(x)`, `f.lte(x)`, `f.gt(x)`, `f.gte(x)` | Ordering. False when either side is null; `None` is rejected. Booleans have no ordering. |
 | `f.lt(other_field)` | Field-to-field comparison on the same type; `int` and `float` compare with each other. |
+| `f.is_in([x, y])` | PQL `IN`: equal to one of the values; a null never matches. |
+| `f.between(low, high)` | PQL `BETWEEN`, both ends inclusive; a null never matches. |
+| `f.like("Berlin%")` | PQL `LIKE` on string fields: `%` any text, `_` one character. |
 | `a & b`, `a \| b`, `~a` | And, or, and exact complement: `~f.eq(x)` is `f.ne(x)`, including nulls. |
 | `Type.relations.one.has(p)` | The related object of a to-one link exists (and matches `p`, if given). |
 | `Type.relations.many.any(p)` | At least one related object of a to-many link exists (and matches `p`, if given). |
@@ -257,14 +260,22 @@ overdue = (
 )
 ```
 
-A relationship predicate is resolved before the object read. Celofast first
-reads the linked values of the related objects that match, innermost relation
-first, then tests the source field against them. It follows the declared link
-mapping, not Data Model joins. It requires a single-field link, and a relation
-may match at most 10,000 related values; beyond that it raises
-`QueryValidationError` asking for a narrower predicate. A null source value
-never matches, so `~relations.x.any(...)` includes objects without related
-objects.
+Every read is **one** PQL query, however many relations it nests. Relationship
+predicates compile into the same filter:
+
+| Link | PQL |
+| --- | --- |
+| To-one, following a Data Model foreign key | `BIND(<this table>, <related column>)`, one `BIND` per hop |
+| To-one on a plain column without a foreign key | `LOOKUP(<this table>, <related column>, (<this key column>, <related key column>))` |
+| To-many, following a foreign key | `PU_COUNT(<this table>, <related key>, <related condition>) > 0` |
+
+`km pull` reads the Data Model's foreign keys and classifies every link. A link
+that matches a foreign key in the direction its cardinality implies uses joins
+and Pull-Up functions. A single-column to-one link without one uses `LOOKUP`.
+Any other link, such as a to-many link with no foreign key, still generates
+`links` for traversal, but no `Type.relations` accessor; `definitions.py` lists
+it under "Not generated". A null reference never matches, so
+`~relations.x.any(...)` includes objects without related objects.
 
 [tests/inventory_rules.py](../tests/inventory_rules.py) contains three complete
 inventory rules (safety stock without firm supply, overdue external schedules,
@@ -336,13 +347,11 @@ logging.basicConfig()
 logging.getLogger("celofast.km").setLevel(logging.DEBUG)
 ```
 
-Each read logs one entry per request, in order: first every relationship
-lookup (`Resolve relation 'plant': ...`), then the object read
-(`Read O_CELONIS_MATERIALMASTERPLANT objects ...`). Each entry shows the limit,
-offset, columns (annotated with field names), filter, and ordering exactly as
-sent, including the related keys resolved into `IN (...)` lists. Logs can
-contain business data such as keys and filter values; review them before
-sharing.
+Each read logs one entry (`Read O_CELONIS_MATERIALMASTERPLANT objects ...`)
+with the limit, offset, columns (annotated with field names), filter, and
+ordering exactly as sent, including any `BIND`, `LOOKUP`, and `PU_COUNT` a
+relationship predicate compiled to. Logs can contain business data such as
+keys and filter values; review them before sharing.
 
 ## 4. Review changes and check CI
 

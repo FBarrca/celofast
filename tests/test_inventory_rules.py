@@ -239,18 +239,14 @@ def test_alternative_sources(offline):
 
 
 class Transport:
-    """Records each export and answers relation lookups with queued values."""
+    """Records each export and returns no rows."""
 
-    def __init__(self, *answers):
-        self.answers = list(answers)
+    def __init__(self):
         self.queries = []
 
     def __call__(self, query, *, limit=None, offset=None, distinct=False):
         self.queries.append(query)
-        columns = [column.name for column in query.columns]
-        if columns == ["v"]:
-            return pd.DataFrame({"v": self.answers.pop(0)})
-        return pd.DataFrame(columns=columns)
+        return pd.DataFrame(columns=[column.name for column in query.columns])
 
 
 def real_client(sdk, transport):
@@ -261,72 +257,85 @@ def real_client(sdk, transport):
     return KnowledgeModelClient(connection, sdk.km)
 
 
-def test_relations_resolve_related_keys_before_the_object_read(offline):
-    transport = Transport(["P-DE"], ["B", "E"])
+def expression(field):
+    """A field's captured expression, parenthesized as the planner renders it."""
+    return f"({field.expression}\n)"
+
+
+def test_relations_render_into_one_query(offline):
+    transport = Transport()
     offline.rules.below_safety_stock_without_firm_supply(real_client(offline.sdk, transport), AS_OF)
-    plants, supplies, final = transport.queries
-    assert plants.columns[0].query == '("o_celonis_Plant"."ID"\n)'
-    assert "\"o_celonis_Plant\".\"Country\"\n) = 'DE'" in plants.filters[0].query
-    assert supplies.columns[0].query == '("o_celonis_PlannedSupply"."MaterialMasterPlant_ID"\n)'
-    assert "{d '2026-09-23'}" in supplies.filters[0].query
-    assert "{d '2026-10-07'}" in supplies.filters[0].query
-    (condition,) = [f.query for f in final.filters]
-    fields = offline.sdk.MaterialMasterPlant.fields
+    (query,) = transport.queries  # No separate lookups: one export per read.
+    (condition,) = [f.query for f in query.filters]
+    stock, plant = offline.sdk.MaterialMasterPlant.fields, offline.sdk.Plant.fields
+    supply = offline.sdk.PlannedSupply.fields
+    mmp = '"o_celonis_MaterialMasterPlant"'
 
-    def expression(field):  # Captured expressions are parenthesized as-is.
-        return f"({field.expression}\n)"
-
-    plant, key = expression(fields.plant_id), expression(fields.id)
-    assert f"CASE WHEN {plant} IN ('P-DE') THEN 1 ELSE 0 END = 1" in condition
-    # ~any(...) is the exact complement: objects whose key is not among them.
-    assert f"CASE WHEN {key} IN ('B', 'E') THEN 1 ELSE 0 END = 0" in condition
-    stock = expression(fields.current_valuated_stock_quantity)
-    safety = expression(fields.safety_stock_quantity)
-    assert f"CASE WHEN {stock} < {safety} THEN 1 ELSE 0 END = 1" in condition
+    # to-one has(): the plant's columns are BIND'ed onto each material-plant row.
+    country = f"BIND({mmp}, {expression(plant.country)})"
+    exists = f"BIND({mmp}, {expression(plant.id)}) IS NOT NULL"
+    assert f"CASE WHEN {exists} AND CASE WHEN {country} = 'DE' THEN 1 ELSE 0 END = 1" in condition
+    # ~any(): PU_COUNT of matching planned supplies on the material-plant table is 0.
+    pu = f"PU_COUNT({mmp}, {expression(supply.id)}, (CASE WHEN {expression(supply.is_firm_order)} = 1"
+    assert f"CASE WHEN {pu}" in condition
+    assert "{d '2026-09-23'}" in condition and "{d '2026-10-07'}" in condition
+    assert ") > 0 THEN 1 ELSE 0 END = 0" in condition
+    stock_qty, safety = expression(stock.current_valuated_stock_quantity), expression(stock.safety_stock_quantity)
+    assert f"CASE WHEN {stock_qty} < {safety} THEN 1 ELSE 0 END = 1" in condition
 
 
-def test_nested_relations_resolve_innermost_first(offline):
-    transport = Transport(["V1"], ["D1"], ["L1"])
+def test_nested_relations_bind_one_hop_at_a_time(offline):
+    transport = Transport()
     offline.rules.overdue_external_schedules(real_client(offline.sdk, transport), AS_OF)
-    lookups = [query.columns[0].query for query in transport.queries[:3]]
-    assert lookups == [
-        '("o_celonis_Vendor"."ID"\n)',
-        '("o_celonis_PurchaseDocument"."ID"\n)',
-        '("o_celonis_PurchaseDocumentLine"."ID"\n)',
+    (query,) = transport.queries
+    condition = query.filters[0].query
+    schedule, line = '"o_celonis_PurchaseScheduleLine"', '"o_celonis_PurchaseDocumentLine"'
+    header = '"o_celonis_PurchaseDocument"'
+    vendor = expression(offline.sdk.Vendor.fields.is_internal_vendor)
+    # schedule -> line -> header -> vendor: each hop pulls onto the previous table.
+    assert f"BIND({schedule}, BIND({line}, BIND({header}, {vendor})))" in condition
+    assert [o.query for o in query.order_by_columns] == [
+        expression(offline.sdk.PurchaseScheduleLine.fields.expected_delivery_date),
+        expression(offline.sdk.PurchaseScheduleLine.fields.id),
     ]
-    final = transport.queries[3]
-    assert [o.query for o in final.order_by_columns] == [
-        '("o_celonis_PurchaseScheduleLine"."ExpectedDeliveryDate"\n)',
-        '("o_celonis_PurchaseScheduleLine"."ID"\n)',
-    ]
-    assert "IN ('L1')" in final.filters[0].query
 
 
-def test_a_relation_without_matches_filters_everything_out(offline):
-    transport = Transport([], [])
-    offline.rules.below_safety_stock_without_firm_supply(real_client(offline.sdk, transport), AS_OF)
-    condition = transport.queries[-1].filters[0].query
-    assert "IN (" not in condition
-    assert "= 2 THEN 1 ELSE 0 END = 1" in condition  # has(): always false
-    assert "= 2 THEN 1 ELSE 0 END = 0" in condition  # ~any(): always true
+def test_lookup_links_join_by_value(offline):
+    sdk, transport = offline.sdk, Transport()
+    Schedule, Plant = sdk.PurchaseScheduleLine, sdk.Plant
+    assert Schedule.fields.links["plant"].join == "lookup"  # No Data Model foreign key.
+    real_client(sdk, transport).objects(Schedule).where(
+        Schedule.relations.plant.has(Plant.fields.country.eq("DE"))
+    ).fetch_page()
+    condition = transport.queries[0].filters[0].query
+    schedule = '"o_celonis_PurchaseScheduleLine"'
+    join = f"({expression(Schedule.fields.plant_id)}, {expression(Plant.fields.id)})"
+    assert f"LOOKUP({schedule}, {expression(Plant.fields.country)}, {join}) = 'DE'" in condition
 
 
-def test_relation_lookups_are_logged_before_the_read(offline, caplog):
+def test_any_inside_pu_binds_the_related_parent(offline):
+    sdk, transport = offline.sdk, Transport()
+    Stock, Schedule, Line = sdk.MaterialMasterPlant, sdk.PurchaseScheduleLine, sdk.PurchaseDocumentLine
+    real_client(sdk, transport).objects(Stock).where(
+        Stock.relations.purchase_schedule_lines.any(
+            Schedule.relations.purchase_document_line.has(Line.fields.is_canceled.eq(1))
+        )
+    ).fetch_page()
+    condition = transport.queries[0].filters[0].query
+    # Inside the PU filter, the schedule line's parent is BIND'ed onto the schedule line (1:N:1).
+    canceled = f'BIND("o_celonis_PurchaseScheduleLine", {expression(Line.fields.is_canceled)})'
+    assert condition.startswith('FILTER CASE WHEN PU_COUNT("o_celonis_MaterialMasterPlant", ')
+    assert f"{canceled} = 1" in condition
+
+
+def test_the_single_read_is_logged(offline, caplog):
     import logging
 
     caplog.set_level(logging.DEBUG, logger="celofast.km")
-    transport = Transport(["P-DE"], ["B"])
+    transport = Transport()
     offline.rules.below_safety_stock_without_firm_supply(real_client(offline.sdk, transport), AS_OF)
-    titles = [record.getMessage().splitlines()[0] for record in caplog.records]
-    assert titles == [
-        "Resolve relation 'plant': O_CELONIS_PLANT.id values for "
-        "O_CELONIS_MATERIALMASTERPLANT.plant_id (limit=10001, offset=0, distinct)",
-        "Resolve relation 'planned_supplies': O_CELONIS_PLANNEDSUPPLY.material_master_plant_id "
-        "values for O_CELONIS_MATERIALMASTERPLANT.id (limit=10001, offset=0, distinct)",
-        "Read O_CELONIS_MATERIALMASTERPLANT objects (MaterialMasterPlant) "
-        "(limit=101, offset=0, distinct)",
-    ]
-    # The logged object read contains the resolved keys, exactly as sent.
-    read = caplog.records[-1].getMessage()
-    assert "IN ('P-DE')" in read and "IN ('B')" in read
-    assert read.count("\nFILTER ") == 1
+    (record,) = caplog.records
+    assert record.getMessage().startswith(
+        "Read O_CELONIS_MATERIALMASTERPLANT objects (MaterialMasterPlant) (limit=101, offset=0, distinct)"
+    )
+    assert "PU_COUNT(" in record.getMessage() and "BIND(" in record.getMessage()

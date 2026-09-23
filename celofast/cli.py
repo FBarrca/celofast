@@ -132,6 +132,7 @@ def main(argv: list[str] | None = None) -> int:
         native = cf._resolver.knowledge_model(settings["key"])
         capture = retrieve(
             native,
+            data_model=cf._resolver.data_model(native),
             space_id=settings["space-id"],
             package_id=settings["package-id"],
             mode=settings["mode"],

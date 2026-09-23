@@ -39,12 +39,17 @@ Source: [core.py](../celofast/core.py), [client.py](../celofast/client.py).
 | `Field.eq(x)`, `.ne(x)` | `Predicate`. `x` is a value of the field's type or another field of the same object type; `None` is a value. |
 | `Field.lt(x)`, `.lte(x)`, `.gt(x)`, `.gte(x)` | `Predicate`; false when either side is null. Not available for `bool`. |
 | `Field.asc()`, `Field.desc()` | `Sort` for `order_by()`. |
+| `Field.is_in(values)`, `.between(low, high)`, `.like(pattern)` | `Predicate` rendered as PQL `IN`, `BETWEEN` (inclusive), and `LIKE` (string fields). Nulls never match. |
 | `a & b`, `a \| b`, `~a` | Combined `Predicate` of the same object type; `~` is an exact complement. |
 | `Plant.relations.<to_one>.has(predicate=None)` | `Predicate`: the related object exists and matches. |
 | `Plant.relations.<to_many>.any(predicate=None)` | `Predicate`: some related object exists and matches. |
 | `plant.key` | Business key; a tuple for composite keys. |
 | `plant.ref` | `ObjectRef(source, object_type, key)`. |
 | `plant.links.<name>` | `ObjectCollection[Target]` (to-many) or `ToOne[Target]` (to-one), declared by the mapping. |
+
+Relations exist only for links verified at pull against a Data Model foreign key
+(joins, `BIND`, `PU_COUNT`) or, for single-column to-one links, joinable with
+`LOOKUP`. Every read, including nested relations, is one PQL query.
 
 Value types are `str`, `int`, `float`, `bool`, `date`, and `datetime`. Keys are
 `str`, `int`, `date`, or `datetime`.

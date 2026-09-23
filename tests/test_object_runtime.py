@@ -123,7 +123,9 @@ def test_filtered_collections_page_in_key_order(sdk, client, transport):
     transport.reply(columns=PLANT_COLUMNS)
     assert base.where(sdk.Plant.fields.country.eq(None)).fetch_page().items == ()
     country = wrapped('"o_Plant"."Country"')
-    assert transport.requests[2].query.filters[0].query == f"FILTER ISNULL({country}) = 1;"
+    assert transport.requests[2].query.filters[0].query == (
+        f"FILTER CASE WHEN {country} IS NULL THEN 1 ELSE 0 END = 1;"
+    )
 
 
 def test_relationships_are_explicit_typed_requests(sdk, client, transport):
@@ -309,3 +311,44 @@ def test_exported_pql_is_logged_at_debug(sdk, client, transport, caplog):
     assert eq_filter('"o_Plant"."Country"', "'DE'") in text
     opened, key = wrapped('"o_Plant"."Opened"'), wrapped('"o_Plant"."ID"')
     assert text.endswith(f"ORDER BY {opened} DESC, {key} ASC")
+
+
+def test_membership_range_and_pattern_predicates(sdk, client, transport):
+    Plant, Material = sdk.Plant, sdk.Material
+    transport.reply(columns=PLANT_COLUMNS)
+    client.objects(Plant).where(
+        Plant.fields.country.is_in(["DE", "FR"])
+        & Plant.fields.opened.between(date(2020, 1, 1), date(2020, 12, 31))
+        & ~Plant.fields.description.like("Old%")
+    ).fetch_page()
+    condition = transport.requests[0].query.filters[0].query
+    country, opened = wrapped('"o_Plant"."Country"'), wrapped('"o_Plant"."Opened"')
+    text = wrapped('"o_Plant"."Text"')
+    assert f"CASE WHEN {country} IN ('DE', 'FR') THEN 1 ELSE 0 END = 1" in condition
+    assert (
+        f"CASE WHEN {opened} BETWEEN {{d '2020-01-01'}} AND {{d '2020-12-31'}} THEN 1 ELSE 0 END = 1"
+        in condition
+    )
+    assert f"CASE WHEN {text} LIKE 'Old%' THEN 1 ELSE 0 END = 0" in condition
+
+    with pytest.raises(QueryValidationError, match="at least one"):
+        Plant.fields.country.is_in([])
+    with pytest.raises(ObjectValueError, match="cannot be None"):
+        Plant.fields.country.is_in(["DE", None])
+    with pytest.raises(ObjectValueError, match="expects str"):
+        Plant.fields.country.is_in([1])
+    with pytest.raises(ObjectValueError, match="two values"):
+        Plant.fields.opened.between(date(2020, 1, 1), None)
+    with pytest.raises(ObjectValueError, match="no ordering"):
+        Material.fields.active.between(False, True)
+    with pytest.raises(ObjectValueError, match="not a string"):
+        Material.fields.count.like("1%")
+
+
+def test_relations_without_a_join_are_not_predicates(sdk):
+    from celofast.sdk.objects import ToManyRelation
+
+    # Plant.stock has no Data Model foreign key; it supports traversal only.
+    relation = ToManyRelation("stock", sdk.Plant, sdk.StockLine)
+    with pytest.raises(QueryValidationError, match="no Data Model foreign key or lookup path"):
+        relation.any()

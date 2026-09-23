@@ -16,5 +16,5 @@ wheels/
 mlruns/
 mlartifacts/
 
-# Tenant-specific definitions for the opt-in live tests; regenerate with celofast km pull.
-/generated/inventory/
+# Tenant-specific generated packages. Versioned in the celofast-generated repo.
+/generated/

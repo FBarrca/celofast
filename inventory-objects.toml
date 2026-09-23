@@ -210,6 +210,12 @@ target = "O_CELONIS_PURCHASEDOCUMENTLINE"
 cardinality = "one"
 on = { PURCHASEDOCUMENTLINE_ID = "ID" }
 
+# No Data Model foreign key joins these tables; PQL LOOKUP joins by value.
+[objects.O_CELONIS_PURCHASESCHEDULELINE.links.plant]
+target = "O_CELONIS_PLANT"
+cardinality = "one"
+on = { PLANT_ID = "ID" }
+
 [objects.O_CELONIS_PURCHASESCHEDULELINE.links.material_master_plant]
 target = "O_CELONIS_MATERIALMASTERPLANT"
 cardinality = "one"

@@ -261,3 +261,29 @@ def test_an_id_in_several_collections_must_be_excluded():
         "id_attribute_2", "id_attribute", "id_attribute_1",
         "number_name_attribute_1", "number_name_attribute_2", "key_attribute",
     ]
+
+def test_links_are_classified_against_data_model_joins(tmp_path):
+    module = load(write(tmp_path / "joined"))
+    Plant, Material = module.Plant, module.Material
+    links = Plant.fields.links
+    # Plant -> Material follows the captured foreign key in both directions.
+    assert links["materials"].join == "fk"
+    assert Material.fields.links["plant"].join == "fk"
+    # Stock lines have no foreign key and the link is to-many: traversal only.
+    assert links["stock"].join is None
+    assert not hasattr(Plant.relations, "stock")
+    assert hasattr(Plant.relations, "materials")
+    definitions = generate(capture(), MAPPING)["definitions.py"].decode()
+    assert "O_PLANT.links.stock: no Data Model foreign key or lookup path" in definitions
+    assert Plant.fields._table == "o_Plant"
+
+
+def test_to_one_links_without_foreign_keys_use_lookup(tmp_path):
+    from celofast.sdk import Capture
+
+    no_joins = Capture.create(capture().source, capture().to_dict())
+    module = load(write(tmp_path / "unjoined", no_joins))
+    assert module.Material.fields.links["plant"].join == "lookup"
+    assert module.Plant.fields.links["materials"].join is None
+    assert hasattr(module.Material.relations, "plant")
+    assert not hasattr(module.Plant.relations, "materials")

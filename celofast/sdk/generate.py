@@ -100,6 +100,7 @@ def _definitions(model: ModelSpec, capture: Capture) -> str:
         metadata = {"displayName": spec.display_name, "description": spec.record_description}
         lines.append("    _model: ClassVar[_d.ModelInfo] = _MODEL\n")
         lines.append(f"    _object_type: ClassVar[str] = {spec.record_id!r}\n")
+        lines.append(f"    _table: ClassVar[str | None] = {spec.table!r}\n")
         lines.append(f"    _metadata: ClassVar[dict[str, str | None]] = {metadata!r}\n")
         lines.append(f"    _members: ClassVar[tuple[str, ...]] = {tuple(f.name for f in spec.fields)!r}\n")
         lines.append(f"    _key: ClassVar[tuple[str, ...]] = {spec.key!r}\n")
@@ -107,7 +108,7 @@ def _definitions(model: ModelSpec, capture: Capture) -> str:
         for link in spec.links:
             lines.append(
                 f"        _d.LinkDefinition(name={link.name!r}, target={link.target!r}, "
-                f"cardinality={link.cardinality!r}, on={link.on!r}),\n"
+                f"cardinality={link.cardinality!r}, on={link.on!r}, join={link.join!r}),\n"
             )
         lines.append("    )\n")
     for spec in model.objects:
@@ -185,7 +186,8 @@ def _links(model: ModelSpec) -> str:
             )
         lines.append(f"\n\nclass {spec.class_name}Relations(_o.Relations):\n")
         lines.append(_docstring(f"Relationship predicates for filtering {spec.class_name} objects."))
-        for link in spec.links:
+        # Only links with a Data Model join or lookup path compile to PQL.
+        for link in (link for link in spec.links if link.join is not None):
             target = f"_objects.{classes[link.target]}"
             source = f"_objects.{spec.class_name}"
             if link.cardinality == "one":

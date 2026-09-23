@@ -9,6 +9,7 @@ relation holds when a related object (joined on the link's field) matches.
 from __future__ import annotations
 
 import operator
+import re
 from collections.abc import Iterable, Mapping, Sequence
 
 from celofast.sdk import Object, ObjectCollection
@@ -34,19 +35,35 @@ def matches(predicate: Predicate, obj: Object, population: Population) -> bool:
             return left == right
         if predicate.op == "ne":
             return left != right
-        if left is None or right is None:
+        if left is None:
+            return False
+        if predicate.op == "in":
+            return left in right
+        if predicate.op == "between":
+            low, high = right
+            return low <= left <= high
+        if predicate.op == "like":
+            return _like(right).fullmatch(left) is not None
+        if right is None:
             return False
         return _ORDERING[predicate.op](left, right)
     if isinstance(predicate, Related):
-        value = getattr(obj, predicate.source.name)
-        if value is None:
+        values = [(getattr(obj, left), right) for left, right in predicate.link.on]
+        if any(value is None for value, _ in values):
             return False
         return any(
-            getattr(related, predicate.target.name) == value
+            all(getattr(related, right) == value for value, right in values)
             and (predicate.predicate is None or matches(predicate.predicate, related, population))
-            for related in population[predicate.target.owner]
+            for related in population[predicate.target.object_type]
         )
     raise TypeError(type(predicate))
+
+
+def _like(pattern: str) -> re.Pattern[str]:
+    """SQL LIKE: % is any text, _ one character; everything else is literal."""
+    return re.compile("".join(
+        ".*" if char == "%" else "." if char == "_" else re.escape(char) for char in pattern
+    ), re.DOTALL)
 
 
 def _sort_key(obj: Object, order: Iterable[Sort]) -> tuple:

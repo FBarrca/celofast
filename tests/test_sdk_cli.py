@@ -51,7 +51,12 @@ key = ["ID"]
             "mode": "published",
         }
         return SimpleNamespace(
-            _resolver=SimpleNamespace(knowledge_model=lambda key: native)
+            _resolver=SimpleNamespace(
+                knowledge_model=lambda key: native,
+                data_model=lambda km: SimpleNamespace(
+                    get_tables=lambda: [], get_foreign_keys=lambda: []
+                ),
+            )
         )
 
     monkeypatch.setattr("celofast.CeloFast", factory)

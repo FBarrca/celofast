@@ -4,7 +4,7 @@ from __future__ import annotations
 
 # Bump when generated code needs a different runtime; packages then fail at
 # import and must be regenerated with celofast km pull.
-RUNTIME_API_VERSION = 7
+RUNTIME_API_VERSION = 8
 
 
 class SDKCompatibilityError(ImportError):

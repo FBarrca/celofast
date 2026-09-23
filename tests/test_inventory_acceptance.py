@@ -91,7 +91,11 @@ def km(tmp_path_factory):
             items += page.items
             page = page.next_page()
         loaded[object_type.__name__] = items
-    yield SimpleNamespace(package=package, client=client, all=loaded)
+    # Count native exports from here on: every read must be exactly one.
+    exports = []
+    export = client._connection._export
+    client._connection._export = lambda *args, **kwargs: exports.append(1) or export(*args, **kwargs)
+    yield SimpleNamespace(package=package, client=client, all=loaded, exports=exports)
     _purge()
 
 
@@ -477,6 +481,16 @@ def conformance_cases(sdk):
         "order desc": (Schedule, Sch.expected_quantity.gt(0.0), (Sch.expected_delivery_date.desc(),)),
         "any() on vendor": (Vendor, Vendor.relations.purchase_documents.any(), ()),
         "~any() on vendor": (Vendor, ~Vendor.relations.purchase_documents.any(), ()),
+        "is_in": (Stock, S.plant_id.is_in(["SAP_ECC::100::1000", "SAP_ECC::100::1300"]), ()),
+        "between": (Stock, S.safety_stock_quantity.between(10.0, 50.0), ()),
+        "like": (Stock, S.id.like("%::1000"), ()),
+        "~like": (Stock, ~S.id.like("%00000001%"), ()),
+        "~has": (Stock, ~R.plant.has(P.country.eq("DE")), ()),
+        "lookup has": (Schedule, Schedule.relations.plant.has(P.plant_name.like("B%")), ()),
+        "any(has) (BIND in PU)": (Stock, R.purchase_schedule_lines.any(
+            sdk.PurchaseScheduleLine.relations.purchase_document_line.has(L.is_canceled.eq(1))), ()),
+        "has(any) (PU through BIND)": (Schedule, Schedule.relations.material_master_plant.has(
+            R.planned_supplies.any(PS.is_firm_order.eq(1))), ()),
     }
 
 
@@ -487,11 +501,24 @@ def test_predicate_forms_match_the_oracle(km):
     cases = conformance_cases(km.package)
     nonempty = 0
     for name, (object_type, predicate, order) in cases.items():
+        before = len(km.exports)
         page = (
             km.client.objects(object_type).where(predicate).order_by(*order)
             .fetch_page(page_size=10_000)
         )
+        assert len(km.exports) == before + 1, f"{name}: relations must not add requests"
         expected = [o.key for o in select(object_type, (predicate,), order, population)]
         assert [o.key for o in page.items] == expected, name
         nonempty += bool(page.items)
     assert nonempty >= len(cases) - 3
+
+
+def test_each_documented_question_is_one_request_per_read(km):
+    target = next(i for i in km.all["MaterialMasterPlant"] if i.material_id and i.plant_id)
+    before = len(km.exports)
+    run_at_risk(km.client, SPEC_DATE)
+    assert len(km.exports) == before + 1
+    run_overdue(km.client, SPEC_DATE)
+    assert len(km.exports) == before + 2
+    run_alternatives(km.client, target.key)  # get() plus one filtered page.
+    assert len(km.exports) == before + 4

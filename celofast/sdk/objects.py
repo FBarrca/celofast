@@ -70,10 +70,10 @@ class _Relation(Generic[O]):
 
     def _related(self, predicate: Predicate | None) -> Predicate:
         link = self.source.fields.links[self.name]
-        if len(link.on) != 1:
+        if link.join is None:
             raise QueryValidationError(
-                f"Relation {self.name!r} maps several fields; relationship predicates "
-                "support single-field links."
+                f"Relation {self.name!r} has no Data Model foreign key or lookup path; "
+                "use links for traversal instead."
             )
         target = self.target.fields
         if predicate is not None and (
@@ -83,13 +83,7 @@ class _Relation(Generic[O]):
                 f"{self.name} relates to {target.object_type}; the predicate describes "
                 f"{predicate.owner}."
             )
-        left, right = link.on[0]
-        return Related(
-            link=self.name,
-            source=getattr(self.source.fields, left),
-            target=getattr(target, right),
-            predicate=predicate,
-        )
+        return Related(link=link, source=self.source.fields, target=target, predicate=predicate)
 
 
 class ToOneRelation(_Relation[O]):

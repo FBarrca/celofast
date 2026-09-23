@@ -8,7 +8,7 @@ from data files at import.
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, ClassVar, Generic, Literal, TypeVar
 
@@ -71,6 +71,35 @@ class Field(Generic[T]):
     def gte(self, other: T | Field[Any]) -> Predicate:
         return self._compare("gte", other)
 
+    def is_in(self, values: Iterable[T]) -> Predicate:
+        """Equal to one of ``values`` (PQL ``IN``); a null never matches."""
+        options = tuple(values)
+        if not options:
+            raise QueryValidationError("is_in() needs at least one value.")
+        for value in options:
+            if value is None:
+                raise ObjectValueError("is_in() values cannot be None; combine with eq(None).")
+            check_filter_value(self, value)
+        return Comparison(self, "in", options)
+
+    def between(self, low: T, high: T) -> Predicate:
+        """Within ``low`` and ``high``, both inclusive (PQL ``BETWEEN``)."""
+        if low is None or high is None:
+            raise ObjectValueError("between() needs two values.")
+        if self.value_type == "bool":
+            raise ObjectValueError(f"{self.owner}.{self.name} is boolean and has no ordering.")
+        check_filter_value(self, low)
+        check_filter_value(self, high)
+        return Comparison(self, "between", (low, high))
+
+    def like(self, pattern: str) -> Predicate:
+        """Matches a PQL ``LIKE`` pattern: ``%`` any text, ``_`` one character."""
+        if self.value_type != "str":
+            raise ObjectValueError(f"{self.owner}.{self.name} is not a string field.")
+        if not isinstance(pattern, str):
+            raise ObjectValueError("like() needs a string pattern.")
+        return Comparison(self, "like", pattern)
+
     def asc(self) -> Sort:
         return Sort(self, ascending=True)
 
@@ -99,7 +128,7 @@ class Field(Generic[T]):
         return Comparison(self, op, other)
 
 
-Operator = Literal["eq", "ne", "lt", "lte", "gt", "gte"]
+Operator = Literal["eq", "ne", "lt", "lte", "gt", "gte", "in", "between", "like"]
 
 
 @dataclass(frozen=True)
@@ -205,18 +234,19 @@ class Not(Predicate):
 class Related(Predicate):
     """Some related object matches: ``relations.x.has(...)`` or ``.any(...)``.
 
-    ``source`` and ``target`` are the single linked fields; ``predicate`` is a
-    condition on the related type, or None for "has any related object".
+    ``source`` and ``target`` are the two type definitions, ``link`` declares
+    how they join, and ``predicate`` is a condition on the target type, or None
+    for "a related object exists".
     """
 
-    link: str
-    source: Field[Any]
-    target: Field[Any]
+    link: LinkDefinition
+    source: ObjectDefinition
+    target: ObjectDefinition
     predicate: Predicate | None
 
     @property
     def owner(self) -> str:
-        return self.source.owner
+        return self.source.object_type
 
     @property
     def model(self) -> ModelInfo:
@@ -232,6 +262,9 @@ class LinkDefinition:
     cardinality: Literal["one", "many"]
     on: tuple[tuple[str, str], ...]
     """Pairs of (source field name, target field name)."""
+    join: Literal["fk", "lookup"] | None = None
+    """How predicates reach the target: a Data Model foreign key, a PQL LOOKUP,
+    or None when the link only supports traversal."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -246,6 +279,7 @@ class ObjectDefinition:
     # Generated subclasses declare Field members and set these class-level facts.
     _model: ClassVar[ModelInfo]
     _object_type: ClassVar[str]
+    _table: ClassVar[str | None] = None
     _metadata: ClassVar[Mapping[str, str | None]] = {}
     _members: ClassVar[tuple[str, ...]] = ()
     _key: ClassVar[tuple[str, ...]] = ()

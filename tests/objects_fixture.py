@@ -43,6 +43,7 @@ def capture(**changes):
             {
                 "id": "O_MATERIAL",
                 "displayName": "Material",
+                "pql": '"o_Material"',
                 "attributes": [
                     attribute("ID", '"o_Material"."ID"'),
                     attribute("PLANT_ID", '"o_Material"."Plant_ID"'),
@@ -56,6 +57,7 @@ def capture(**changes):
             {
                 "id": "O_STOCK",
                 "displayName": "Stock Line",
+                "pql": '"o_Stock"',
                 "attributes": [
                     attribute("PLANT_ID", '"o_Stock"."Plant_ID"'),
                     attribute("DAY", '"o_Stock"."Day"', "DATE"),
@@ -67,7 +69,12 @@ def capture(**changes):
         "kpis": [{"id": "Value", "pql": "SUM(1)"}],
         **changes,
     }
-    return Capture.create(SOURCE, layer)
+    # The Data Model joins plants to materials; stock lines have no foreign key,
+    # so Plant.links.stock is traversal-only.
+    return Capture.create(SOURCE, layer, joins=JOINS)
+
+
+JOINS = [{"one": "o_Plant", "many": "o_Material", "columns": [["ID", "Plant_ID"]]}]
 
 
 MAPPING = {

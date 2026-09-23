@@ -105,6 +105,8 @@ class LinkSpec:
     target: str
     cardinality: Literal["one", "many"]
     on: tuple[tuple[str, str], ...]
+    join: Literal["fk", "lookup"] | None = None
+    """How relation predicates reach the target in PQL; None: traversal only."""
 
 
 @dataclass(frozen=True)
@@ -118,6 +120,8 @@ class ObjectSpec:
     fields: tuple[FieldSpec, ...]
     key: tuple[str, ...]
     links: tuple[LinkSpec, ...]
+    table: str | None = None
+    """The Data Model table the record reads, when its expression is a plain table."""
 
 
 @dataclass(frozen=True)
@@ -184,6 +188,59 @@ def _attribute(record: dict[str, Any], path: tuple[str | int, ...]) -> dict[str,
     if isinstance(segment, int):
         return items[segment]
     return next(item for item in items if isinstance(item, dict) and item.get("id") == segment)
+
+
+_TABLE = re.compile(r'^\s*"?([A-Za-z_][\w$]*)"?\s*$')
+_COLUMN = re.compile(r'^\s*"([^"]+)"\."([^"]+)"\s*$')
+
+
+def _table(expression: Any) -> str | None:
+    match = _TABLE.match(expression) if isinstance(expression, str) else None
+    return match.group(1) if match else None
+
+
+def column(expression: str) -> tuple[str, str] | None:
+    """(table, column) of a plain ``"table"."column"`` expression, else None."""
+    match = _COLUMN.match(expression)
+    return (match.group(1), match.group(2)) if match else None
+
+
+def _join(
+    joins: Any, source: ObjectSpec, target: ObjectSpec, cardinality: str,
+    pairs: list[tuple[FieldSpec, FieldSpec]],
+) -> Literal["fk", "lookup"] | None:
+    """Classify how a link maps onto the Data Model.
+
+    ``fk``: the link columns are exactly a foreign key, in the direction the
+    cardinality implies (to-one: the source is the key's many side).
+    ``lookup``: a to-one link on plain columns without such a key; PQL
+    LOOKUP joins it by value.
+    """
+    if source.table is None or target.table is None:
+        return None
+    columns = [(column(left.expression), column(right.expression)) for left, right in pairs]
+    if any(left is None or right is None for left, right in columns):
+        return None
+    same = lambda a, b: a.lower() == b.lower()  # noqa: E731 - PQL names ignore case
+    if not all(
+        same(left[0], source.table) and same(right[0], target.table)  # type: ignore[index]
+        for left, right in columns
+    ):
+        return None
+    wanted = {
+        (right[1].lower(), left[1].lower()) if cardinality == "one" else (left[1].lower(), right[1].lower())  # type: ignore[index]
+        for left, right in columns
+    }
+    one, many = (target.table, source.table) if cardinality == "one" else (source.table, target.table)
+    for key in joins or ():
+        if (
+            same(key["one"], one)
+            and same(key["many"], many)
+            and {(a.lower(), b.lower()) for a, b in key["columns"]} == wanted
+        ):
+            return "fk"
+    # LOOKUP joins by value on the single target key column.
+    return "lookup" if cardinality == "one" and len(pairs) == 1 else None
 
 
 def _text(value: Any) -> str | None:
@@ -347,6 +404,7 @@ def normalize(capture: Capture, mapping: Mapping[str, Any] | MappingConfig | Non
             description=description,
             display_name=_text(record.get("displayName")),
             record_description=_text(record.get("description")),
+            table=_table(record.get("pql")),
             fields=tuple(
                 FieldSpec(
                     attribute_id,
@@ -380,20 +438,29 @@ def normalize(capture: Capture, mapping: Mapping[str, Any] | MappingConfig | Non
                 continue
             source_fields = {f.attribute_id: f for f in spec.fields}
             target_fields = {f.attribute_id: f for f in target.fields}
-            pairs = []
+            pairs: list[tuple[FieldSpec, FieldSpec]] = []
             for left, right in link.on.items():
                 if left not in source_fields or right not in target_fields:
                     errors.append(f"{where}: {left!r} -> {right!r} must name loaded fields of both types.")
                 elif source_fields[left].value_type != target_fields[right].value_type:
                     errors.append(f"{where}: {left!r} and {right!r} have different types.")
                 else:
-                    pairs.append((source_fields[left].name, target_fields[right].name))
+                    pairs.append((source_fields[left], target_fields[right]))
             if len(pairs) != len(link.on):
                 continue
-            if link.cardinality == "one" and {right for _, right in pairs} != set(target.key):
+            if link.cardinality == "one" and {right.name for _, right in pairs} != set(target.key):
                 errors.append(f"{where}: a to-one link must map exactly the target key ({', '.join(target.key)}).")
                 continue
-            links.append(LinkSpec(link_name, link.target, link.cardinality, tuple(pairs)))
+            join = _join(capture.joins, spec, target, link.cardinality, pairs)
+            if join is None:
+                diagnostics.append(
+                    f"{where}: no Data Model foreign key or lookup path; traversal only, "
+                    "no relations predicate."
+                )
+            links.append(LinkSpec(
+                link_name, link.target, link.cardinality,
+                tuple((left.name, right.name) for left, right in pairs), join,
+            ))
         specs[rid] = ObjectSpec(**{**spec.__dict__, "links": tuple(links)})
 
     if errors:

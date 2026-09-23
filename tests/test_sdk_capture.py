@@ -157,3 +157,16 @@ def test_missing_published_input_revision_does_not_fall_back():
     )
     with pytest.raises(CaptureError, match="no published revision"):
         retrieve(native, space_id="space", package_id="package", mode="published")
+
+
+def test_data_model_joins_are_canonical_and_round_trip():
+    joins = [
+        {"one": "b", "many": "c", "columns": [["ID", "B_ID"]]},
+        {"one": "a", "many": "b", "columns": [["ID", "A_ID"]]},
+    ]
+    first = Capture.create(source(), {}, joins=joins)
+    second = Capture.create(source(), {}, joins=list(reversed(joins)))
+    assert first == second
+    assert [join["one"] for join in first.joins] == ["a", "b"]
+    assert Capture.model_validate_json(first.to_json()) == first
+    assert Capture.create(source(), {}).joins is None

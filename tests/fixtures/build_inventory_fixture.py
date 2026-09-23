@@ -22,8 +22,10 @@ from celofast.sdk.capture import retrieve
 settings = tomllib.load(open("pyproject.toml", "rb"))["tool"]["celofast"]["knowledge-models"]["inventory"]
 mapping = tomllib.load(open(settings["mapping"], "rb"))
 cf = CeloFast(settings["space-id"], settings["package-id"], mode=settings["mode"])
+native = cf._resolver.knowledge_model(settings["key"])
 capture = retrieve(
-    cf._resolver.knowledge_model(settings["key"]),
+    native,
+    data_model=cf._resolver.data_model(native),
     space_id=settings["space-id"],
     package_id=settings["package-id"],
     mode=settings["mode"],
@@ -63,6 +65,8 @@ fixture = {
         "mode": "draft",
     },
     "definition": {"dataModelId": "fixture-dm", "records": records},
+    # Data Model foreign keys between catalog tables (no tenant data).
+    "joins": [dict(join) for join in capture.joins or ()],
 }
 with open("tests/fixtures/inventory_km.json", "w", encoding="utf-8", newline="\n") as stream:
     json.dump(fixture, stream, indent=1, ensure_ascii=False, sort_keys=True)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from functools import cached_property
 from types import MappingProxyType
 from typing import Any, Literal
@@ -108,6 +108,8 @@ class Capture(BaseModel):
     source: Source
     definition_json: str
     input_variables_json: str | None = None
+    joins_json: str | None = None
+    """Data Model foreign keys as ``{"one", "many", "columns": [[one, many]]}``."""
 
     @model_validator(mode="before")
     @classmethod
@@ -126,7 +128,31 @@ class Capture(BaseModel):
             value["input_variables_json"] = json.dumps(
                 value.pop("input_variables"), ensure_ascii=False, allow_nan=False
             )
+        if isinstance(value, dict) and "joins" in value:
+            if "joins_json" in value:
+                raise ValueError("Capture must contain one join snapshot.")
+            value = dict(value)
+            value["joins_json"] = json.dumps(value.pop("joins"), ensure_ascii=False)
         return value
+
+    @field_validator("joins_json")
+    @classmethod
+    def canonical_joins(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            joins = [
+                {
+                    "one": str(item["one"]),
+                    "many": str(item["many"]),
+                    "columns": [[str(one), str(many)] for one, many in item["columns"]],
+                }
+                for item in json.loads(value)
+            ]
+        except (TypeError, ValueError, KeyError) as exc:
+            raise ValueError(f"Invalid Data Model joins: {exc}") from exc
+        joins.sort(key=lambda item: (item["one"], item["many"], item["columns"]))
+        return json.dumps(joins, ensure_ascii=False, separators=(",", ":"))
 
     @field_validator("input_variables_json")
     @classmethod
@@ -170,6 +196,7 @@ class Capture(BaseModel):
         definition: Mapping[str, Any],
         *,
         input_variables: Mapping[str, Any] | None = None,
+        joins: Sequence[Mapping[str, Any]] | None = None,
     ) -> Capture:
         """Detach from source state, preserving unknown fields and exact strings."""
         normalized = _normalize(definition)
@@ -191,6 +218,7 @@ class Capture(BaseModel):
             else json.dumps(
                 _normalize(input_variables), ensure_ascii=False, allow_nan=False
             ),
+            joins_json=None if joins is None else json.dumps(list(joins), ensure_ascii=False),
         )
 
     @cached_property
@@ -207,6 +235,13 @@ class Capture(BaseModel):
         if self.input_variables_json is None:
             return None
         return _freeze(json.loads(self.input_variables_json))
+
+    @cached_property
+    def joins(self) -> tuple[Mapping[str, Any], ...] | None:
+        """Data Model foreign keys; None when the capture has no join snapshot."""
+        if self.joins_json is None:
+            return None
+        return tuple(_freeze(item) for item in json.loads(self.joins_json))
 
     @cached_property
     def definition(self) -> Mapping[str, Any]:
@@ -230,6 +265,11 @@ class Capture(BaseModel):
                         if self.input_variables_json is not None
                         else {}
                     ),
+                    **(
+                        {"joins": json.loads(self.joins_json)}
+                        if self.joins_json is not None
+                        else {}
+                    ),
                 },
                 indent=2,
                 ensure_ascii=False,
@@ -240,8 +280,39 @@ class Capture(BaseModel):
         )
 
 
+def data_model_joins(data_model: Any) -> list[dict[str, Any]]:
+    """Foreign keys of a native Data Model, with tables named as PQL names them.
+
+    A foreign key's source table is the "one" side and its target the "many"
+    side; each column pair is (one column, many column).
+    """
+    tables = {
+        table.id: table.alias or table.name for table in data_model.get_tables()
+    }
+    joins = []
+    for key in data_model.get_foreign_keys():
+        if key.source_table_id not in tables or key.target_table_id not in tables:
+            raise CaptureError(f"Data Model foreign key {key.id} references an unknown table.")
+        joins.append(
+            {
+                "one": tables[key.source_table_id],
+                "many": tables[key.target_table_id],
+                "columns": [
+                    [column.source_column_name, column.target_column_name]
+                    for column in key.columns or ()
+                ],
+            }
+        )
+    return joins
+
+
 def retrieve(
-    native: Any, *, space_id: str, package_id: str, mode: Literal["draft", "published"]
+    native: Any,
+    *,
+    space_id: str,
+    package_id: str,
+    mode: Literal["draft", "published"],
+    data_model: Any = None,
 ) -> Capture:
     """Read one final-layer response through the authenticated PyCelonis client.
 
@@ -323,4 +394,5 @@ def retrieve(
         if not isinstance(key, str) or not key or key in inputs:
             raise CaptureError("Studio input variables have missing or duplicate keys.")
         inputs[key] = item
-    return Capture.create(source, layer, input_variables=inputs)
+    joins = None if data_model is None else data_model_joins(data_model)
+    return Capture.create(source, layer, input_variables=inputs, joins=joins)

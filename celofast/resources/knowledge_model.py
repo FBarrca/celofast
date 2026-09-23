@@ -16,16 +16,14 @@ from celofast.exceptions import ObjectValueError, QueryValidationError
 from celofast.query import query_to_pql, validate_variables
 from celofast.resources.augmentation_table import AugmentationTableCollection
 from celofast.sdk.capture import Capture, Source
-from celofast.sdk.definitions import ModelInfo, Predicate, Related, Sort
-from celofast.sdk.hydration import decode, hydrate
+from celofast.sdk.definitions import ModelInfo, Predicate, Sort
+from celofast.sdk.hydration import hydrate
 from celofast.sdk.objects import Object, ObjectCollection, ObjectModel
-from celofast.sdk.planning import ReadPlan, plan_read, plan_values
+from celofast.sdk.planning import ReadPlan, plan_read
 from celofast.types import ResourceMode
 
 O = TypeVar("O", bound=Object)
 logger = logging.getLogger("celofast.km")
-# Relationship predicates are resolved to value lists before the object read.
-MAX_RELATED_VALUES = 10_000
 
 
 class KnowledgeModelConnection:
@@ -248,18 +246,8 @@ class KnowledgeModelClient:
         limit: int,
         offset: int,
     ) -> list[O]:
-        resolved: dict[int, list[object]] = {}
-
-        def resolve(related: Related) -> list[object]:
-            # Each relationship predicate is resolved once per read; nested
-            # relations resolve recursively before their parent.
-            if id(related) not in resolved:
-                resolved[id(related)] = self._related_values(related, resolve)
-            return resolved[id(related)]
-
-        plan = plan_read(
-            object_type.fields, predicates, order, variables=self._variables, resolve=resolve
-        )
+        # Relations render into this one query; every read is a single export.
+        plan = plan_read(object_type.fields, predicates, order, variables=self._variables)
         _log_plan(
             f"Read {object_type.fields.object_type} objects ({object_type.__name__})",
             plan,
@@ -272,29 +260,6 @@ class KnowledgeModelClient:
         frame = self._connection._export(_native(plan), limit=limit, offset=offset, distinct=True)
         rows = _rows(frame, [alias for alias, _ in plan.columns])
         return hydrate(object_type, rows, context=self)
-
-    def _related_values(
-        self, related: Related, resolve: Callable[[Related], list[object]]
-    ) -> list[object]:
-        plan = plan_values(
-            related.target, related.predicate, variables=self._variables, resolve=resolve
-        )
-        _log_plan(
-            f"Resolve relation {related.link!r}: {related.target.owner}.{related.target.name} "
-            f"values for {related.source.owner}.{related.source.name}",
-            plan,
-            limit=MAX_RELATED_VALUES + 1,
-        )
-        frame = self._connection._export(
-            _native(plan), limit=MAX_RELATED_VALUES + 1, distinct=True
-        )
-        values = [decode(related.target, row[0]) for row in _rows(frame, ["v"])]
-        if len(values) > MAX_RELATED_VALUES:
-            raise QueryValidationError(
-                f"Relation {related.link!r} matched more than {MAX_RELATED_VALUES:,} related "
-                "objects; add conditions to its predicate to narrow it."
-            )
-        return values
 
     @property
     def mode(self) -> ResourceMode:

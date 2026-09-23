@@ -79,7 +79,8 @@ questions offline over hand-built objects that cover every branch.
 After changing `inventory-objects.toml`, refresh the offline fixture (this reads
 the live KM, so it needs credentials) with
 `uv run python tests/fixtures/build_inventory_fixture.py`
-so `tests/fixtures/inventory_km.json` uses the same records and fields.
+so `tests/fixtures/inventory_km.json` uses the same records, fields, and Data
+Model foreign keys.
 
 The live suite is skipped unless `CELOFAST_LIVE_KM=1` is set when tests are
 collected. Inspect [test_sdk_live.py](../tests/test_sdk_live.py) before selecting

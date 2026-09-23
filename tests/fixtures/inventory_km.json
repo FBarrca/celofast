@@ -2207,6 +2207,328 @@
   ]
  },
  "format_version": 1,
+ "joins": [
+  {
+   "columns": [
+    [
+     "ID",
+     "ID"
+    ]
+   ],
+   "many": "r_e_celonis_PostGoodsIssue__DeliveryLine",
+   "one": "e_celonis_PostGoodsIssue"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "BillOfMaterialComponent_ID"
+    ]
+   ],
+   "many": "o_celonis_RelationshipBillOfMaterials",
+   "one": "o_celonis_BillOfMaterialComponent"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "BillOfMaterialProduct_ID"
+    ]
+   ],
+   "many": "o_celonis_RelationshipBillOfMaterials",
+   "one": "o_celonis_BillOfMaterialProduct"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "Customer_ID"
+    ]
+   ],
+   "many": "o_celonis_SalesOrder",
+   "one": "o_celonis_Customer"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "DeliveryLine_ID"
+    ]
+   ],
+   "many": "r_e_celonis_PostGoodsIssue__DeliveryLine",
+   "one": "o_celonis_DeliveryLine"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "ID"
+    ]
+   ],
+   "many": "r_o_celonis_DeliveryLine__SalesOrderScheduleLines",
+   "one": "o_celonis_DeliveryLine"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "Material_ID"
+    ]
+   ],
+   "many": "o_celonis_MaterialMasterPlant",
+   "one": "o_celonis_Material"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "MaterialMasterPlant_ID"
+    ]
+   ],
+   "many": "o_celonis_MaterialMovement",
+   "one": "o_celonis_MaterialMasterPlant"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "MaterialMasterPlant_ID"
+    ]
+   ],
+   "many": "o_celonis_MaterialRequirement",
+   "one": "o_celonis_MaterialMasterPlant"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "MaterialMasterPlant_ID"
+    ]
+   ],
+   "many": "o_celonis_MaterialReservation",
+   "one": "o_celonis_MaterialMasterPlant"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "MaterialMasterPlant_ID"
+    ]
+   ],
+   "many": "o_celonis_PlannedSupply",
+   "one": "o_celonis_MaterialMasterPlant"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "MaterialMasterPlant_ID"
+    ]
+   ],
+   "many": "o_celonis_ProductionOrder",
+   "one": "o_celonis_MaterialMasterPlant"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "MaterialMasterPlant_ID"
+    ]
+   ],
+   "many": "o_celonis_PurchaseRequisitionLine",
+   "one": "o_celonis_MaterialMasterPlant"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "MaterialMasterPlant_ID"
+    ]
+   ],
+   "many": "o_celonis_PurchaseScheduleLine",
+   "one": "o_celonis_MaterialMasterPlant"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "MaterialMasterPlantComponent_ID"
+    ]
+   ],
+   "many": "o_celonis_RelationshipBillOfMaterials",
+   "one": "o_celonis_MaterialMasterPlant"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "MaterialMasterPlant_ID"
+    ]
+   ],
+   "many": "o_celonis_SalesOrderScheduleLine",
+   "one": "o_celonis_MaterialMasterPlant"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "MaterialMasterPlant_ID"
+    ]
+   ],
+   "many": "o_celonis_StockHistory",
+   "one": "o_celonis_MaterialMasterPlant"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "MaterialMovement_ID"
+    ]
+   ],
+   "many": "e_celonis_PostGoodsIssue",
+   "one": "o_celonis_MaterialMovement"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "MaterialMovement_ID"
+    ]
+   ],
+   "many": "e_celonis_PostGoodsReceipt",
+   "one": "o_celonis_MaterialMovement"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "Plant_ID"
+    ]
+   ],
+   "many": "o_celonis_MaterialMasterPlant",
+   "one": "o_celonis_Plant"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "ProductionOrder_ID"
+    ]
+   ],
+   "many": "e_celonis_CreateProductionOrder",
+   "one": "o_celonis_ProductionOrder"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "ProductionOrder_ID"
+    ]
+   ],
+   "many": "e_celonis_FinishProductionOrder",
+   "one": "o_celonis_ProductionOrder"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "ProductionOrder_ID"
+    ]
+   ],
+   "many": "e_celonis_StartProduction",
+   "one": "o_celonis_ProductionOrder"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "PurchaseDocument_ID"
+    ]
+   ],
+   "many": "e_celonis_CreatePurchaseDocumentLine",
+   "one": "o_celonis_PurchaseDocument"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "Header_ID"
+    ]
+   ],
+   "many": "o_celonis_PurchaseDocumentLine",
+   "one": "o_celonis_PurchaseDocument"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "PurchaseDocumentLine_ID"
+    ]
+   ],
+   "many": "e_celonis_CreatePurchaseDocumentLine",
+   "one": "o_celonis_PurchaseDocumentLine"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "PurchaseDocumentLine_ID"
+    ]
+   ],
+   "many": "e_celonis_PostGoodsReceipt",
+   "one": "o_celonis_PurchaseDocumentLine"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "PurchaseDocumentLine_ID"
+    ]
+   ],
+   "many": "o_celonis_PurchaseScheduleLine",
+   "one": "o_celonis_PurchaseDocumentLine"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "Vendor_ID"
+    ]
+   ],
+   "many": "o_celonis_PurchaseRequisitionLine",
+   "one": "o_celonis_PurchaseRequisitionLine__Vendor"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "SalesOrder_ID"
+    ]
+   ],
+   "many": "o_celonis_SalesOrderScheduleLine",
+   "one": "o_celonis_SalesOrder"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "SalesOrderScheduleLines_ID"
+    ]
+   ],
+   "many": "r_o_celonis_DeliveryLine__SalesOrderScheduleLines",
+   "one": "o_celonis_SalesOrderScheduleLine"
+  },
+  {
+   "columns": [
+    [
+     "ID",
+     "Vendor_ID"
+    ]
+   ],
+   "many": "o_celonis_PurchaseDocument",
+   "one": "o_celonis_Vendor"
+  }
+ ],
  "source": {
   "key": "inventory-km",
   "mode": "draft",
