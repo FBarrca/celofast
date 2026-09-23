@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import difflib
-import json
 import os
 import shutil
 import stat
@@ -21,9 +20,7 @@ from celofast.sdk.capture import Capture, CaptureError
 from celofast.sdk.generate import MARKER, PACKAGE_FILES, generate
 from celofast.sdk.mapping import MappingConfig
 
-# Sidecars written by earlier generators; recognized as owned and removed.
-_LEGACY = frozenset({"capture.json", "schema.json"})
-_FILES = frozenset(PACKAGE_FILES) | _LEGACY
+_FILES = frozenset(PACKAGE_FILES)
 
 
 def _is_link(path: Path) -> bool:
@@ -48,36 +45,21 @@ class Change:
 
 
 def _stamp(files: Mapping[str, bytes]) -> dict[str, Any] | None:
-    """Read the ownership stamp from ``__init__.py`` (or a legacy schema.json)."""
-    init = files.get("__init__.py")
-    if init is not None:
-        try:
-            tree = ast.parse(init.decode("utf-8"))
-        except (SyntaxError, UnicodeDecodeError):
-            tree = None
-        for node in tree.body if tree is not None else ():
-            if (
-                isinstance(node, ast.Assign)
-                and [getattr(t, "id", None) for t in node.targets] == [MARKER]
-            ):
-                try:
-                    value = ast.literal_eval(node.value)
-                except ValueError:
-                    return None
-                return value if isinstance(value, dict) else None
-    if "schema.json" in files:
-        try:
-            manifest = json.loads(files["schema.json"])
-        except ValueError:
-            return None
-        if isinstance(manifest, dict):
-            source = manifest.get("source")
-            if source is None and "capture.json" in files:
-                try:
-                    source = json.loads(files["capture.json"]).get("source")
-                except (ValueError, AttributeError):
-                    source = None
-            return {**manifest, "source": source}
+    """Read the ``__celofast__`` ownership stamp from ``__init__.py``."""
+    try:
+        tree = ast.parse(files.get("__init__.py", b"").decode("utf-8"))
+    except (SyntaxError, UnicodeDecodeError):
+        return None
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and [getattr(t, "id", None) for t in node.targets] == [MARKER]
+        ):
+            try:
+                value = ast.literal_eval(node.value)
+            except ValueError:
+                return None
+            return value if isinstance(value, dict) else None
     return None
 
 
@@ -123,8 +105,8 @@ def _existing(output: Path) -> dict[str, bytes]:
 
 
 def _diff(name: str, before: bytes | None, after: bytes | None) -> str:
-    if name.endswith(".json") or name == "py.typed":
-        return ""  # Legacy sidecars and markers: report the file, not its content.
+    if name == "py.typed":
+        return ""  # An empty marker: report the file, not its content.
     old = (before or b"").decode("utf-8").splitlines(keepends=True)
     new = (after or b"").decode("utf-8").splitlines(keepends=True)
     return "".join(difflib.unified_diff(old, new, f"a/{name}", f"b/{name}"))

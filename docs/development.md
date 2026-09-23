@@ -76,7 +76,8 @@ uv run pytest -m "not live"
 [test_inventory_rules.py](../tests/test_inventory_rules.py) runs the same
 questions offline over hand-built objects that cover every branch.
 
-After changing `inventory-objects.toml`, refresh the offline fixture with
+After changing `inventory-objects.toml`, refresh the offline fixture (this reads
+the live KM, so it needs credentials) with
 `uv run python tests/fixtures/build_inventory_fixture.py`
 so `tests/fixtures/inventory_km.json` uses the same records and fields.
 
@@ -117,11 +118,19 @@ again, and review the diff rather than editing generated files.
 For each object type the generator emits a frozen definition dataclass of
 `Field`s (`definitions.py`), a frozen value dataclass (`objects.py`), and, for
 declared links, `Links` and `Relations` classes (`links.py`). `objects.py` and
-`links.py` import each other and resolve names only at call time. Generator
-version 10 uses runtime API version 7; older packages (including those with
-`capture.json`/`schema.json` sidecars) fail at import with a regeneration
-message, and a pull replaces them. The installer recognizes its own output by
-the `__celofast__` stamp in `__init__.py`.
+`links.py` import each other and resolve names only at call time.
+
+Compatibility has one checkpoint: `definitions.py` calls
+`require_runtime(RUNTIME_API_VERSION)`, so a package generated for another
+runtime fails at import with a regeneration message. Bump
+`RUNTIME_API_VERSION` in `celofast/sdk/loading.py` whenever generated code
+needs a different runtime. There are no shims for older layouts; regenerate
+instead.
+
+The installer recognizes its own output by the `__celofast__` stamp in
+`__init__.py` (`managed_by` and the KM `source`). It refuses directories without
+the stamp, directories containing other files, and packages pulled from a
+different KM. Delete such a directory to regenerate it.
 
 Run `uv run celofast km pull inventory --check` in an application that has that
 KM configured to verify drift. This is a cloud read and needs its credentials;

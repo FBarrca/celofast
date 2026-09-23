@@ -7,7 +7,7 @@ Generate the offline definitions before the first run or after KM changes:
 
 from datetime import date, timedelta
 
-from celofast import CeloFast
+from celofast import CeloFast, KnowledgeModelClient
 from celofast.sdk import ObjectPage
 from generated.inventory import (
     MaterialMasterPlant,
@@ -23,7 +23,7 @@ from generated.inventory import (
 AS_OF = date(2026, 9, 23)  # Example planning date.
 
 
-def at_risk_materials(client, as_of: date):
+def at_risk_materials(client: KnowledgeModelClient[inventory], as_of: date):
     """German, non-discontinued material-plants below safety stock with no firm supply soon."""
     horizon = as_of + timedelta(days=14)
 

@@ -20,7 +20,6 @@ from celofast.sdk.capture import Capture
 from celofast.sdk.loading import RUNTIME_API_VERSION
 from celofast.sdk.mapping import MappingConfig, ModelSpec, ObjectSpec, normalize
 
-GENERATOR_VERSION = 10
 PACKAGE_FILES = (
     "__init__.py",
     "definitions.py",
@@ -202,13 +201,13 @@ def _links(model: ModelSpec) -> str:
 
 
 def stamp(capture: Capture) -> dict[str, Any]:
-    """Ownership and provenance recorded in every generated ``__init__.py``."""
-    return {
-        "managed_by": "celofast.km",
-        "runtime_api": RUNTIME_API_VERSION,
-        "generator_version": GENERATOR_VERSION,
-        "source": capture.source.model_dump(),
-    }
+    """Ownership and provenance recorded in every generated ``__init__.py``.
+
+    The installer reads it to recognize its own output and to refuse replacing
+    a package pulled from a different KM. Runtime compatibility is checked
+    separately, by ``require_runtime`` in ``definitions.py``.
+    """
+    return {"managed_by": "celofast.km", "source": capture.source.model_dump()}
 
 
 def _init(model: ModelSpec, capture: Capture) -> str:

@@ -1,11 +1,12 @@
-"""Refresh tests/fixtures/inventory_km.json from generated/inventory/capture.json.
+"""Refresh tests/fixtures/inventory_km.json from the live Inventory KM.
 
-Run from the repository root after `uv run celofast km pull inventory`:
+Run from the repository root with Celonis credentials configured (.env):
     uv run python tests/fixtures/build_inventory_fixture.py
 
-Keeps the records mapped in inventory-objects.toml (with only the metadata
-generation needs), reduces other records to stubs, and replaces tenant
-identifiers so the fixture contains no tenant data.
+Captures the KM configured as `inventory` in pyproject.toml, keeps the records
+mapped in inventory-objects.toml (with only the metadata generation needs),
+reduces other records to stubs, and replaces tenant identifiers so the fixture
+contains no tenant data.
 """
 
 import json
@@ -15,8 +16,19 @@ try:
 except ImportError:  # Python 3.10
     import tomli as tomllib  # type: ignore[no-redef]
 
-real = json.load(open("generated/inventory/capture.json", encoding="utf-8"))
-mapping = tomllib.load(open("inventory-objects.toml", "rb"))
+from celofast import CeloFast
+from celofast.sdk.capture import retrieve
+
+settings = tomllib.load(open("pyproject.toml", "rb"))["tool"]["celofast"]["knowledge-models"]["inventory"]
+mapping = tomllib.load(open(settings["mapping"], "rb"))
+cf = CeloFast(settings["space-id"], settings["package-id"], mode=settings["mode"])
+capture = retrieve(
+    cf._resolver.knowledge_model(settings["key"]),
+    space_id=settings["space-id"],
+    package_id=settings["package-id"],
+    mode=settings["mode"],
+)
+real = {"definition": capture.to_dict()}
 KEEP_KEYS = {"id", "displayName", "description", "type", "pql", "columnName", "columnType", "identifier"}
 
 

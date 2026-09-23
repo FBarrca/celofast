@@ -357,19 +357,3 @@ class ObjectModel:
             if object_type.fields.object_type == object_type_id:
                 return object_type
         raise KeyError(object_type_id)
-
-
-_REMOVED = frozenset({"KnowledgeModel", "KnowledgeObject", "Record", "Attribute", "KPI", "Filter", "Namespace", "Sort"})
-
-
-def __getattr__(name: str) -> Any:
-    # Packages generated for the removed query runtime import these names
-    # before their version check runs; fail with the regeneration message.
-    if name in _REMOVED:
-        from celofast.sdk.loading import SDKCompatibilityError
-
-        raise SDKCompatibilityError(
-            f"{name} was removed with the KM query API. Generated KM packages now "
-            "contain object classes; rerun celofast km pull and restart Python."
-        )
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

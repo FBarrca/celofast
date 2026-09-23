@@ -221,14 +221,12 @@ def test_invalid_mappings_write_nothing(tmp_path):
     assert files(target) == before
 
 
-@pytest.mark.parametrize("runtime", [5, 6])
-def test_packages_with_capture_sidecars_are_replaced(tmp_path, runtime):
+def test_foreign_files_block_replacement(tmp_path):
+    # Anything the generator does not write, including sidecars from older
+    # layouts, is left alone; delete the directory to regenerate it.
     target = tmp_path / "inventory"
-    target.mkdir()
-    (target / "__init__.py").write_text("from celofast.sdk.objects import KnowledgeModel")
-    (target / "capture.json").write_text(capture().to_json())
-    (target / "schema.json").write_text(f'{{"managed_by": "celofast.km", "runtime_api": {runtime}}}')
-    (target / "py.typed").write_text("")
-    changes = write_package(capture(), target)
-    assert {"- files/capture.json", "- files/schema.json"} <= {str(c) for c in changes}
-    assert sorted(files(target)) == PACKAGE
+    write_package(capture(), target)
+    (target / "capture.json").write_text("{}")
+    with pytest.raises(CaptureError, match="unrelated files.*capture.json"):
+        write_package(capture("changed"), target)
+    assert (target / "capture.json").read_text() == "{}"

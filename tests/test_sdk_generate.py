@@ -10,7 +10,6 @@ import pytest
 from celofast.exceptions import ObjectMappingError
 from celofast.sdk import Field, ObjectModel
 from celofast.sdk.generate import PACKAGE_FILES, generate
-from celofast.sdk.loading import SDKCompatibilityError
 from celofast.sdk.mapping import _names, normalize
 
 from objects_fixture import MAPPING, attribute, capture, load, write
@@ -117,11 +116,9 @@ def test_package_is_self_contained_python(tmp_path):
     assert module.Plant.fields.metadata == {"displayName": "Plant", "description": None}
     assert module.Plant.fields.model is info is module.Material.fields.model
 
-    # The stamp identifies generated output and its source.
+    # The stamp identifies generated output and its source; nothing else.
     assert module.__celofast__ == {
         "managed_by": "celofast.km",
-        "runtime_api": 7,
-        "generator_version": 10,
         "source": capture().source.model_dump(),
     }
 
@@ -264,9 +261,3 @@ def test_an_id_in_several_collections_must_be_excluded():
         "id_attribute_2", "id_attribute", "id_attribute_1",
         "number_name_attribute_1", "number_name_attribute_2", "key_attribute",
     ]
-
-
-@pytest.mark.parametrize("name", ["KnowledgeModel", "Record", "Attribute", "KPI", "Filter", "Namespace"])
-def test_packages_generated_for_the_query_api_fail_with_regeneration_message(name):
-    with pytest.raises(SDKCompatibilityError, match="rerun celofast km pull"):
-        exec(f"from celofast.sdk.objects import {name}", {})
