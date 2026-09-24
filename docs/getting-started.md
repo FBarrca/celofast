@@ -100,21 +100,18 @@ mode = "draft"
 output = "generated/inventory"
 ```
 
-Check what the KM needs before anything is generated:
-
-```bash
-uv run celofast km pull inventory --check
-```
-
-Generation requires a verified key for every generated object type. The command
-lists each record, key, type, and relationship that needs a mapping entry or an
-explicit exclusion; add them under
-`[tool.celofast.knowledge-models.inventory.mapping]` as shown in
-[Describe your objects](knowledge-model-sdk.md#1-describe-your-objects). Then:
+Generate the object package. Object types, keys, field types, and links are
+derived from the KM and its Data Model; no mapping is needed:
 
 ```bash
 uv run celofast km pull inventory
 ```
+
+The command shows progress while it reads Data Model columns and test-runs
+calculated attributes, then prints how many object types and links it
+generated. Anything it skipped is listed under `# Not generated:` in the
+generated `definitions.py`. To rename links or change other derived choices, see
+[Overrides](knowledge-model-sdk.md#overrides).
 
 ## 5. Retrieve your first objects
 

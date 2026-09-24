@@ -40,12 +40,13 @@ Every read returns complete, validated, immutable objects.
 | `plant.links.materials` | A typed relationship collection, `ObjectCollection[MaterialMasterPlant]` |
 | `material.links.plant` | A typed to-one relationship, `ToOne[Plant]` |
 
-The examples use the mapping below; your class and field names derive from
-your KM and mapping.
+Class, field, and link names derive from your KM and its Data Model; the
+examples use the Inventory Management KM.
 
-## 1. Describe your objects
+## 1. Register your KM
 
-Register the KM and its object mapping in your application's `pyproject.toml`:
+Register the KM in your application's `pyproject.toml`. No object mapping is
+needed:
 
 ```toml
 [tool.celofast.knowledge-models.inventory]
@@ -54,61 +55,94 @@ package-id = "PACKAGE_ID"
 key = "inventory-km"
 mode = "draft"
 output = "generated/inventory"
+```
 
-[tool.celofast.knowledge-models.inventory.mapping]
-# Records that are not business objects (event logs, helper tables, ...).
-exclude = ["EL_CELONIS_DELIVERYLINE", "MLFLOW_RUNS"]
+### What pull derives from Celonis
 
-[tool.celofast.knowledge-models.inventory.mapping.objects.O_CELONIS_PLANT]
-class = "Plant"                        # optional; defaults to the display name
-key = ["ID"]                           # attribute IDs; several IDs form a composite key
+| Generated | Derived from |
+| --- | --- |
+| Object types | Every KM record that reads one Data Model table with a primary key. Event logs and tables without a primary key are skipped. |
+| Class names | The table name without its lowercase namespace prefix: `o_celonis_PurchaseDocumentLine` becomes `PurchaseDocumentLine`. |
+| Keys | The table's primary key columns (a tuple for composite keys); otherwise the record's declared KM identifier. |
+| Field types | Data Model column types for plain columns; the Celonis result schema, then the KM `columnType`, for calculated attributes. |
+| Fields | Every attribute with an expression and a known type. Attributes projecting the same expression load once. |
+| Links | Each Data Model foreign key between two generated types gives a to-one link on the many side, named after the key column (`Header_ID` becomes `header`), and a to-many link on the one side, named after the plural target class (`purchase_document_lines`). A clashing to-many name gets the column as suffix: `materials_by_origin`. |
 
-[tool.celofast.knowledge-models.inventory.mapping.objects.O_CELONIS_PLANT.links.materials]
+Celonis `DATE` columns hold timestamps, so they load as `datetime`. Their
+filters also accept a `date`, meaning its midnight:
+`PlannedSupply.fields.order_finish_date.gte(date(2026, 9, 23))`.
+
+Pull also test-runs every calculated attribute against a sample of rows
+(plain Data Model columns are not probed). Attributes that fail in Celonis, or
+return values that do not match their type, are skipped. A failing attribute is
+isolated by splitting the query, so one broken formula never hides the others.
+
+Nothing automatic stops a pull. Everything that is not generated is listed with
+its reason at the top of the generated `definitions.py`, under
+`# Not generated:`, and the command prints a one-line summary.
+
+### Overrides
+
+`mapping` holds optional overrides, inline or as a path to a TOML file relative
+to `pyproject.toml`. Record IDs and attribute IDs are the captured KM IDs:
+
+```toml
+[tool.celofast.knowledge-models.inventory]
+# ...
+mapping = "inventory-objects.toml"
+```
+
+```toml
+# inventory-objects.toml
+exclude = ["O_CELONIS_CURRENCYCONVERSION"]   # records not to generate
+
+[objects.O_CELONIS_PLANT]
+class = "Site"                               # instead of the derived class name
+key = ["ID"]                                 # instead of the primary key
+exclude-fields = ["NumberNameConcat"]        # attributes not to load
+include-fields = ["NetAmountConverted"]      # keep ${input} placeholders; bind at runtime
+types = { OpenedOn = "date" }                # force a type, e.g. a strict date
+
+# Rename an automatic link (same target, cardinality, and columns) ...
+[objects.O_CELONIS_PLANT.links.materials]
 target = "O_CELONIS_MATERIALMASTERPLANT"
 cardinality = "many"
-on = { ID = "PLANT_ID" }               # source attribute ID -> target attribute ID
+on = { ID = "PLANT_ID" }                     # source attribute ID -> target attribute ID
 
-[tool.celofast.knowledge-models.inventory.mapping.objects.O_CELONIS_MATERIALMASTERPLANT]
-class = "MaterialMasterPlant"
-key = ["ID"]
-exclude-fields = ["SafetyStockLevelFormatted"]     # not loaded
-types = { CurrentValuatedStockQuantity = "float" } # declare a missing type
-
-[tool.celofast.knowledge-models.inventory.mapping.objects.O_CELONIS_MATERIALMASTERPLANT.links.plant]
+# ... or add one no foreign key declares (a to-one link joins with LOOKUP).
+[objects.O_CELONIS_PURCHASESCHEDULELINE.links.plant]
 target = "O_CELONIS_PLANT"
 cardinality = "one"
 on = { PLANT_ID = "ID" }
 ```
 
-`mapping` may instead be a path to a TOML file with the same `exclude` and
-`objects` keys, relative to `pyproject.toml`. The object IDs are captured record
-IDs; field references are captured attribute IDs.
+Only overrides are checked strictly. An override that names an unknown record or
+attribute, sets a key that is not a loaded `str`, `int`, `date`, or `datetime`
+field, repeats a class name, or declares a to-one link that does not map exactly
+the target key raises `ObjectMappingError`, and nothing is written.
 
-### Generation is strict
+Every field is `T | None` except key fields, which are never null. Celofast
+never infers a key from a field *name*, and a record's ID is never an instance's
+key.
 
-Every captured record must become an identified object type or be excluded.
-`celofast km pull` lists every gap at once and generates nothing until each is
-resolved:
+Calculated field types are resolved from the Celonis result schema during pull,
+including empty or all-null results when a schema is returned. This schema takes
+precedence over missing or incorrect KM `columnType` metadata; explicit `types`
+overrides and Data Model column types retain priority. Discovered types are saved
+separately from the source definition; offline generation uses that snapshot.
 
-| Situation | Required action |
-| --- | --- |
-| Record declares no identifier | Set `key`, or add the record to `exclude`. |
-| Identifier expression matches no loaded attribute | Set `key`. |
-| Attribute has no or an unknown `columnType` | Declare it in `types`, or add it to `exclude-fields`. |
-| Attribute has no expression | Add it to `exclude-fields`. |
-| Attribute ID appears in several collections | Add it to `exclude-fields`. |
-| Key attribute is a `float` or `bool` | Choose another key. Keys are `str`, `int`, `date`, or `datetime`. |
-| To-one link does not map exactly the target key | Map the key, or use `cardinality = "many"`. |
-| Link fields differ in type or are not loaded | Fix the mapping. |
+During pull, references to calculated attributes and parameterless KPIs that
+depend on KM inputs are expanded locally and their captured defaults are bound
+as PQL values. Text
+defaults are quoted, including when the source formula omitted quotes. The
+generated field uses the same expression that pull validated; the live KM is
+never edited. Repull after changing those defaults. Missing defaults are
+reported, and `include-fields` retains placeholders for explicit runtime bindings.
 
-A record whose declared KM identifier resolves to a loaded attribute needs no
-mapping entry. Celonis often projects the identifier as several attributes (for
-example `ID` and `IDENTIFIER_AS_ATTRIBUTE`); matching expressions are the same
-column, and the first in captured order becomes the key. Celofast never infers
-a key from a field *name*, and a record's ID is never an instance's key.
-
-Supported value types are `str`, `int`, `float`, `bool`, `date`, and
-`datetime`. Every field is `T | None` except key fields, which are never null.
+A `PU_COUNT` of a source table's single-column primary key can be normalized
+through a unique shared child table using `BIND` and `PU_COUNT_DISTINCT`. This
+counts each related source object once. Ambiguous paths, filtered counts, and
+counts of non-key columns are left unchanged.
 
 ## 2. Pull and import
 

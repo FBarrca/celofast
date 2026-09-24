@@ -32,10 +32,12 @@ SDK.
 ## Steps
 
 1. Upgrade Celofast.
-2. Add a `mapping` for your KM (see
-   [Describe your objects](knowledge-model-sdk.md#1-describe-your-objects)).
-   Run `uv run celofast km pull inventory --check` to list every record, key,
-   type, and relationship that still needs a decision.
+2. Register your KM (see
+   [Register your KM](knowledge-model-sdk.md#1-register-your-km)). Object types,
+   keys, types, and links are derived at pull; a `mapping` is only needed for
+   [overrides](knowledge-model-sdk.md#overrides). Celonis `DATE` fields load as
+   `datetime` (filters still accept a `date`); use `types = { X = "date" }` to
+   keep a strict date.
 3. Run `uv run celofast km pull inventory` and restart Python. Importing a
    package generated for the query API raises `SDKCompatibilityError` with a
    regeneration message.

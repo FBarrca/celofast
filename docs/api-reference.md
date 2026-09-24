@@ -47,14 +47,16 @@ Source: [core.py](../celofast/core.py), [client.py](../celofast/client.py).
 | `Plant.relations.<to_many>.sum(f, p=None)`, `.avg(...)`, `.min(...)`, `.max(...)`, `.median(...)` | `Aggregate` (`PU_SUM`, `PU_AVG`, `PU_MIN`, `PU_MAX`, `PU_MEDIAN` with the upper middle value); NULL without related values. Compares (`eq` … `between`) and sorts like a field. Foreign-key links only. |
 | `plant.key` | Business key; a tuple for composite keys. |
 | `plant.ref` | `ObjectRef(source, object_type, key)`. |
-| `plant.links.<name>` | `ObjectCollection[Target]` (to-many) or `ToOne[Target]` (to-one), declared by the mapping. |
+| `plant.links.<name>` | `ObjectCollection[Target]` (to-many) or `ToOne[Target]` (to-one), derived from a Data Model foreign key or declared as an override. |
 
 Relations exist only for links verified at pull against a Data Model foreign key
 (joins, `BIND`, `PU_COUNT`) or, for single-column to-one links, joinable with
 `LOOKUP`. Every read, including nested relations, is one PQL query.
 
 Value types are `str`, `int`, `float`, `bool`, `date`, and `datetime`. Keys are
-`str`, `int`, `date`, or `datetime`.
+`str`, `int`, `date`, or `datetime`. Celonis `DATE` columns are `datetime`
+fields (`DateTimeField`); their filters also accept a `date`, meaning its
+midnight.
 
 Source: [definitions.py](../celofast/sdk/definitions.py),
 [objects.py](../celofast/sdk/objects.py), [generate.py](../celofast/sdk/generate.py).
@@ -138,8 +140,12 @@ uv run celofast km pull --space-id SPACE_ID --package-id PACKAGE_ID --km invento
 | `--space-id`, `--package-id`, `--km` | Explicit source identifiers, overriding configured values. `--km` is the exact KM key. |
 | `--mode` | `draft` or `published`; defaults to `draft` if not configured. |
 | `--output` | Explicit output path, relative to the working directory. Configured output paths are relative to their `pyproject.toml`. |
-| `--mapping` | TOML file with `exclude` and `objects`; replaces a configured `mapping`. Relative to the working directory. |
+| `--mapping` | Optional TOML file of overrides (`exclude` and `objects`); replaces a configured `mapping`. Relative to the working directory. |
 | `--check` | Read cloud definitions and report drift without changing files. |
+
+Pull reads Data Model tables, primary keys, column types, and foreign keys, and
+test-runs calculated attributes against a sample of rows. Progress goes to
+stderr: a progress bar in a terminal, otherwise one line per step.
 
 Exit codes: **0** means success/up to date; **1** means `--check` detected drift;
 **2** means configuration, retrieval, mapping, generation, or installation failed.
@@ -158,6 +164,6 @@ reports null keys and conflicting values. Generated import compatibility errors 
 `celofast.sdk.loading.SDKCompatibilityError`, an `ImportError` subclass.
 
 Object reads and View execution preserve native exception types and cause
-chains. Celofast validates mappings, predicates, identity, and values;
+chains. Celofast validates overrides, predicates, identity, and values;
 Celonis validates PQL syntax and semantics. Use the
 [troubleshooting table](troubleshooting.md) to identify the failing layer.

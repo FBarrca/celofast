@@ -1,33 +1,38 @@
-"""Normalize captured records and an explicit mapping into object specifications.
+"""Derive object specifications from a KM capture and its Data Model.
 
-Every captured record becomes an object type with a verified key or is
-explicitly excluded. Every attribute of a generated type needs an expression
-and a known value type, or an explicit exclusion. Relationships exist only when
-declared with a target, cardinality, and field mapping. Nothing falls back to a
-weaker contract: all problems are reported together as ``ObjectMappingError``.
+A record becomes an object type when it reads a plain Data Model table with a
+primary key (event logs excepted). Its class is named after the table, its key
+is the primary key, and its fields are the attributes that have an expression
+and a known type: Data Model column types for plain columns, the captured result
+schema (falling back to the KM's declared type) for calculated attributes. Celonis
+``DATE`` values are timestamps and load as ``datetime``. Each Data Model foreign
+key between two generated types gives a to-one and a to-many link. Anything that
+cannot be generated is skipped and reported as a diagnostic; nothing is guessed
+from names.
 
-Mapping shape (TOML, under ``[tool.celofast.knowledge-models.<name>.mapping]``
-or in a separate file)::
+An optional mapping overrides the derived model (TOML, under
+``[tool.celofast.knowledge-models.<name>.mapping]`` or in a separate file)::
 
-    exclude = ["EL_CELONIS_DELIVERYLINE"]
+    exclude = ["O_CELONIS_STOCKHISTORY"]  # records not generated
 
     [objects.O_CELONIS_PLANT]
-    class = "Plant"                      # optional generated class name
-    key = ["ID"]                         # attribute IDs; composite keys allowed
-    exclude-fields = ["LEGACY"]          # attributes not loaded
-    types = { PLANTNUMBER = "str" }      # declare or override value types
+    class = "Site"                        # class name instead of the table's
+    key = ["ID"]                          # key instead of the primary key
+    exclude-fields = ["LEGACY"]           # attributes not loaded
+    include-fields = ["LEAD_TIME"]        # load attributes using ${...} inputs
+    types = { PLANTNUMBER = "str" }       # value types instead of declared ones
 
-    [objects.O_CELONIS_PLANT.links.materials]
-    target = "O_CELONIS_MATERIALMASTERPLANT"
-    cardinality = "many"                 # or "one"; "one" must target the key
-    on = { ID = "PLANT_ID" }             # source attribute ID -> target attribute ID
+    [objects.O_CELONIS_PLANT.links.materials]  # rename an automatic link,
+    target = "O_CELONIS_MATERIALMASTERPLANT"   # or declare one without a
+    cardinality = "many"                       # foreign key (LOOKUP joins
+    on = { ID = "PLANT_ID" }                   # to-one links by value)
 """
 
 from __future__ import annotations
 
 import keyword
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -36,6 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from celofast.exceptions import ObjectMappingError
 from celofast.sdk.capture import Capture
 from celofast.sdk.definitions import ObjectDefinition
+from celofast.sdk.expressions import Expressions
 from celofast.sdk.hydration import KEY_TYPES, ValueType
 from celofast.sdk.objects import Links, Object, Relations
 
@@ -49,9 +55,19 @@ _DECLARED_TYPES: dict[str, ValueType] = {
     "boolean": "bool",
     "integer": "int",
     "float": "float",
-    "date": "date",
+    # Celonis DATE values are timestamps; strict dates need a types override.
+    "date": "datetime",
     "datetime": "datetime",
 }
+_DM_TYPES: dict[str, ValueType] = {
+    "STRING": "str",
+    "INTEGER": "int",
+    "FLOAT": "float",
+    "BOOLEAN": "bool",
+    "DATE": "datetime",
+}
+_COMMENTS = re.compile(r"--.*?$|/\*[\s\S]*?\*/", re.MULTILINE)
+_VARIABLE = re.compile(r"\$\{\w+\}")
 RESERVED_FIELDS = frozenset(
     {name for name in {*dir(Object), *dir(ObjectDefinition)} if not name.startswith("__")}
     | {"key", "ref", "links", "relations", "fields", "model", "object_type", "metadata"}
@@ -59,6 +75,9 @@ RESERVED_FIELDS = frozenset(
     | {"str", "int", "float", "bool", "tuple"}
 )
 _RESERVED_CLASSES = frozenset({"ClassVar", "Path", "Any"})
+_RESERVED_LINKS = frozenset(
+    name for name in {*dir(Links), *dir(Relations)} if not name.startswith("__")
+)
 
 
 class _Strict(BaseModel):
@@ -76,6 +95,7 @@ class ObjectConfig(_Strict):
     key: list[str] | None = Field(None, min_length=1)
     types: dict[str, ValueType] = {}
     exclude_fields: list[str] = Field([], alias="exclude-fields")
+    include_fields: list[str] = Field([], alias="include-fields")
     links: dict[str, LinkConfig] = {}
 
 
@@ -253,9 +273,13 @@ def _spelling(record: dict[str, Any], path: tuple[str | int, ...], attribute_id:
     Catalog attribute IDs are often upper case (ISDISCONTINUED) while their
     column is IsDiscontinued; the column's casing yields is_discontinued.
     """
-    column = _attribute(record, path).get("columnName")
-    if isinstance(column, str) and column.upper() == attribute_id.upper():
-        return column
+    attribute = _attribute(record, path)
+    column_name = attribute.get("columnName")
+    if not isinstance(column_name, str):
+        found = column(attribute.get("pql", ""))
+        column_name = found[1] if found else None
+    if isinstance(column_name, str) and column_name.casefold() == attribute_id.casefold():
+        return column_name
     return attribute_id
 
 
@@ -284,8 +308,58 @@ def _segments(items: Any, expected_type: str) -> list[tuple[str | int, dict[str,
     ]
 
 
-def normalize(capture: Capture, mapping: Mapping[str, Any] | MappingConfig | None = None) -> ModelSpec:
-    """Resolve identity, value types, and relationships, or report every gap."""
+def _dm_type(value: Any) -> ValueType | None:
+    """A Data Model column type; Celonis DATE columns hold timestamps."""
+    return _DM_TYPES.get(value.upper()) if isinstance(value, str) else None
+
+
+def _uses_variables(expression: str) -> bool:
+    return _VARIABLE.search(_COMMENTS.sub("", expression)) is not None
+
+
+def table_class_name(table: str) -> str:
+    """``o_celonis_PurchaseDocumentLine`` -> ``PurchaseDocumentLine``.
+
+    Leading lowercase namespace segments (``o``, ``celonis``, ``r``...) are
+    dropped; the rest keeps its casing.
+    """
+    parts = table.split("_")
+    while len(parts) > 1 and parts[0].islower():
+        parts.pop(0)
+    return "".join(part[:1].upper() + part[1:] for part in parts if part)
+
+
+def _plural(name: str) -> str:
+    if name.endswith("s"):
+        return name  # Already plural, e.g. relationship_bill_of_materials.
+    if name.endswith("y") and name[-2:-1] not in ("a", "e", "i", "o", "u"):
+        return name[:-1] + "ies"
+    if name.endswith(("x", "ch", "sh")):
+        return name + "es"
+    return name + "s"
+
+
+def _stem(column_name: str) -> str:
+    """``Header_ID`` -> ``header``; empty for a bare ``ID``."""
+    stem = re.sub(r"_?id$", "", column_name, flags=re.IGNORECASE)
+    return python_name(stem) if stem else ""
+
+
+_Attribute = tuple[str, tuple[str | int, ...], dict[str, Any], str]
+_Draft = tuple[str, tuple[str | int, ...], dict[str, Any], list[tuple[str, tuple[str | int, ...], ValueType, str]], tuple[str, ...], "str | None"]
+
+
+def normalize(
+    capture: Capture, mapping: Mapping[str, Any] | MappingConfig | None = None,
+    *, _resolve_type: Callable[[str, str, str], ValueType | None] | None = None,
+) -> ModelSpec:
+    """Derive object types, keys, fields, and links; apply optional overrides.
+
+    Automatic decisions never fail: anything that cannot be generated is
+    skipped and reported in ``ModelSpec.diagnostics``. Only overrides that
+    refer to unknown records or attributes, or are otherwise invalid, raise
+    ``ObjectMappingError``.
+    """
     config = parse_mapping(mapping)
     errors: list[str] = []
     diagnostics: list[str] = []
@@ -299,16 +373,25 @@ def normalize(capture: Capture, mapping: Mapping[str, Any] | MappingConfig | Non
             errors.append(f"{rid}: mapped or excluded, but no such record was captured.")
     for rid in sorted(set(config.exclude) & set(config.objects)):
         errors.append(f"{rid}: both mapped and excluded; choose one.")
+    tables = capture.tables or {}
+    table_names = {name.lower(): name for name in tables}
+    rejected = capture.validation
+    expressions = Expressions(capture)
 
-    drafts: list[tuple[str, tuple[str | int, ...], dict[str, Any], list[tuple[str, tuple[str | int, ...], ValueType, str]], tuple[str, ...]]] = []
+    drafts: list[_Draft] = []
     for rid, (segment, record) in sorted(records.items()):
         if rid in config.exclude:
             continue
         explicit = rid in config.objects
         settings = config.objects.get(rid, _UNMAPPED)
-        problems: list[str] = []
         path: tuple[str | int, ...] = ("records", segment)
-        attributes: list[tuple[str, tuple[str | int, ...], dict[str, Any], str]] = []
+        table = _table(record.get("pql"))
+        dm_table = tables.get(table_names.get(table.lower(), "")) if table else None
+        if record.get("isActivityTable") and not explicit:
+            diagnostics.append(f"{rid}: event log; not an object type.")
+            continue
+
+        attributes: list[_Attribute] = []
         for collection, suffix in _COLLECTIONS.items():
             for attribute_segment, attribute in _segments(record.get(collection), "ATTRIBUTE"):
                 attribute_id = attribute.get("id")
@@ -317,80 +400,183 @@ def normalize(capture: Capture, mapping: Mapping[str, Any] | MappingConfig | Non
                     continue
                 attributes.append((attribute_id, (*path, collection, attribute_segment), attribute, suffix))
         known = {attribute_id for attribute_id, *_ in attributes}
-        for name in sorted((set(settings.exclude_fields) | set(settings.types)) - known):
-            problems.append(f"mapping refers to unknown attribute {name!r}")
-        included = [entry for entry in attributes if entry[0] not in settings.exclude_fields]
-        ids = [attribute_id for attribute_id, *_ in included]
-        for attribute_id in sorted({i for i in ids if ids.count(i) > 1}):
-            problems.append(f"attribute {attribute_id!r} is defined in several collections; exclude it")
-        fields: list[tuple[str, tuple[str | int, ...], ValueType, str]] = []
-        for attribute_id, attribute_path, attribute, suffix in included:
-            pql = attribute.get("pql")
-            if not isinstance(pql, str) or not pql.strip():
-                problems.append(f"attribute {attribute_id!r} has no expression; add it to exclude-fields")
-                continue
-            declared = attribute.get("columnType")
-            value_type = settings.types.get(attribute_id) or _DECLARED_TYPES.get(
-                declared.lower() if isinstance(declared, str) else ""
+        referenced = set(settings.exclude_fields) | set(settings.types) | set(settings.include_fields)
+        for name in sorted(referenced - known):
+            errors.append(f"{rid}: mapping refers to unknown attribute {name!r}.")
+
+        def column_of(attribute: dict[str, Any]) -> str | None:
+            """The column name when the attribute is a plain column of this record's table."""
+            expression = attribute.get("pql")
+            found = column(expression) if isinstance(expression, str) else None
+            if found is None or table is None or found[0].lower() != table.lower():
+                return None
+            return found[1]
+
+        # Collapse only casing variants of the same attribute and expression.
+        # Distinct KM names remain distinct even when they project one column.
+        def priority(entry: _Attribute) -> tuple[bool, bool]:
+            own_column = column_of(entry[2])
+            return (
+                own_column == entry[0],
+                own_column is not None and own_column.casefold() == entry[0].casefold(),
             )
-            if value_type is None:
-                problems.append(
-                    f"attribute {attribute_id!r} has unknown type {declared!r}; "
-                    "declare it in types or add it to exclude-fields"
+
+        chosen: dict[tuple[str, str], _Attribute] = {}
+        attribute_candidates: list[_Attribute] = []
+        for entry in attributes:
+            attribute_id, _, attribute, _ = entry
+            if attribute_id in settings.exclude_fields:
+                continue
+            expression = attribute.get("pql")
+            if not isinstance(expression, str) or not expression.strip():
+                diagnostics.append(f"{rid}.{attribute_id}: no expression; not generated.")
+                continue
+            normalized = (attribute_id.casefold(), expression.strip())
+            current = chosen.get(normalized)
+            if current is None or priority(entry) > priority(current):
+                chosen[normalized] = entry
+            attribute_candidates.append(entry)
+        included = []
+        # An ID must name one field; a repeat in a later collection is reported.
+        first_collection: dict[str, str | int] = {}
+        for entry in attribute_candidates:
+            if entry != chosen[(entry[0].casefold(), entry[2]["pql"].strip())]:
+                continue
+            collection = entry[1][-2]
+            if entry[0] in first_collection:
+                diagnostics.append(
+                    f"{rid}.{collection}.{entry[0]}: ID also defined in "
+                    f"{first_collection[entry[0]]}; not generated."
                 )
                 continue
+            first_collection[entry[0]] = collection
+            included.append(entry)
+
+        fields: list[tuple[str, tuple[str | int, ...], ValueType, str]] = []
+        for attribute_id, attribute_path, attribute, suffix in included:
+            expression = attribute["pql"]
+            if _uses_variables(expression) and attribute_id not in settings.include_fields:
+                diagnostics.append(
+                    f"{rid}.{attribute_id}: uses KM input variables; add it to include-fields "
+                    "to load it."
+                )
+                continue
+            try:
+                expression = expressions.resolve(
+                    expression, bind_defaults=attribute_id not in settings.include_fields,
+                )
+            except ValueError as exc:
+                diagnostics.append(f"{rid}.{attribute_id}: {exc}; not generated.")
+                continue
+            if _uses_variables(expression) and attribute_id not in settings.include_fields:
+                diagnostics.append(
+                    f"{rid}.{attribute_id}: calculated dependency needs KM input values; "
+                    "set input defaults or add it to include-fields."
+                )
+                continue
+            reason = rejected.get(rid, {}).get(attribute_id)
+            if reason is not None and attribute_id not in settings.types:
+                diagnostics.append(f"{rid}.{attribute_id}: {reason}; not generated.")
+                continue
+            own_column = column_of(attribute)
+            declared = attribute.get("columnType")
+            declared_type = _DECLARED_TYPES.get(declared.lower() if isinstance(declared, str) else "")
+            value_type = (
+                settings.types.get(attribute_id)
+                or (_dm_type(dm_table["columns"].get(own_column)) if dm_table and own_column else None)
+                or capture.types.get(expression)
+                or (declared_type if own_column and dm_table is None else None)
+            )
+            # A calculated attribute's declared type can be stale or incorrect.
+            # Prefer the actual result schema; explicit overrides and catalog
+            # column types already took precedence above.
+            if value_type is None and _resolve_type is not None and not _uses_variables(expression):
+                value_type = _resolve_type(rid, attribute_id, expression)
+            value_type = value_type or declared_type
+            if value_type is None:
+                diagnostics.append(f"{rid}.{attribute_id}: unknown type {declared!r}; not generated.")
+                continue
+            attribute["pql"] = expression  # Detached copy; the capture and live KM are unchanged.
             fields.append((attribute_id, attribute_path, value_type, suffix))
         loaded = {attribute_id: value_type for attribute_id, _, value_type, _ in fields}
+        by_column: dict[str, str] = {}
+        for attribute_id, _, attribute, _ in sorted(included, key=priority, reverse=True):
+            own = column_of(attribute)
+            if own is not None and attribute_id in loaded:
+                by_column.setdefault(own.lower(), attribute_id)
+
+        problems: list[str] = []
         key: tuple[str, ...] = ()
         if settings.key is not None:
             key = tuple(settings.key)
+        elif dm_table and dm_table.get("primary_key"):
+            missing = [c for c in dm_table["primary_key"] if c.lower() not in by_column]
+            if missing:
+                problems.append(f"primary key column(s) {', '.join(missing)} are not loaded attributes")
+            else:
+                key = tuple(by_column[c.lower()] for c in dm_table["primary_key"])
         else:
             identifier = record.get("identifier")
             expression = identifier.get("pql") if isinstance(identifier, dict) else None
-            if isinstance(expression, str) and expression.strip():
-                matches = [
-                    attribute_id
-                    for attribute_id, _, attribute, _ in included
-                    if isinstance(attribute.get("pql"), str)
-                    and attribute["pql"].strip() == expression.strip()
-                ]
-                # Celonis also projects the identifier as attributes (for
-                # example ID and IDENTIFIER_AS_ATTRIBUTE). Matching expressions
-                # are the same column, so the first in captured order is used.
-                if matches:
-                    key = (matches[0],)
-                else:
-                    problems.append("declared identifier matches no loaded attribute; set key")
+            matches = [
+                attribute_id
+                for attribute_id, _, attribute, _ in sorted(included, key=priority, reverse=True)
+                if isinstance(expression, str) and expression.strip()
+                and attribute_id in loaded
+                and attribute["pql"].strip() == expression.strip()
+            ]
+            if matches:
+                key = (matches[0],)
             else:
-                problems.append("no declared identifier; set key or exclude the record")
+                problems.append("no primary key or declared identifier")
         if len(set(key)) != len(key):
             problems.append("key repeats an attribute")
         for attribute_id in key:
             if attribute_id not in loaded:
                 problems.append(f"key attribute {attribute_id!r} is not a loaded field")
             elif loaded[attribute_id] not in KEY_TYPES:
-                problems.append(f"key attribute {attribute_id!r} has type {loaded[attribute_id]}; keys need {', '.join(KEY_TYPES)}")
+                problems.append(f"key attribute {attribute_id!r} has type {loaded[attribute_id]}")
         if problems:
-            hint = "" if explicit else " (map it under objects or add it to exclude)"
-            errors.extend(f"{rid}{hint}: {problem}." for problem in problems)
+            if settings.key is not None:
+                errors.extend(f"{rid}: {problem}." for problem in problems)
+            else:
+                diagnostics.extend(f"{rid}: {problem}; not an object type." for problem in problems)
             continue
-        drafts.append((rid, path, record, fields, key))
+        drafts.append((rid, path, record, fields, key, table))
 
     # Names are resolved only after every type is known, so links can use them.
     specs: dict[str, ObjectSpec] = {}
     used_classes: dict[str, str] = {}
-    for rid, path, record, fields, key in drafts:
+    for rid, path, record, fields, key, table in drafts:
         settings = config.objects.get(rid, _UNMAPPED)
-        name = settings.class_name or class_name(str(record.get("displayName") or rid))
-        generated = {name, f"{name}Definition", f"{name}Links", f"{name}Relations"}
-        if not name.isidentifier() or keyword.iskeyword(name) or not name[0].isupper() or name in _RESERVED_CLASSES:
-            errors.append(f"{rid}: class name {name!r} must be a capitalized Python identifier; set class.")
+        candidates = (
+            [settings.class_name] if settings.class_name
+            else [c for c in (
+                table_class_name(table) if table else None,
+                class_name(str(record.get("displayName") or rid)),
+                class_name(rid),
+            ) if c]
+        )
+        name = None
+        for candidate in candidates:
+            generated = {candidate, f"{candidate}Definition", f"{candidate}Links", f"{candidate}Relations"}
+            valid = (
+                candidate.isidentifier() and not keyword.iskeyword(candidate)
+                and candidate[0].isupper() and candidate not in _RESERVED_CLASSES
+            )
+            if valid and not any(other in used_classes for other in generated):
+                name = candidate
+                used_classes.update(dict.fromkeys(generated, rid))
+                break
+        if name is None and settings.class_name and not (
+            settings.class_name.isidentifier() and settings.class_name[0].isupper()
+        ):
+            errors.append(f"{rid}: class name {settings.class_name!r} must be a capitalized Python identifier.")
             continue
-        clashes = sorted(other for candidate in generated for other in [used_classes.get(candidate)] if other)
-        if clashes:
-            errors.append(f"{rid}: class name {name!r} is also used by {', '.join(clashes)}; set class.")
+        if name is None:
+            message = f"{rid}: no free class name among {', '.join(candidates)}"
+            (errors if settings.class_name else diagnostics).append(message + "; set class.")
             continue
-        used_classes.update(dict.fromkeys(generated, rid))
         names = _names(
             [_spelling(record, f[1], f[0]) for f in fields],
             RESERVED_FIELDS,
@@ -404,7 +590,7 @@ def normalize(capture: Capture, mapping: Mapping[str, Any] | MappingConfig | Non
             description=description,
             display_name=_text(record.get("displayName")),
             record_description=_text(record.get("description")),
-            table=_table(record.get("pql")),
+            table=table,
             fields=tuple(
                 FieldSpec(
                     attribute_id,
@@ -422,14 +608,93 @@ def normalize(capture: Capture, mapping: Mapping[str, Any] | MappingConfig | Non
             links=(),
         )
 
-    reserved_links = {
-        name for name in {*dir(Links), *dir(Relations)} if not name.startswith("__")
-    }
+    links = _automatic_links(capture, specs, diagnostics)
+    _declared_links(capture, config, specs, links, errors, diagnostics)
     for rid, spec in list(specs.items()):
-        links = []
+        specs[rid] = ObjectSpec(**{**spec.__dict__, "links": tuple(sorted(links[rid].values(), key=lambda link: link.name))})
+
+    if errors:
+        raise ObjectMappingError(
+            "The KM object mapping has invalid overrides:\n  - " + "\n  - ".join(errors)
+        )
+    return ModelSpec(
+        objects=tuple(specs.values()),
+        excluded=tuple(sorted(config.exclude)),
+        mapping=config,
+        diagnostics=tuple(diagnostics),
+    )
+
+
+def _field_for_column(spec: ObjectSpec, name: str) -> FieldSpec | None:
+    matches = []
+    for field in spec.fields:
+        found = column(field.expression)
+        if found and spec.table and found[0].lower() == spec.table.lower() and found[1].lower() == name.lower():
+            matches.append(field)
+    return max(matches, key=lambda field: (
+        field.key, field.attribute_id == name, field.attribute_id.casefold() == name.casefold(),
+    ), default=None)
+
+
+def _automatic_links(
+    capture: Capture, specs: dict[str, ObjectSpec], diagnostics: list[str]
+) -> dict[str, dict[str, LinkSpec]]:
+    """A to-one and a to-many link for every foreign key between generated types."""
+    by_table = {spec.table.lower(): spec for spec in specs.values() if spec.table}
+    links: dict[str, dict[str, LinkSpec]] = {rid: {} for rid in specs}
+
+    def add(spec: ObjectSpec, name: str, link: LinkSpec, stem: str) -> None:
+        owned = links[spec.record_id]
+        if name in owned or name in _RESERVED_LINKS:
+            name = f"{name}_by_{stem or 'id'}"
+        if name in owned:
+            diagnostics.append(f"{spec.record_id}.links.{name}: name already used; not generated.")
+            return
+        owned[name] = LinkSpec(name, link.target, link.cardinality, link.on, link.join)
+
+    for join in capture.joins or ():
+        one, many = by_table.get(join["one"].lower()), by_table.get(join["many"].lower())
+        if one is None or many is None:
+            continue
+        pairs = []
+        for one_column, many_column in join["columns"]:
+            one_field, many_field = _field_for_column(one, one_column), _field_for_column(many, many_column)
+            if one_field is None or many_field is None or one_field.value_type != many_field.value_type:
+                pairs = []
+                break
+            pairs.append((one_field, many_field))
+        if not pairs or {one_field.name for one_field, _ in pairs} != set(one.key):
+            diagnostics.append(
+                f"{many.record_id} -> {one.record_id}: foreign key does not match loaded key fields; "
+                "no link generated."
+            )
+            continue
+        stem = _stem(join["columns"][0][1]) if len(pairs) == 1 else ""
+        to_one = stem or python_name(one.class_name)
+        add(many, to_one, LinkSpec(to_one, one.record_id, "one",
+                                   tuple((m.name, o.name) for o, m in pairs), "fk"), stem)
+        to_many = _plural(python_name(many.class_name))
+        add(one, to_many, LinkSpec(to_many, many.record_id, "many",
+                                   tuple((o.name, m.name) for o, m in pairs), "fk"), stem)
+    return links
+
+
+def _declared_links(
+    capture: Capture,
+    config: MappingConfig,
+    specs: dict[str, ObjectSpec],
+    links: dict[str, dict[str, LinkSpec]],
+    errors: list[str],
+    diagnostics: list[str],
+) -> None:
+    """Declared links rename a matching automatic link, or add a new one."""
+    for rid, spec in specs.items():
         for link_name, link in sorted(config.objects.get(rid, _UNMAPPED).links.items()):
             where = f"{rid}.links.{link_name}"
-            if not link_name.isidentifier() or keyword.iskeyword(link_name) or link_name.startswith("_") or link_name in reserved_links:
+            if (
+                not link_name.isidentifier() or keyword.iskeyword(link_name)
+                or link_name.startswith("_") or link_name in _RESERVED_LINKS
+            ):
                 errors.append(f"{where}: link name must be a public Python identifier.")
                 continue
             target = specs.get(link.target)
@@ -451,26 +716,19 @@ def normalize(capture: Capture, mapping: Mapping[str, Any] | MappingConfig | Non
             if link.cardinality == "one" and {right.name for _, right in pairs} != set(target.key):
                 errors.append(f"{where}: a to-one link must map exactly the target key ({', '.join(target.key)}).")
                 continue
+            on = tuple((left.name, right.name) for left, right in pairs)
+            owned = links[rid]
+            for automatic in [name for name, existing in owned.items()
+                              if existing.target == link.target and existing.cardinality == link.cardinality
+                              and set(existing.on) == set(on)]:
+                del owned[automatic]  # Renamed by the declaration.
             join = _join(capture.joins, spec, target, link.cardinality, pairs)
             if join is None:
                 diagnostics.append(
                     f"{where}: no Data Model foreign key or lookup path; traversal only, "
                     "no relations predicate."
                 )
-            links.append(LinkSpec(
-                link_name, link.target, link.cardinality,
-                tuple((left.name, right.name) for left, right in pairs), join,
-            ))
-        specs[rid] = ObjectSpec(**{**spec.__dict__, "links": tuple(links)})
-
-    if errors:
-        raise ObjectMappingError(
-            "Cannot generate identified object types. Add a mapping or an explicit "
-            "exclusion for each problem:\n  - " + "\n  - ".join(errors)
-        )
-    return ModelSpec(
-        objects=tuple(specs.values()),
-        excluded=tuple(sorted(config.exclude)),
-        mapping=config,
-        diagnostics=tuple(diagnostics),
-    )
+            if link_name in owned:
+                errors.append(f"{where}: name is already used by an automatic link.")
+                continue
+            owned[link_name] = LinkSpec(link_name, link.target, link.cardinality, on, join)

@@ -22,7 +22,7 @@ import importlib
 import os
 import sys
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -57,6 +57,19 @@ SPEC_DATE = date(2026, 9, 23)  # The planning date used in the documented exampl
 PLAIN = (str, int, float, bool, date, datetime, type(None))
 
 
+def moment(day: date) -> datetime:
+    """Celonis DATE values load as datetimes; a date argument means its midnight."""
+    return day if isinstance(day, datetime) else datetime.combine(day, time())
+
+
+# The object types the documented questions use. Pull generates more (every
+# record with a primary key); they are not loaded here.
+USED = (
+    "MaterialMasterPlant", "PlannedSupply", "Plant", "PurchaseDocument",
+    "PurchaseDocumentLine", "PurchaseScheduleLine", "Vendor",
+)
+
+
 def _purge() -> None:
     for name in list(sys.modules):
         if name.split(".")[0] == "generated":
@@ -65,7 +78,7 @@ def _purge() -> None:
 
 @pytest.fixture(scope="module")
 def km(tmp_path_factory):
-    """Pull the KM with the CLI, import it, connect, and load every object."""
+    """Pull the KM with the CLI, import it, connect, and load every used object."""
     root = tmp_path_factory.mktemp("pulled")
     pull = ["km", "pull", "inventory", "--project", str(ROOT / "pyproject.toml"),
             "--output", str(root / "generated" / "inventory")]
@@ -86,6 +99,8 @@ def km(tmp_path_factory):
     client = CeloFast(source.space_id, source.package_id, mode=source.mode).km(package.km)
     loaded = {}
     for object_type in package.km:
+        if object_type.__name__ not in USED:
+            continue
         items, page = [], client.objects(object_type).fetch_page(page_size=5000)
         while page:
             items += page.items
@@ -150,9 +165,9 @@ def test_pulled_package_declares_the_documented_api(km):
             "safety_stock_quantity": "float", "material_id": "str", "plant_id": "str",
         },
         Plant: {"country": "str"},
-        PlannedSupply: {"is_firm_order": "int", "order_quantity": "float", "order_finish_date": "date"},
+        PlannedSupply: {"is_firm_order": "int", "order_quantity": "float", "order_finish_date": "datetime"},
         PurchaseScheduleLine: {
-            "expected_delivery_date": "date", "received_quantity": "float", "expected_quantity": "float",
+            "expected_delivery_date": "datetime", "received_quantity": "float", "expected_quantity": "float",
         },
         PurchaseDocumentLine: {"is_canceled": "int"},
         PurchaseDocument: {"is_canceled": "int"},
@@ -167,7 +182,7 @@ def test_pulled_package_declares_the_documented_api(km):
     assert isinstance(PurchaseDocument.relations.vendor, ToOneRelation)
     assert isinstance(PurchaseDocumentLine.relations.header, ToOneRelation)
     assert isinstance(PurchaseScheduleLine.relations.purchase_document_line, ToOneRelation)
-    assert all(km.all.values()), "every object type has data"
+    assert all(km.all[name] for name in USED), "every used object type has data"
 
 
 # ---------------------------------------------------------------------------
@@ -204,6 +219,7 @@ def run_at_risk(client, as_of):
 
 
 def covering(supply, as_of):
+    as_of = moment(as_of)
     horizon = as_of + timedelta(days=14)
     return (
         supply.is_firm_order == 1
@@ -328,7 +344,7 @@ def expected_overdue(km, as_of):
     lines = active_external_lines(km)
     matches = [
         s for s in km.all["PurchaseScheduleLine"]
-        if s.expected_delivery_date is not None and s.expected_delivery_date < as_of
+        if s.expected_delivery_date is not None and s.expected_delivery_date < moment(as_of)
         and s.received_quantity is not None and s.expected_quantity is not None
         and s.received_quantity < s.expected_quantity
         and s.purchase_document_line_id in lines
@@ -349,7 +365,7 @@ def test_overdue_external_schedules(km):
 
         # B. Each result satisfies the rule along its relationship path.
         for delivery in overdue.items:
-            assert delivery.expected_delivery_date < as_of
+            assert delivery.expected_delivery_date < moment(as_of)
             assert delivery.received_quantity < delivery.expected_quantity
             line = delivery.links.purchase_document_line.fetch()
             assert line.is_canceled == 0
@@ -519,7 +535,8 @@ def conformance_cases(sdk):
 
 def test_predicate_forms_match_the_oracle(km):
     population = {
-        object_type.fields.object_type: km.all[object_type.__name__] for object_type in km.package.km
+        object_type.fields.object_type: km.all[object_type.__name__]
+        for object_type in km.package.km if object_type.__name__ in USED
     }
     cases = conformance_cases(km.package)
     nonempty = 0

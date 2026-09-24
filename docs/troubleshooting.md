@@ -23,8 +23,8 @@ generated packages, object retrieval, Views, or output writes.
 
 | Symptom | Check / next step |
 | --- | --- |
-| `ObjectMappingError` during pull | Every listed item needs a decision: set a `key`, declare `types`, add `exclude-fields`, exclude the record, or fix a link. See [Generation is strict](knowledge-model-sdk.md#generation-is-strict). |
-| A record you need is only listed as "no declared identifier" | Choose its business key yourself (`key = ["ID"]`, or several attribute IDs for a composite key). Celofast never guesses keys from field names. |
+| `ObjectMappingError` during pull | An override is invalid: it names an unknown record or attribute, sets an unusable key, repeats a class name, or declares a broken link. Fix the listed [overrides](knowledge-model-sdk.md#overrides). |
+| A record or field you need is missing | Look under `# Not generated:` at the top of the generated `definitions.py` for the reason. A record without a primary key needs `key = ["ID"]`; an untyped attribute needs `types`; an attribute with `${...}` inputs needs `include-fields`; an attribute that fails in Celonis must be fixed in the KM, then pulled again. |
 | Pull refuses the output directory | Keep application code outside the managed directory. Use a separate output for a different KM source. |
 | `ModuleNotFoundError` for `generated.inventory` | Run the configured pull and make its output importable from the application's working directory or package. |
 | `SDKCompatibilityError` on import | The package was generated for another runtime (for example the 0.4 query API). Rerun `celofast km pull` and restart Python; keep all generated files together. |

@@ -71,37 +71,44 @@ def capture(**changes):
     }
     # The Data Model joins plants to materials; stock lines have no foreign key,
     # so Plant.links.stock is traversal-only.
-    return Capture.create(SOURCE, layer, joins=JOINS)
+    return Capture.create(SOURCE, layer, joins=JOINS, tables=TABLES)
 
 
 JOINS = [{"one": "o_Plant", "many": "o_Material", "columns": [["ID", "Plant_ID"]]}]
 
+TABLES = {
+    "o_Plant": {
+        "primary_key": ["ID"],
+        "columns": {"ID": "STRING", "Country": "STRING", "Number": "STRING", "Opened": "DATE", "Text": "STRING"},
+    },
+    "o_Material": {
+        "primary_key": ["ID"],
+        "columns": {
+            "ID": "STRING", "Plant_ID": "STRING", "Stock": "FLOAT", "Active": "BOOLEAN",
+            "Updated": "DATE", "Count": "INTEGER", "X": "STRING",
+        },
+    },
+    "o_Stock": {
+        "primary_key": ["Plant_ID", "Day"],
+        "columns": {"Plant_ID": "STRING", "Day": "DATE", "Qty": "INTEGER"},
+    },
+}
 
+# Everything else (keys, types, the materials/plant links) is derived.
 MAPPING = {
-    "exclude": ["EL_LOG"],
     "objects": {
         "O_PLANT": {
+            "types": {"OPENED": "date"},
             "links": {
-                "materials": {
-                    "target": "O_MATERIAL",
-                    "cardinality": "many",
-                    "on": {"ID": "PLANT_ID"},
-                },
                 "stock": {
                     "target": "O_STOCK",
                     "cardinality": "many",
                     "on": {"ID": "PLANT_ID"},
                 },
-            }
-        },
-        "O_MATERIAL": {
-            "key": ["ID"],
-            "types": {"UNTYPED": "str"},
-            "links": {
-                "plant": {"target": "O_PLANT", "cardinality": "one", "on": {"PLANT_ID": "ID"}},
             },
         },
-        "O_STOCK": {"class": "StockLine", "key": ["PLANT_ID", "DAY"]},
+        "O_MATERIAL": {"include-fields": ["STOCK"]},
+        "O_STOCK": {"class": "StockLine"},
     },
 }
 

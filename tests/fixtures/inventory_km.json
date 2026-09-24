@@ -272,6 +272,7 @@
       "description": "Number of incoming Bill of Materials Links of a given material | plant. Indicates the number BOM line items that contribute to producing this material | plant.",
       "displayName": "No. of Incoming Bill of Material Links",
       "id": "NumIncomingBillOfMaterialLinks",
+      "pql": "COALESCE(\n  PU_FIRST(\n    \"o_celonis_MaterialMasterPlant\",\n    CASE WHEN LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = \"o_celonis_MaterialMasterPlant\".\"ID\"\n    THEN\n    BIND(\n      COMMON_TABLE(LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"), \"o_celonis_MaterialMasterPlant\".\"ID\"),\n      PU_COUNT(\n        DOMAIN_TABLE ( LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") ),\n        LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"),\n        LINK_ATTRIBUTES(\"o_celonis_RelationshipBillOfMaterials\".\"ID\") IS NOT NULL\n        AND LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") != LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\")\n      )\n    )\n    END\n  ), 0\n)",
       "type": "ATTRIBUTE"
      },
      {
@@ -280,6 +281,7 @@
       "description": "Number of outgoing Bill of Materials Links of a given material | plant. Indicates the number of BOM line items that consume this material | plant.",
       "displayName": "No. of Outgoing Bill of Material Links",
       "id": "NumOutgoingBillOfMaterialLinks",
+      "pql": "COALESCE(\n  PU_FIRST(\n    \"o_celonis_MaterialMasterPlant\",\n    CASE WHEN LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") = \"o_celonis_MaterialMasterPlant\".\"ID\"\n    THEN\n    BIND(\n      COMMON_TABLE(LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\"), \"o_celonis_MaterialMasterPlant\".\"ID\"),\n      PU_COUNT(\n        DOMAIN_TABLE ( LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") ),\n        LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\"),\n        LINK_ATTRIBUTES(\"o_celonis_RelationshipBillOfMaterials\".\"ID\") IS NOT NULL\n        AND LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") != LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\")\n      )\n    )\n    END\n  ), 0\n)",
       "type": "ATTRIBUTE"
      },
      {
@@ -288,6 +290,7 @@
       "description": null,
       "displayName": "No. of Self-Links",
       "id": "NumSelfBillOfMaterialLinks",
+      "pql": "COALESCE(\n  PU_FIRST(\n  \"o_celonis_MaterialMasterPlant\",\n  CASE WHEN LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = \"o_celonis_MaterialMasterPlant\".\"ID\"\n  THEN\n  BIND(\n    COMMON_TABLE(LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"), \"o_celonis_MaterialMasterPlant\".\"ID\"),\n    PU_COUNT(\n      DOMAIN_TABLE ( LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\")),\n      LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"),\n      LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\")\n    )\n  )\n  END\n), 0)",
       "type": "ATTRIBUTE"
      },
      {
@@ -296,6 +299,7 @@
       "description": null,
       "displayName": "No Self-Links",
       "id": "NoSelfLinkLinkIndicator",
+      "pql": "CASE WHEN \nCOALESCE(\n  PU_FIRST(\n  \"o_celonis_MaterialMasterPlant\",\n  CASE WHEN LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = \"o_celonis_MaterialMasterPlant\".\"ID\"\n  THEN\n  BIND(\n    COMMON_TABLE(LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"), \"o_celonis_MaterialMasterPlant\".\"ID\"),\n    PU_COUNT(\n      DOMAIN_TABLE ( LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\")),\n      LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"),\n      LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\")\n    )\n  )\n  END\n), 0) = 0\nTHEN 'X'\nEND",
       "type": "ATTRIBUTE"
      },
      {
@@ -304,6 +308,7 @@
       "description": null,
       "displayName": "All Node?",
       "id": "AllNode",
+      "pql": "CASE\n  WHEN GREATEST(\n    \"O_CELONIS_MATERIALMASTERPLANT\".\"NumIncomingMaterialDocumentItems\",\n    \"O_CELONIS_MATERIALMASTERPLANT\".\"NumOutgoingMaterialDocumentItems\",\n     \"O_CELONIS_MATERIALMASTERPLANT\".\"NumPurchaseRequisitionLines\",\n    \"O_CELONIS_MATERIALMASTERPLANT\".\"NumSalesOrderScheduleLines\",\n    \"O_CELONIS_MATERIALMASTERPLANT\".\"NumProductionOrders\",\n    \"O_CELONIS_MATERIALMASTERPLANT\".\"NumPlannedOrders\",\n    \"O_CELONIS_MATERIALMASTERPLANT\".\"NumMaterialReservations\",\n    \"O_CELONIS_MATERIALMASTERPLANT\".\"NumMaterialRequirements\"\n  ) > 0\n  THEN 1\nEND",
       "type": "ATTRIBUTE"
      },
      {
@@ -312,6 +317,7 @@
       "description": "No. of Network Streams this Material | Plant combination is part of.",
       "displayName": "No. of Streams",
       "id": "NetworkStreams",
+      "pql": "-- This references the formula made in formula - network streams\nPU_COUNT(\n  \"o_celonis_MaterialMasterPlant\", \nLINK_PATH(\n  \"o_celonis_MaterialMasterPlant\".\"ID\",\n  CONSTRAINED BY(\n    START (CASE\n  WHEN\n    COALESCE(\n  PU_FIRST(\n    \"o_celonis_MaterialMasterPlant\",\n    CASE WHEN LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = \"o_celonis_MaterialMasterPlant\".\"ID\"\n    THEN\n    BIND(\n      COMMON_TABLE(LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"), \"o_celonis_MaterialMasterPlant\".\"ID\"),\n      PU_COUNT(\n        DOMAIN_TABLE ( LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") ),\n        LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"),\n        LINK_ATTRIBUTES(\"o_celonis_RelationshipBillOfMaterials\".\"ID\") IS NOT NULL\n        AND LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") != LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\")\n      )\n    )\n    END\n  ), 0\n) = 0\n     AND COALESCE(\n  PU_FIRST(\n    \"o_celonis_MaterialMasterPlant\",\n    CASE WHEN LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") = \"o_celonis_MaterialMasterPlant\".\"ID\"\n    THEN\n    BIND(\n      COMMON_TABLE(LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\"), \"o_celonis_MaterialMasterPlant\".\"ID\"),\n      PU_COUNT(\n        DOMAIN_TABLE ( LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") ),\n        LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\"),\n        LINK_ATTRIBUTES(\"o_celonis_RelationshipBillOfMaterials\".\"ID\") IS NOT NULL\n        AND LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") != LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\")\n      )\n    )\n    END\n  ), 0\n) > 0\n     AND COALESCE(\n  PU_FIRST(\n  \"o_celonis_MaterialMasterPlant\",\n  CASE WHEN LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = \"o_celonis_MaterialMasterPlant\".\"ID\"\n  THEN\n  BIND(\n    COMMON_TABLE(LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"), \"o_celonis_MaterialMasterPlant\".\"ID\"),\n    PU_COUNT(\n      DOMAIN_TABLE ( LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\")),\n      LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"),\n      LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\")\n    )\n  )\n  END\n), 0) = 0\n     AND PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_PurchaseScheduleLine\".\"ID\") > 0\n  THEN 1\nEND IS NOT NULL),\n    END (CASE\n  WHEN COALESCE(\n  PU_FIRST(\n    \"o_celonis_MaterialMasterPlant\",\n    CASE WHEN LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = \"o_celonis_MaterialMasterPlant\".\"ID\"\n    THEN\n    BIND(\n      COMMON_TABLE(LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"), \"o_celonis_MaterialMasterPlant\".\"ID\"),\n      PU_COUNT(\n        DOMAIN_TABLE ( LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") ),\n        LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"),\n        LINK_ATTRIBUTES(\"o_celonis_RelationshipBillOfMaterials\".\"ID\") IS NOT NULL\n        AND LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") != LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\")\n      )\n    )\n    END\n  ), 0\n) > 0\n    AND COALESCE(\n  PU_FIRST(\n  \"o_celonis_MaterialMasterPlant\",\n  CASE WHEN LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = \"o_celonis_MaterialMasterPlant\".\"ID\"\n  THEN\n  BIND(\n    COMMON_TABLE(LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"), \"o_celonis_MaterialMasterPlant\".\"ID\"),\n    PU_COUNT(\n      DOMAIN_TABLE ( LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\")),\n      LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"),\n      LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\")\n    )\n  )\n  END\n), 0) = 0\n    AND PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_SalesOrderScheduleLine\".\"ID\") > 0\n  THEN 1\nEND IS NOT NULL),\n    ALL (CASE\n  WHEN GREATEST(\n    PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_MaterialMovement\".\"ID\"),\n    PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_PurchaseScheduleLine\".\"ID\"),\n    PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_PurchaseRequisitionLine\".\"ID\"),\n    PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_SalesOrderScheduleLine\".\"ID\"),\n    PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_ProductionOrder\".\"ID\"),\n    PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_PlannedSupply\".\"ID\"),\n    PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_MaterialReservation\".\"ID\"),\n    PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_MaterialRequirement\".\"ID\")\n  ) > 0\n  THEN 1\nEND IS NOT NULL),\n    LENGTH ( <= 30 )\n  )\n)\n)",
       "type": "ATTRIBUTE"
      },
      {
@@ -320,6 +326,7 @@
       "description": null,
       "displayName": "Is Start Node?",
       "id": "IsStartNode",
+      "pql": "CASE\n  WHEN\n    \"O_CELONIS_MATERIALMASTERPLANT\".\"NumIncomingBillOfMaterialLinks\" = 0\n     AND \"O_CELONIS_MATERIALMASTERPLANT\".\"NumOutgoingBillOfMaterialLinks\" > 0\n     AND \"O_CELONIS_MATERIALMASTERPLANT\".\"NumSelfBillOfMaterialLinks\" = 0\n     AND PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_PurchaseScheduleLine\".\"ID\") > 0 \n  THEN 1\nEND",
       "type": "ATTRIBUTE"
      },
      {
@@ -328,6 +335,7 @@
       "description": null,
       "displayName": "Has Outgoing Bill of Material Links",
       "id": "OutgoingBomLinkIndicator",
+      "pql": "CASE WHEN \nCOALESCE(\n  PU_FIRST(\n    \"o_celonis_MaterialMasterPlant\",\n    CASE WHEN LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") = \"o_celonis_MaterialMasterPlant\".\"ID\"\n    THEN\n    BIND(\n      COMMON_TABLE(LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\"), \"o_celonis_MaterialMasterPlant\".\"ID\"),\n      PU_COUNT(\n        DOMAIN_TABLE ( LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") ),\n        LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\"),\n        LINK_ATTRIBUTES(\"o_celonis_RelationshipBillOfMaterials\".\"ID\") IS NOT NULL\n        AND LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") != LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\")\n      )\n    )\n    END\n  ), 0\n) > 0 \nTHEN 'X'\nEND",
       "type": "ATTRIBUTE"
      },
      {
@@ -336,6 +344,7 @@
       "description": null,
       "displayName": "Start Node",
       "id": "StartNode",
+      "pql": "CASE WHEN \nCASE\n  WHEN\n    COALESCE(\n  PU_FIRST(\n    \"o_celonis_MaterialMasterPlant\",\n    CASE WHEN LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = \"o_celonis_MaterialMasterPlant\".\"ID\"\n    THEN\n    BIND(\n      COMMON_TABLE(LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"), \"o_celonis_MaterialMasterPlant\".\"ID\"),\n      PU_COUNT(\n        DOMAIN_TABLE ( LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") ),\n        LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"),\n        LINK_ATTRIBUTES(\"o_celonis_RelationshipBillOfMaterials\".\"ID\") IS NOT NULL\n        AND LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") != LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\")\n      )\n    )\n    END\n  ), 0\n) = 0\n     AND COALESCE(\n  PU_FIRST(\n    \"o_celonis_MaterialMasterPlant\",\n    CASE WHEN LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") = \"o_celonis_MaterialMasterPlant\".\"ID\"\n    THEN\n    BIND(\n      COMMON_TABLE(LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\"), \"o_celonis_MaterialMasterPlant\".\"ID\"),\n      PU_COUNT(\n        DOMAIN_TABLE ( LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") ),\n        LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\"),\n        LINK_ATTRIBUTES(\"o_celonis_RelationshipBillOfMaterials\".\"ID\") IS NOT NULL\n        AND LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") != LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\")\n      )\n    )\n    END\n  ), 0\n) > 0\n     AND COALESCE(\n  PU_FIRST(\n  \"o_celonis_MaterialMasterPlant\",\n  CASE WHEN LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = \"o_celonis_MaterialMasterPlant\".\"ID\"\n  THEN\n  BIND(\n    COMMON_TABLE(LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"), \"o_celonis_MaterialMasterPlant\".\"ID\"),\n    PU_COUNT(\n      DOMAIN_TABLE ( LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\")),\n      LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"),\n      LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\")\n    )\n  )\n  END\n), 0) = 0\n     AND PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_PurchaseScheduleLine\".\"ID\") > 0\n  THEN 1\nEND \nIS NOT NULL \nTHEN 'X'\nEND",
       "type": "ATTRIBUTE"
      },
      {
@@ -344,6 +353,7 @@
       "description": null,
       "displayName": "End Node",
       "id": "EndNodeIndicator",
+      "pql": "\nCASE WHEN \nCASE\n  WHEN COALESCE(\n  PU_FIRST(\n    \"o_celonis_MaterialMasterPlant\",\n    CASE WHEN LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = \"o_celonis_MaterialMasterPlant\".\"ID\"\n    THEN\n    BIND(\n      COMMON_TABLE(LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"), \"o_celonis_MaterialMasterPlant\".\"ID\"),\n      PU_COUNT(\n        DOMAIN_TABLE ( LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") ),\n        LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"),\n        LINK_ATTRIBUTES(\"o_celonis_RelationshipBillOfMaterials\".\"ID\") IS NOT NULL\n        AND LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") != LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\")\n      )\n    )\n    END\n  ), 0\n) > 0\n    AND COALESCE(\n  PU_FIRST(\n  \"o_celonis_MaterialMasterPlant\",\n  CASE WHEN LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = \"o_celonis_MaterialMasterPlant\".\"ID\"\n  THEN\n  BIND(\n    COMMON_TABLE(LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"), \"o_celonis_MaterialMasterPlant\".\"ID\"),\n    PU_COUNT(\n      DOMAIN_TABLE ( LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\")),\n      LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"),\n      LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\")\n    )\n  )\n  END\n), 0) = 0\n    AND PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_SalesOrderScheduleLine\".\"ID\") > 0\n  THEN 1\nEND\nIS NOT NULL \nTHEN 'X'\nEND",
       "type": "ATTRIBUTE"
      },
      {
@@ -352,6 +362,7 @@
       "description": null,
       "displayName": "All Node",
       "id": "AllNodeIndicator",
+      "pql": "\nCASE WHEN \nCASE\n  WHEN GREATEST(\n    PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_MaterialMovement\".\"ID\"),\n    PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_PurchaseScheduleLine\".\"ID\"),\n    PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_PurchaseRequisitionLine\".\"ID\"),\n    PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_SalesOrderScheduleLine\".\"ID\"),\n    PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_ProductionOrder\".\"ID\"),\n    PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_PlannedSupply\".\"ID\"),\n    PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_MaterialReservation\".\"ID\"),\n    PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_MaterialRequirement\".\"ID\")\n  ) > 0\n  THEN 1\nEND IS NOT NULL \nTHEN 'X'\nEND",
       "type": "ATTRIBUTE"
      },
      {
@@ -360,6 +371,7 @@
       "description": null,
       "displayName": "Has Incoming Bill of Material Links",
       "id": "IncomingBomLinkIndicator",
+      "pql": "\nCASE WHEN \nCOALESCE(\n  PU_FIRST(\n    \"o_celonis_MaterialMasterPlant\",\n    CASE WHEN LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = \"o_celonis_MaterialMasterPlant\".\"ID\"\n    THEN\n    BIND(\n      COMMON_TABLE(LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"), \"o_celonis_MaterialMasterPlant\".\"ID\"),\n      PU_COUNT(\n        DOMAIN_TABLE ( LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") ),\n        LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"),\n        LINK_ATTRIBUTES(\"o_celonis_RelationshipBillOfMaterials\".\"ID\") IS NOT NULL\n        AND LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") != LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\")\n      )\n    )\n    END\n  ), 0\n) > 0 \nTHEN 'X'\nEND",
       "type": "ATTRIBUTE"
      },
      {
@@ -368,6 +380,7 @@
       "description": null,
       "displayName": "No Incoming Bill of Material Links",
       "id": "NoIncomingBomLinkIndicator",
+      "pql": "CASE WHEN \nCOALESCE(\n  PU_FIRST(\n    \"o_celonis_MaterialMasterPlant\",\n    CASE WHEN LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") = \"o_celonis_MaterialMasterPlant\".\"ID\"\n    THEN\n    BIND(\n      COMMON_TABLE(LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"), \"o_celonis_MaterialMasterPlant\".\"ID\"),\n      PU_COUNT(\n        DOMAIN_TABLE ( LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\") ),\n        LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\"),\n        LINK_ATTRIBUTES(\"o_celonis_RelationshipBillOfMaterials\".\"ID\") IS NOT NULL\n        AND LINK_SOURCE(\"o_celonis_MaterialMasterPlant\".\"ID\") != LINK_TARGET(\"o_celonis_MaterialMasterPlant\".\"ID\")\n      )\n    )\n    END\n  ), 0\n) = 0 \nTHEN 'X'\nEND",
       "type": "ATTRIBUTE"
      },
      {
@@ -376,6 +389,7 @@
       "description": null,
       "displayName": "Is End Node?",
       "id": "IsEndNode",
+      "pql": "CASE\n  WHEN \"O_CELONIS_MATERIALMASTERPLANT\".\"NumIncomingBillOfMaterialLinks\" > 0\n    AND \"O_CELONIS_MATERIALMASTERPLANT\".\"NumSelfBillOfMaterialLinks\" = 0\n    AND \"O_CELONIS_MATERIALMASTERPLANT\".\"NumSalesOrderScheduleLines\" > 0\n  THEN 1\nEND",
       "type": "ATTRIBUTE"
      },
      {
@@ -384,6 +398,7 @@
       "description": "Combined result of ABC and XYZ analyses for Material-Plant. For more detailed definitions see the respective KPIs for ABC and XYZ classification. ",
       "displayName": "ABC/XYZ Classification",
       "id": "ABCXYZClassification",
+      "pql": "REMAP_VALUES(\n  \"o_celonis_MaterialMasterPlant\".\"ABCClassification\"\n  || \n  \"o_celonis_MaterialMasterPlant\".\"XYZClassification\"\n  ,[NULL, 'Unclassified']\n)",
       "type": "ATTRIBUTE"
      },
      {
@@ -392,6 +407,7 @@
       "description": "Helper KPI to pick a z-value from the standard normal distribution based on desired service level for the computation of the Safety Stock recommendation.",
       "displayName": "Z-Value for Service Level",
       "id": "ZValue",
+      "pql": "GREATEST(\n  0.0\n  ,QNORM(\n    \"o_celonis_MaterialMasterPlant\".\"DesiredServiceLevel\"\n  )\n)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -400,6 +416,7 @@
       "description": "Planned service level for a Material-Plant combination. This KPI computes a potential Service level based on the outcome of XYZ classification.",
       "displayName": "Service Level (XYZ)",
       "id": "ServiceLevelXYZ",
+      "pql": "TO_INT(\n  REMAP_VALUES(\n    \"o_celonis_MaterialMasterPlant\".\"XYZClassification\"\n    ,[NULL, NULL], ['X', '9'], ['Y', '8'], '6'\n  )\n)/10\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -408,6 +425,7 @@
       "description": "Replenishment Lead time Standard Deviation per Material-Plant, considering both production and Purchase based on either average or median.",
       "displayName": "Replenishment Lead Time St. Dev.",
       "id": "StdDevReplenishmentLeadTime",
+      "pql": "WITH[\n  REGISTER @MaterialMasterPlant_STDEV__PurchaseLeadTime AS \n    SQRT(\n      1\n      /\n      PU_COUNT(\n        \"o_celonis_MaterialMasterPlant\"\n        ,BIND(\n          \"o_celonis_PurchaseScheduleLine\"\n          ,\"o_celonis_PurchaseDocumentLine\".\"ID\"\n        )\n        , ISNULL(\"o_celonis_PurchaseDocumentLine\".\"ActualLeadTime\") = 0\n        AND (\n          ROUND(\n            MONTHS_BETWEEN(\n              ROUND_MONTH(\n                \"o_celonis_PurchaseDocumentLine\".\"GoodsReceiptDate\" \n              )\n              ,ROUND_MONTH(\n                TODAY()\n              )\n            )\n          ) BETWEEN 1 AND ${im_consideredpastmonths})\n        )\n        *\n        PU_SUM(\n          \"o_celonis_MaterialMasterPlant\"\n          ,BIND(\n            \"o_celonis_PurchaseScheduleLine\"\n            ,SQUARE(\n              \"o_celonis_PurchaseDocumentLine\".\"ActualLeadTime\"\n              -\n              PU_AVG(\n                \"o_celonis_MaterialMasterPlant\"\n                ,BIND(\n                  \"o_celonis_PurchaseScheduleLine\"\n                  ,\"o_celonis_PurchaseDocumentLine\".\"ActualLeadTime\"\n                )\n                ,(ROUND(\n                  MONTHS_BETWEEN(\n                    ROUND_MONTH(\n                      \"o_celonis_PurchaseDocumentLine\".\"GoodsReceiptDate\" \n                    )\n                    ,ROUND_MONTH(\n                      TODAY()\n                    )\n                  )\n                ) BETWEEN 1 AND ${im_consideredpastmonths})\n              )\n            )\n          )\n          ,(ROUND(\n            MONTHS_BETWEEN(\n              ROUND_MONTH(\n                \"o_celonis_PurchaseDocumentLine\".\"GoodsReceiptDate\" \n              )\n              ,ROUND_MONTH(\n                TODAY()\n              )\n            )\n          ) BETWEEN 1 AND ${im_consideredpastmonths})\n        )\n              \n              )\n            ,REGISTER @MaterialMasterPlant_STDEV__ProductionLeadTime AS\n              SQRT(\n                1\n                /\n                PU_COUNT(\n                  \"o_celonis_MaterialMasterPlant\"\n                  ,\"o_celonis_ProductionOrder\".\"ID\"\n                  , ISNULL(\"O_CELONIS_ProductionOrder\".\"ActualLeadTime\") = 0\n                  AND (\"o_celonis_ProductionOrder\".\"MonthsSinceActualFinish\" BETWEEN 1 AND ${im_consideredpastmonths})\n                )\n                *\n                PU_SUM(\n                  \"o_celonis_MaterialMasterPlant\"\n                  ,SQUARE(\n                    \"O_CELONIS_ProductionOrder\".\"ActualLeadTime\"\n                    -\n                    PU_AVG(\n                      \"o_celonis_MaterialMasterPlant\"\n                      ,BIND( \"o_celonis_ProductionOrder\"\n                      ,\"O_CELONIS_ProductionOrder\".\"ActualLeadTime\" )\n                      ,(\"o_celonis_ProductionOrder\".\"MonthsSinceActualFinish\" BETWEEN 1 AND ${im_consideredpastmonths})\n                    )\n                  ),(\"o_celonis_ProductionOrder\".\"MonthsSinceActualFinish\" BETWEEN 1 AND ${im_consideredpastmonths})\n                )\n              )\n          ]\n          CASE   \n            WHEN \"o_celonis_MaterialMasterPlant\".\"ProcurementType\" = 'External Procurement'\n            THEN @MaterialMasterPlant_STDEV__PurchaseLeadTime\n            WHEN \"o_celonis_MaterialMasterPlant\".\"ProcurementType\" = 'In-house Production'\n            THEN @MaterialMasterPlant_STDEV__ProductionLeadTime\n            WHEN \"o_celonis_MaterialMasterPlant\".\"ProcurementType\" = 'Both Procurement Types' \n            THEN (\n              COALESCE(@MaterialMasterPlant_STDEV__PurchaseLeadTime,@MaterialMasterPlant_STDEV__ProductionLeadTime)\n              + COALESCE(@MaterialMasterPlant_STDEV__ProductionLeadTime,@MaterialMasterPlant_STDEV__PurchaseLeadTime)\n            )/2\n            WHEN \"o_celonis_MaterialMasterPlant\".\"ProcurementType\" IS NULL\n            THEN    \n              LEAST(\n                @MaterialMasterPlant_STDEV__PurchaseLeadTime\n                ,@MaterialMasterPlant_STDEV__ProductionLeadTime\n              ) \n            ELSE NULL\n          END\n\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -416,6 +434,7 @@
       "description": "ABC-classification of all materials based on consumption value. Materials making up 80% of a company's consumption value are classified as A, the next 15% as B, and remaining materials as C. Materials without consumption data are considered Unclassified. ",
       "displayName": "ABC Classification per Material",
       "id": "ABCClassification",
+      "pql": "WITH[\n  REGISTER @MaterialMasterPlant_RunningConsumptionAmountConverted AS \n    RUNNING_SUM(\n      PU_SUM(\n        \"o_celonis_MaterialMasterPlant\"\n        ,\"o_celonis_MaterialMovement\".\"NetAmountConverted\"\n        ,\"o_celonis_MaterialMovement\".\"IsConsumptionRelevant\" = 'Relevant' AND\n        \"o_celonis_MaterialMovement\".\"MovementDirection\" = 'Outgoing' AND\n        \"o_celonis_MaterialMovement\".\"MonthsSinceCreationTime\" BETWEEN 1 AND ${im_consideredpastmonths}\n      )\n      ,ORDER BY (\n        PU_SUM(\n          \"o_celonis_MaterialMasterPlant\"\n          ,\"o_celonis_MaterialMovement\".\"NetAmountConverted\"\n          ,\"o_celonis_MaterialMovement\".\"IsConsumptionRelevant\" = 'Relevant' AND\n          \"o_celonis_MaterialMovement\".\"MovementDirection\" = 'Outgoing' AND\n          \"o_celonis_MaterialMovement\".\"MonthsSinceCreationTime\" BETWEEN 1 AND ${im_consideredpastmonths}\n        ) DESC\n      )\n      ,PARTITION BY (\"o_celonis_Plant\".\"ID\")\n    )\n  ,REGISTER @Plant_ConsumptionAmountConverted AS \n    PU_SUM(\n      \"o_celonis_Plant\"\n      ,\"o_celonis_MaterialMovement\".\"NetAmountConverted\"\n      ,\"o_celonis_MaterialMovement\".\"IsConsumptionRelevant\" = 'Relevant' AND\n      \"o_celonis_MaterialMovement\".\"MovementDirection\" = 'Outgoing' AND\n      \"o_celonis_MaterialMovement\".\"MonthsSinceCreationTime\" BETWEEN 1 AND ${im_consideredpastmonths}\n    )\n]\nCASE \n  WHEN \n    ISNULL(\n      PU_SUM(\n        \"o_celonis_MaterialMasterPlant\"\n        ,\"o_celonis_MaterialMovement\".\"NetAmountConverted\"\n        ,\"o_celonis_MaterialMovement\".\"IsConsumptionRelevant\" = 'Relevant' AND\n        \"o_celonis_MaterialMovement\".\"MovementDirection\" = 'Outgoing' AND\n        \"o_celonis_MaterialMovement\".\"MonthsSinceCreationTime\" BETWEEN 1 AND ${im_consideredpastmonths}\n      )\n    ) = 1\n  THEN NULL\n  WHEN \n    @MaterialMasterPlant_RunningConsumptionAmountConverted <= 0.8 * @Plant_ConsumptionAmountConverted\n  THEN 'A'\n  WHEN \n    @MaterialMasterPlant_RunningConsumptionAmountConverted <= 0.95 * @Plant_ConsumptionAmountConverted\n  THEN 'B'\n  ELSE 'C'\nEND\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -424,6 +443,7 @@
       "description": " The XYZ Analysis is based on the dynamics of consumption. This uses the variance coefficient of consumption or sales in a specific time horizon.",
       "displayName": "XYZ Classification per Material",
       "id": "XYZClassification",
+      "pql": "REMAP_VALUES(\n  TO_STRING(\n    FLOOR(\n      SQRT(\n        (\n          PU_SUM(\n            \"o_celonis_MaterialMasterPlant\"\n            ,SQUARE(\n              BIND(\n                \"o_celonis_MaterialMovement\"\n                ,PU_SUM(\n                    DOMAIN_TABLE(\"o_celonis_MaterialMovement\".\"MaterialMasterPlant_ID\")\n                    ,\"o_celonis_MaterialMovement\".\"MovementQuantityConverted\"\n                    ,\"o_celonis_MaterialMovement\".\"IsConsumptionRelevant\" = 'Relevant' AND\n                    \"o_celonis_MaterialMovement\".\"MovementDirection\" = 'Outgoing' AND\n                    \"o_celonis_MaterialMovement\".\"MonthsSinceCreationTime\" BETWEEN 1 AND ${im_consideredpastmonths}\n                  )\n                /\n                ${im_consideredpastmonths}\n                - \n                PU_SUM(\n                  DOMAIN_TABLE(\n                    \"o_celonis_MaterialMovement\".\"MaterialMasterPlant_ID\"\n                    ,ROUND_MONTH(\"o_celonis_MaterialMovement\".\"CreationTime\")\n                  )\n                  ,\"o_celonis_MaterialMovement\".\"MovementQuantityConverted\"\n                  ,\"o_celonis_MaterialMovement\".\"IsConsumptionRelevant\" = 'Relevant' AND\n                  \"o_celonis_MaterialMovement\".\"MovementDirection\" = 'Outgoing' AND\n                  \"o_celonis_MaterialMovement\".\"MonthsSinceCreationTime\" BETWEEN 1 AND ${im_consideredpastmonths}\n                ) \n              )\n            )\n            ,\"o_celonis_MaterialMovement\".\"IsConsumptionRelevant\" = 'Relevant' AND\n            INDEX_ORDER ( \n              \"o_celonis_MaterialMovement\".\"MaterialMasterPlant_ID\"\n              , ORDER BY (ROUND_MONTH(\"o_celonis_MaterialMovement\".\"CreationTime\")) \n              , PARTITION BY (\n                \"o_celonis_MaterialMovement\".\"MaterialMasterPlant_ID\"\n                ,ROUND_MONTH(\"o_celonis_MaterialMovement\".\"CreationTime\")\n              ) \n            ) = 1 AND\n            \"o_celonis_MaterialMovement\".\"MonthsSinceCreationTime\" BETWEEN 1 AND ${im_consideredpastmonths}\n          )\n          +\n          PU_FIRST(\n            \"o_celonis_MaterialMasterPlant\"\n            ,(\n              ${im_consideredpastmonths}\n              -\n              PU_COUNT_DISTINCT(\n                DOMAIN_TABLE(\"o_celonis_MaterialMovement\".\"MaterialMasterPlant_ID\")\n                ,ROUND_MONTH(\"o_celonis_MaterialMovement\".\"CreationTime\")\n                ,\"o_celonis_MaterialMovement\".\"IsConsumptionRelevant\" = 'Relevant' AND\n                \"o_celonis_MaterialMovement\".\"MovementDirection\" = 'Outgoing' AND\n                \"o_celonis_MaterialMovement\".\"MonthsSinceCreationTime\" BETWEEN 1 AND ${im_consideredpastmonths}\n              )\n            )\n            *\n            SQUARE(\n              BIND(\n                \"o_celonis_MaterialMovement\"\n                ,\n                PU_SUM(\n                    DOMAIN_TABLE(\"o_celonis_MaterialMovement\".\"MaterialMasterPlant_ID\")\n                    ,\"o_celonis_MaterialMovement\".\"MovementQuantityConverted\"\n                    ,\"o_celonis_MaterialMovement\".\"IsConsumptionRelevant\" = 'Relevant' AND\n                    \"o_celonis_MaterialMovement\".\"MovementDirection\" = 'Outgoing' AND\n                    \"o_celonis_MaterialMovement\".\"MonthsSinceCreationTime\" BETWEEN 1 AND ${im_consideredpastmonths}\n                  )\n                /\n                ${im_consideredpastmonths}\n              )\n            )\n            ,\"o_celonis_MaterialMovement\".\"IsConsumptionRelevant\" = 'Relevant' AND\n            \"o_celonis_MaterialMovement\".\"MovementDirection\" = 'Outgoing' AND\n            \"o_celonis_MaterialMovement\".\"MonthsSinceCreationTime\" BETWEEN 1 AND ${im_consideredpastmonths}\n          )\n        )\n        /\n        ${im_consideredpastmonths}\n      )\n      /\n      ABS(\n        PU_SUM(\n          \"o_celonis_MaterialMasterPlant\"\n          ,\"o_celonis_MaterialMovement\".\"MovementQuantityConverted\"\n          ,\"o_celonis_MaterialMovement\".\"IsConsumptionRelevant\" = 'Relevant' AND\n          \"o_celonis_MaterialMovement\".\"MovementDirection\" = 'Outgoing' AND\n          \"o_celonis_MaterialMovement\".\"MonthsSinceCreationTime\" BETWEEN 1 AND ${im_consideredpastmonths}\n        )\n        /${im_consideredpastmonths}\n      )\n    )\n  )\n  ,[NULL, NULL], ['0', 'X'], ['1', 'Y'], 'Z'\n)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -432,6 +452,7 @@
       "description": "Safety stock as currently defined in your ERP system.",
       "displayName": "Safety Stock",
       "id": "SafetyStockLevelFormatted",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"SafetyStockQuantity\"\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -440,6 +461,7 @@
       "description": "This formula leverages the PQL currency conversion function to convert inventory value to the currency specified as the reporting currency.",
       "displayName": "Inventory on Hand (Val.)",
       "id": "CurrentValuatedStockAmountConverted",
+      "pql": "/*COALESCE(\n    CURRENCY_CONVERT(\n      \"o_celonis_MaterialMasterPlant\".\"CurrentValuatedStockAmount\"\n      ,FROM(\"o_celonis_MaterialMasterPlant\".\"BaseCurrency\")\n      ,TO('${im_currency}')\n      ,TODAY()\n      ,\"o_celonis_CurrencyConversion\"\n      ,'${im_currencyexchangeratetype}'\n      ,\"o_celonis_MaterialMasterPlant\".\"SourceSystemInstance\"\n    )\n  , 0.0\n) */\n\n\nCOALESCE(\"o_celonis_MaterialMasterPlant\".\"CurrentValuatedStockAmount\", 0.0)",
       "type": "ATTRIBUTE"
      },
      {
@@ -448,6 +470,7 @@
       "description": "Converted Inventory on Hand Quantity",
       "displayName": "Inventory on Hand (Qty.)",
       "id": "CurrentValuatedStockQuantity",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"CurrentValuatedStockQuantity\"\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -456,6 +479,7 @@
       "description": null,
       "displayName": "Planned Orders (Qty.)",
       "id": "SumPlannedSupplyFutureQuantity",
+      "pql": "COALESCE(PU_SUM ( \n  \"o_celonis_MaterialMasterPlant\"\n  ,\"o_celonis_PlannedSupply\".\"OrderQuantityConverted\" - \"o_celonis_PlannedSupply\".\"AdjustmentQuantityConverted\"\n  ,(\"o_celonis_PlannedSupply\".\"OrderFinishDate\" BETWEEN TODAY() AND ADD_MONTHS(TODAY(), ${im_consideredfuturemonths})) AND \"o_celonis_PlannedSupply\".\"IsOpen\" = 'Open'\n),0.0)",
       "type": "ATTRIBUTE"
      },
      {
@@ -464,6 +488,7 @@
       "description": null,
       "displayName": "Purchase Requisitions (Qty.)",
       "id": "SumPurchaseRequisitionLineFutureQuantity",
+      "pql": "COALESCE(PU_SUM ( \n  \"o_celonis_MaterialMasterPlant\"\n  ,\"o_celonis_PurchaseRequisitionLine\".\"QuantityConverted\" \n  ,\"o_celonis_PurchaseRequisitionLine\".\"IsOpen\" = 'Open' AND (\"o_celonis_PurchaseRequisitionLine\".\"ExpectedDeliveryDate\" BETWEEN ADD_MONTHS(TODAY(), (-1)*${im_consideredpastmonths}) AND ADD_MONTHS(TODAY(), ${im_consideredfuturemonths}))\n),0.0)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -472,6 +497,7 @@
       "description": null,
       "displayName": "Open Purchase Documents (Qty.)",
       "id": "SumPurchaseScheduleLineFutureQuantity",
+      "pql": "COALESCE(PU_SUM ( \n  \"o_celonis_MaterialMasterPlant\"\n  ,\"o_celonis_PurchaseScheduleLine\".\"ExpectedQuantityConverted\" - \"o_celonis_PurchaseScheduleLine\".\"ReceivedQuantityConverted\"\n  ,\"o_celonis_PurchaseScheduleLine\".\"IsOpen\" = 'Open' AND (\"o_celonis_PurchaseScheduleLine\".\"ExpectedDeliveryDate\" BETWEEN ADD_MONTHS(TODAY(), (-1)*${im_consideredpastmonths}) AND ADD_MONTHS(TODAY(), ${im_consideredfuturemonths}))\n),0.0)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -480,6 +506,7 @@
       "description": null,
       "displayName": "Production Orders (Qty.)",
       "id": "SumProductionOrderFutureQuantity",
+      "pql": "COALESCE(PU_SUM ( \n  \"o_celonis_MaterialMasterPlant\"\n  ,\"o_celonis_ProductionOrder\".\"ProductionQuantityConverted\" - \"o_celonis_ProductionOrder\".\"GoodsReceiptQuantityConverted\" - \"o_celonis_ProductionOrder\".\"ScrapQuantityConverted\"\n  ,\"o_celonis_ProductionOrder\".\"IsOpen\" = 'Open' AND (\"o_celonis_ProductionOrder\".\"ScheduledFinishTime\" BETWEEN ADD_MONTHS(TODAY(), (-1)*${im_consideredpastmonths}) AND ADD_MONTHS(TODAY(), ${im_consideredfuturemonths}))\n),0.0)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -488,6 +515,7 @@
       "description": "Total available supply quantity of a material plant combination. This value is computed based on available valuated inventory, planned orders, purchase requisition, Purchase Documents, incoming reservations, and production orders.",
       "displayName": "Open Supply (Qty.)",
       "id": "SumSupplyFutureQuantity",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"CurrentValuatedStockQuantity\"\n+\n\"o_celonis_MaterialMasterPlant\".\"SumPlannedSupplyFutureQuantity\"\n+\n\"o_celonis_MaterialMasterPlant\".\"SumPurchaseRequisitionLineFutureQuantity\"\n+\n\"o_celonis_MaterialMasterPlant\".\"SumPurchaseScheduleLineFutureQuantity\"\n+\n\"o_celonis_MaterialMasterPlant\".\"SumProductionOrderFutureQuantity\"",
       "type": "ATTRIBUTE"
      },
      {
@@ -496,6 +524,7 @@
       "description": "Total available supply value of a material plant combination. This value is computed based on available valuated inventory, planned orders, purchase requisition, Purchase Documents, incoming reservations, and production orders.",
       "displayName": "Open Supply (Val.)",
       "id": "SumSupplyFutureValue",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"SumSupplyFutureQuantity\"\n*\n\"o_celonis_MaterialMasterPlant\".\"UnitPriceConverted\"\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -504,6 +533,7 @@
       "description": "Total available replenishment quantity of a material plant combination. This quantity is computed based on planned orders, purchase requisition, Purchase Documents, and production orders.",
       "displayName": "Open Replenishment (Qty.)",
       "id": "SumReplenishmentFutureQuantity",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"SumPlannedSupplyFutureQuantity\"\n+\n\"o_celonis_MaterialMasterPlant\".\"SumPurchaseRequisitionLineFutureQuantity\"\n+\n\"o_celonis_MaterialMasterPlant\".\"SumPurchaseScheduleLineFutureQuantity\"\n+\n\"o_celonis_MaterialMasterPlant\".\"SumProductionOrderFutureQuantity\"\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -512,6 +542,7 @@
       "description": null,
       "displayName": "Outgoing Reservations (Qty.)",
       "id": "SumMaterialReservationFutureQuantity",
+      "pql": "COALESCE(PU_SUM( \n  \"o_celonis_MaterialMasterPlant\"\n  ,\"o_celonis_MaterialReservation\".\"RequirementQuantityConverted\"\n  ,\"o_celonis_MaterialReservation\".\"IsOpen\" = 'Open' AND \n  (\"o_celonis_MaterialReservation\".\"RequirementDate\" BETWEEN ADD_MONTHS(TODAY(), (-1)*${im_consideredpastmonths}) AND ADD_MONTHS(TODAY(), ${im_consideredfuturemonths})) \n),0.0)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -520,6 +551,7 @@
       "description": null,
       "displayName": "Sales Orders (Qty.)",
       "id": "SumSalesOrderScheduleLineFutureQuantity",
+      "pql": "COALESCE(PU_SUM( \n  \"o_celonis_MaterialMasterPlant\"\n  ,\"o_celonis_SalesOrderScheduleLine\".\"ConfirmedQuantityConverted\"\n  ,\"o_celonis_SalesOrderScheduleLine\".\"IsOpen\" = 'Open' AND (\"o_celonis_SalesOrderScheduleLine\".\"MaterialAvailabilityDate\" BETWEEN ADD_MONTHS(TODAY(), (-1)*${im_consideredpastmonths}) AND ADD_MONTHS(TODAY(), ${im_consideredfuturemonths}))\n),0.0)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -528,6 +560,7 @@
       "description": null,
       "displayName": "Deliveries (Qty.)",
       "id": "SumDeliveryLineFutureQuantity",
+      "pql": "COALESCE(PU_SUM( \n  \"o_celonis_MaterialMasterPlant\"\n  ,BIND(\n    \"r_o_celonis_DeliveryLine__SalesOrderScheduleLines\"\n    ,\"o_celonis_DeliveryLine\".\"QuantityConverted\"\n  )\n  ,\"o_celonis_DeliveryLine\".\"IsOpen\" = 'Open' AND (\"o_celonis_DeliveryLine\".\"MaterialAvailabilityDate\" BETWEEN ADD_MONTHS(TODAY(), (-1)*${im_consideredpastmonths}) AND ADD_MONTHS(TODAY(), ${im_consideredfuturemonths}))\n),0.0)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -536,6 +569,7 @@
       "description": null,
       "displayName": "Independent Requirements (Qty.)",
       "id": "SumMaterialRequirementFutureQuantity",
+      "pql": "COALESCE(PU_SUM( \n  \"o_celonis_MaterialMasterPlant\"\n  ,\"o_celonis_MaterialRequirement\".\"PlannedQuantityConverted\"\n  ,\"o_celonis_MaterialRequirement\".\"IsOpen\" = 'Open' AND (\"o_celonis_MaterialRequirement\".\"DeliveryDate\" BETWEEN TODAY() AND ADD_MONTHS(TODAY(), ${im_consideredfuturemonths}))\n),0.0)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -544,6 +578,7 @@
       "description": "Total demand quantity of a material plant combination. This value is computed based on outgoing stock transfer orders, outgoing reservations, sales orders, and independent requirements.",
       "displayName": "Open Demand (Qty.)",
       "id": "SumConsumptionFutureQuantity",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"SumMaterialReservationFutureQuantity\"\n+\n\"o_celonis_MaterialMasterPlant\".\"SumSalesOrderScheduleLineFutureQuantity\"\n+\n\"o_celonis_MaterialMasterPlant\".\"SumDeliveryLineFutureQuantity\"\n+\n\"o_celonis_MaterialMasterPlant\".\"SumMaterialRequirementFutureQuantity\"",
       "type": "ATTRIBUTE"
      },
      {
@@ -552,6 +587,7 @@
       "description": "Average value of inventory on hand during the last x months for this material | plant.",
       "displayName": "Avg. Inventory Val.",
       "id": "AvgCurrentValuatedStockAmountConvertedMonth",
+      "pql": "COALESCE(\n  PU_AVG(\n  \"o_celonis_MaterialMasterPlant\"\n  ,\"o_celonis_StockHistory\".\"ValuatedStockAmountConverted\"\n  ,(\"o_celonis_StockHistory\".\"MonthsSinceCurrentPeriod\" BETWEEN 1 AND ${im_consideredpastmonths})\n  )\n  ,0.0\n)",
       "type": "ATTRIBUTE"
      },
      {
@@ -560,6 +596,7 @@
       "description": "Remaining open demand quantity after all currently open supply has been consumed. If fulfilling open demand requires taking inventory out of Safety Stock, the quantity needed to refill this Safety Stock is considered Uncovered Demand as well.",
       "displayName": "Uncovered Demand (Qty.)",
       "id": "UncoveredDemandFutureQuantity",
+      "pql": "ABS(\n  LEAST(\n    \"o_celonis_MaterialMasterPlant\".\"SumSupplyFutureQuantity\"\n    -\n\"o_celonis_MaterialMasterPlant\".\"SafetyStockLevelFormatted\"\n    -\n    \"o_celonis_MaterialMasterPlant\".\"SumConsumptionFutureQuantity\"\n    ,0.0\n  )\n)",
       "type": "ATTRIBUTE"
      },
      {
@@ -568,6 +605,7 @@
       "description": "Remaining open demand value after all currently open supply has been consumed. If fulfilling open demand requires taking inventory out of Safety Stock, the quantity needed to refill this Safety Stock is considered Uncovered Demand as well.",
       "displayName": "Uncovered Demand (Val.)",
       "id": "UncoveredDemandFutureValue",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"UncoveredDemandFutureQuantity\"\n*\n\"o_celonis_MaterialMasterPlant\".\"UnitPriceConverted\"\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -576,6 +614,7 @@
       "description": "This KPI is the planned purchase lead time. It consists of the planned delivery time in days and the planned goods receipt processing time.",
       "displayName": "Planned Purchase Lead Time",
       "id": "PlannedPurchaseLeadTime",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"PlannedDeliveryTimeDays\" \n",
       "type": "ATTRIBUTE"
      },
      {
@@ -584,6 +623,7 @@
       "description": "This KPI is the average or median actual amount of time between Purchase Document Creation and Goods Receipt. It is aggregated to Material-Plant level using PU-functions. The decision for average or median is done during customization.",
       "displayName": "Purchase Lead Time for Material",
       "id": "ActualPurchaseLeadTime",
+      "pql": "CASE \n  WHEN ${im_leadtimecalculationmode} = 'Average'\n  THEN\n    PU_AVG(\n      \"o_celonis_MaterialMasterPlant\"\n      ,BIND(\n        \"o_celonis_PurchaseScheduleLine\"\n        ,\"o_celonis_PurchaseDocumentLine\".\"ActualLeadTime\"\n      ) \n      ,(\"o_celonis_PurchaseDocumentLine\".\"MonthsSinceGoodsReceipt\" BETWEEN 1 AND ${im_consideredpastmonths})\n    )\n  ELSE \n    PU_MEDIAN(\n      \"o_celonis_MaterialMasterPlant\"\n      ,BIND(\n        \"o_celonis_PurchaseScheduleLine\"\n        ,\"o_celonis_PurchaseDocumentLine\".\"ActualLeadTime\"\n      ) \n      ,(\"o_celonis_PurchaseDocumentLine\".\"MonthsSinceGoodsReceipt\" BETWEEN 1 AND ${im_consideredpastmonths})\n    )\n  END\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -592,6 +632,7 @@
       "description": "This KPI is the average lead time across Production Orders assigned to a Material-Plant combination. It is aggregated to Material-Plant level using PU-functions. The decision for average or median is done during customization.\"",
       "displayName": "Production Lead Time for Material",
       "id": "ActualProductionLeadTime",
+      "pql": "CASE \n  WHEN ${im_leadtimecalculationmode} = 'Average'\n  THEN\n    PU_AVG(\n      \"o_celonis_MaterialMasterPlant\"\n      ,\"o_celonis_ProductionOrder\".\"ActualLeadTime\"\n      ,(\"o_celonis_ProductionOrder\".\"MonthsSinceActualFinish\" BETWEEN 1 AND ${im_consideredpastmonths})\n    )\n  ELSE\n    PU_MEDIAN(\n      \"o_celonis_MaterialMasterPlant\"\n      ,\"o_celonis_ProductionOrder\".\"ActualLeadTime\"\n      ,(\"o_celonis_ProductionOrder\".\"MonthsSinceActualFinish\" BETWEEN 1 AND ${im_consideredpastmonths})\n    )\nEND\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -600,6 +641,7 @@
       "description": "Actual Replenishment Lead time per Material-Plant, considering both production and purchase based on average or median.",
       "displayName": "Actual Replenishment Lead Time per Material",
       "id": "ActualReplenishmentLeadTime",
+      "pql": "CASE   \n  WHEN \"o_celonis_MaterialMasterPlant\".\"ProcurementType\" = 'External Procurement'\n  THEN \"o_celonis_MaterialMasterPlant\".\"ActualPurchaseLeadTime\"\n  WHEN \"o_celonis_MaterialMasterPlant\".\"ProcurementType\" = 'In-house Production'\n  THEN \"o_celonis_MaterialMasterPlant\".\"ActualProductionLeadTime\"\n  WHEN \"o_celonis_MaterialMasterPlant\".\"ProcurementType\" = 'Both Procurement Types' \n  THEN (\n    COALESCE(\"o_celonis_MaterialMasterPlant\".\"ActualPurchaseLeadTime\",\"o_celonis_MaterialMasterPlant\".\"ActualProductionLeadTime\")\n    + COALESCE(\"o_celonis_MaterialMasterPlant\".\"ActualProductionLeadTime\",\"o_celonis_MaterialMasterPlant\".\"ActualPurchaseLeadTime\")\n  )/2\n  WHEN \"o_celonis_MaterialMasterPlant\".\"ProcurementType\" IS NULL\n  THEN    \n    LEAST(\n      \"o_celonis_MaterialMasterPlant\".\"ActualPurchaseLeadTime\"\n      ,\"o_celonis_MaterialMasterPlant\".\"ActualProductionLeadTime\"\n    ) \n  ELSE NULL\nEND\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -608,6 +650,7 @@
       "description": null,
       "displayName": "Unit Price",
       "id": "UnitPriceConverted",
+      "pql": "COALESCE(\n  CURRENCY_CONVERT(\n    \"o_celonis_MaterialMasterPlant\".\"UnitPriceAmount\"\n    ,FROM(\"o_celonis_MaterialMasterPlant\".\"BaseCurrency\")\n    ,TO('${im_currency}')\n    ,TODAY()\n    ,\"o_celonis_CurrencyConversion\"\n    ,'${im_currencyexchangeratetype}'\n    ,\"o_celonis_MaterialMasterPlant\".\"SourceSystemInstance\"\n  )\n  , 0.0\n)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -616,6 +659,7 @@
       "description": null,
       "displayName": "MRP Type",
       "id": "MRPTypeFormatted",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"MRPType\"",
       "type": "ATTRIBUTE"
      },
      {
@@ -624,6 +668,7 @@
       "description": null,
       "displayName": "MRP Controller",
       "id": "MRPControllerFormatted",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"MRPController\"",
       "type": "ATTRIBUTE"
      },
      {
@@ -632,6 +677,7 @@
       "description": null,
       "displayName": "Procurement Type",
       "id": "ProcurementTypeFormatted",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"ProcurementType\"",
       "type": "ATTRIBUTE"
      },
      {
@@ -640,6 +686,7 @@
       "description": null,
       "displayName": "Country",
       "id": "Country",
+      "pql": "BIND(\"o_celonis_MaterialMasterPlant\", COALESCE(\"o_celonis_Plant\".\"CountryName\", \"o_celonis_Plant\".\"Country\", 'null'))\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -648,6 +695,7 @@
       "description": null,
       "displayName": "Discontinued Material",
       "id": "DiscontinuedMaterial",
+      "pql": "CASE WHEN \"o_celonis_MaterialMasterPlant\".\"IsDiscontinued\" = 1 THEN 'Yes' END",
       "type": "ATTRIBUTE"
      },
      {
@@ -656,6 +704,7 @@
       "description": null,
       "displayName": "Has Purchase Document Lines",
       "id": "HasPurchaseDocumentLines",
+      "pql": "CASE WHEN \nPU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_PurchaseDocumentLine\".\"ID\") > 0 \nTHEN 'X'\nEND",
       "type": "ATTRIBUTE"
      },
      {
@@ -664,6 +713,7 @@
       "description": null,
       "displayName": "Has Sales Order Schedule Lines",
       "id": "HasSalesOrderScheduleLines",
+      "pql": "CASE WHEN \nPU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_SalesOrderScheduleLine\".\"ID\") > 0 \nTHEN 'X'\nEND ",
       "type": "ATTRIBUTE"
      },
      {
@@ -672,6 +722,7 @@
       "description": null,
       "displayName": "Material Missing Valuation",
       "id": "MaterialMissingValuation",
+      "pql": "CASE\n  WHEN\n    \"o_celonis_MaterialMasterPlant\".\"CurrentValuatedStockQuantity\" IS NULL\n    OR \"o_celonis_MaterialMasterPlant\".\"CurrentValuatedStockAmount\" IS NULL \n  THEN 1.0\nEND\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -680,6 +731,7 @@
       "description": null,
       "displayName": "Material No. & Plant. No.",
       "id": "MaterialNumberPlantNumberConcat",
+      "pql": "BIND(\"o_celonis_MaterialMasterPlant\",LTRIM(\"o_celonis_Material\".\"MaterialNumber\", '0') || ' - ' || \"o_celonis_Plant\".\"PlantNumber\")",
       "type": "ATTRIBUTE"
      },
      {
@@ -688,6 +740,7 @@
       "description": null,
       "displayName": "Safety Stock Value",
       "id": "SafetyStockValue",
+      "pql": "\"O_CELONIS_MATERIALMASTERPLANT\".\"UnitPriceConverted\"*\"o_celonis_MaterialMasterPlant\".\"SafetyStockQuantity\"",
       "type": "ATTRIBUTE"
      },
      {
@@ -696,6 +749,7 @@
       "description": null,
       "displayName": "No. of Out. Material Document Items",
       "id": "NumOutgoingMaterialDocumentItems",
+      "pql": "PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_MaterialMovement\".\"ID\", \"o_celonis_MaterialMovement\".\"MovementDirection\" = 'Outgoing' AND \"o_celonis_MaterialMovement\".\"IsInventoryRelevant\" = 1)",
       "type": "ATTRIBUTE"
      },
      {
@@ -704,6 +758,7 @@
       "description": null,
       "displayName": "No. of Inc. Material Document Items",
       "id": "NumIncomingMaterialDocumentItems",
+      "pql": "PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_MaterialMovement\".\"ID\", \"o_celonis_MaterialMovement\".\"MovementDirection\" = 'Incoming' AND \"o_celonis_MaterialMovement\".\"IsInventoryRelevant\" = 1)",
       "type": "ATTRIBUTE"
      },
      {
@@ -712,6 +767,7 @@
       "description": null,
       "displayName": "No. of Purchase Document Lines",
       "id": "NumPurchaseDocumentLines",
+      "pql": "PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_PurchaseDocumentLine\".\"ID\")",
       "type": "ATTRIBUTE"
      },
      {
@@ -720,6 +776,7 @@
       "description": null,
       "displayName": "No. of Purchase Requisition Items",
       "id": "NumPurchaseRequisitionLines",
+      "pql": "PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_PurchaseRequisitionLine\".\"ID\")",
       "type": "ATTRIBUTE"
      },
      {
@@ -728,6 +785,7 @@
       "description": null,
       "displayName": "No. of Sales Order Schedule Lines",
       "id": "NumSalesOrderScheduleLines",
+      "pql": "PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_SalesOrderScheduleLine\".\"ID\")",
       "type": "ATTRIBUTE"
      },
      {
@@ -736,6 +794,7 @@
       "description": null,
       "displayName": "No. of Production Orders",
       "id": "NumProductionOrders",
+      "pql": "PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_ProductionOrder\".\"ID\")",
       "type": "ATTRIBUTE"
      },
      {
@@ -744,6 +803,7 @@
       "description": null,
       "displayName": "No. of Planned Orders",
       "id": "NumPlannedOrders",
+      "pql": "PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_PlannedSupply\".\"ID\")",
       "type": "ATTRIBUTE"
      },
      {
@@ -752,6 +812,7 @@
       "description": null,
       "displayName": "No. of Material Reservations",
       "id": "NumMaterialReservations",
+      "pql": "PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_MaterialReservation\".\"ID\")",
       "type": "ATTRIBUTE"
      },
      {
@@ -760,6 +821,7 @@
       "description": null,
       "displayName": "No. of Material Requirements",
       "id": "NumMaterialRequirements",
+      "pql": "PU_COUNT(\"o_celonis_MaterialMasterPlant\", \"o_celonis_MaterialRequirement\".\"ID\")",
       "type": "ATTRIBUTE"
      },
      {
@@ -768,6 +830,7 @@
       "description": "Average value of inventory on hand during the last 12 months for this material | plant.",
       "displayName": "Avg. Inventory Val. (12 Mo)",
       "id": "AvgInventoryVal12Months",
+      "pql": "COALESCE(\n  PU_AVG(\n  \"o_celonis_MaterialMasterPlant\"\n  ,\"O_CELONIS_STOCKHISTORY\".\"ValuatedStockAmountConverted\"\n  ,(\"O_CELONIS_STOCKHISTORY\".\"MonthsSinceCurrentPeriod\" BETWEEN 1 AND ${im_consideredpastmonths})\n  ),\n  0.0\n)",
       "type": "ATTRIBUTE"
      },
      {
@@ -776,6 +839,7 @@
       "description": "This KPI is the average actual amount of time between Purchase Document Creation and Goods Receipt. It is aggregated to Material-Plant level using PU-functions. ",
       "displayName": "Avg. Material Purchase Lead Time (12mo)",
       "id": "AvgMaterialPurchaseLeadTime12Months",
+      "pql": "PU_AVG(\n  \"o_celonis_MaterialMasterPlant\"\n  ,\"o_celonis_PurchaseDocumentLine\".\"ActualLeadTime\"\n  ,(\"o_celonis_PurchaseDocumentLine\".\"MonthsSinceGoodsReceipt\" BETWEEN 1 AND ${im_consideredpastmonths})\n)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -784,6 +848,7 @@
       "description": "Average monthly consumption quantity of this material | plant during the last 12 months.",
       "displayName": "Avg. Monthly Cons. Qty. (12mo)",
       "id": "AvgMonthlyConsQty12Months",
+      "pql": "\"o_celonis_MaterialMasterPlant\".\"ConsumptionQty12Months\" / 12\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -792,6 +857,7 @@
       "description": "This KPI is the average lead time across Production Orders assigned to a Material-Plant combination. The KPI is parametrized for ease of maintenance in other queries. ",
       "displayName": "Avg. Production Lead Time (12mo)",
       "id": "AvgProductionLeadTime12Months",
+      "pql": "PU_AVG(\n  \"o_celonis_MaterialMasterPlant\"\n  ,\"O_CELONIS_ProductionOrder\".\"ActualLeadTime\"\n  ,(\"O_CELONIS_ProductionOrder\".\"MonthsSinceActualFinish\" BETWEEN 1 AND ${im_consideredpastmonths})\n)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -800,6 +866,7 @@
       "description": "This KPI is the base sum of the net consumption quantity in the last 12 full months Pulled up to \"o_celonis_MaterialMasterPlant\".",
       "displayName": "Consumption Qty. (12mo)",
       "id": "ConsumptionQty12Months",
+      "pql": "PU_SUM(\n  \"o_celonis_MaterialMasterPlant\"\n  ,\"o_celonis_MaterialMovement\".\"MovementQuantityConverted\"\n  ,\"o_celonis_MaterialMovement\".\"IsConsumptionRelevant\" = 'Relevant' AND\n  \"o_celonis_MaterialMovement\".\"MovementDirection\" = 'Outgoing' AND\n  \"o_celonis_MaterialMovement\".\"MonthsSinceCreationTime\" BETWEEN 1 AND ${im_consideredpastmonths}\n)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -808,6 +875,7 @@
       "description": "Total consumption value of this material | plant in the last 12 months.",
       "displayName": "Consumption Val. (12mo)",
       "id": "ConsumptionVal12Months",
+      "pql": "COALESCE(ROUND(\n  PU_SUM(\n  \"o_celonis_MaterialMasterPlant\"\n  ,\"o_celonis_MaterialMovement\".\"NetAmountConverted\"\n  ,\"o_celonis_MaterialMovement\".\"IsConsumptionRelevant\" = 'Relevant' AND\n  \"o_celonis_MaterialMovement\".\"MovementDirection\" = 'Outgoing' AND\n  \"o_celonis_MaterialMovement\".\"MonthsSinceCreationTime\" BETWEEN 1 AND ${im_consideredpastmonths}\n),\n4), 0.0)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -816,6 +884,7 @@
       "description": "This KPI is the average lead time across Production Orders assigned to a Material-Plant combination.",
       "displayName": "Median Production Lead Time (12mo)",
       "id": "MedianProductionLeadTime12Months",
+      "pql": "PU_MEDIAN(\n  \"o_celonis_MaterialMasterPlant\"\n  ,BIND( \"o_celonis_ProductionOrder\"\n  ,\"O_CELONIS_ProductionOrder\".\"ActualLeadTime\" )\n  ,(\"O_CELONIS_ProductionOrder\".\"MonthsSinceActualFinish\" BETWEEN 1 AND ${im_consideredpastmonths})\n)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -824,6 +893,7 @@
       "description": "Number of on-time Purchase Document Lines for this material | plant divided by the total considered number of Purchase Document Lines in the last 12 months.",
       "displayName": "Supplier Reliability (On-Time, 12mo)",
       "id": "SupplierReliability12Months",
+      "pql": "PU_AVG(\n  \"o_celonis_MaterialMasterPlant\"\n  ,\"o_celonis_PurchaseDocumentLine\".\"DeliveredOnTime\"\n  ,(\"o_celonis_PurchaseDocumentLine\".\"MonthsSinceGoodsReceipt\" BETWEEN 1 AND ${im_consideredpastmonths})\n)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -832,6 +902,7 @@
       "description": "Net value of Purchase Document Lines for this material | plant that have been received late in the last 12 months.",
       "displayName": "Purchase Document Value (Late, 12mo)",
       "id": "PurchaseDocumentValLate12Months",
+      "pql": "COALESCE(\n  PU_SUM(\n  \"o_celonis_MaterialMasterPlant\"\n  ,  CASE\n      WHEN \"o_celonis_PurchaseDocumentLine\".\"DeliveredLate\" = 1\n      THEN \"o_celonis_PurchaseDocumentLine\".\"NetAmountConverted\"\n    END\n  ,(\"o_celonis_PurchaseDocumentLine\".\"MonthsSinceGoodsReceipt\" BETWEEN 1 AND ${im_consideredpastmonths})\n), 0.0)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -840,6 +911,7 @@
       "description": "Total replenishment value of this material | plant in the last 12 months.",
       "displayName": "Replenishment Val. (12mo)",
       "id": "ReplenishmentVal12Months",
+      "pql": "COALESCE(ROUND(\n  PU_SUM(\n  \"o_celonis_MaterialMasterPlant\"\n  ,\"o_celonis_MaterialMovement\".\"NetAmountConverted\"\n  ,\"o_celonis_MaterialMovement\".\"IsReplenishmentRelevant\" = 'Relevant' AND\n  \"o_celonis_MaterialMovement\".\"MovementDirection\" = 'Incoming' AND\n  \"o_celonis_MaterialMovement\".\"MonthsSinceCreationTime\" BETWEEN 1 AND ${im_consideredpastmonths}\n),\n4), 0.0)",
       "type": "ATTRIBUTE"
      },
      {
@@ -848,6 +920,7 @@
       "description": null,
       "displayName": "Stand. Dev. Cons. Qty. (12mo)",
       "id": "StandardDevConsQty12Months",
+      "pql": "SQRT(\n  PU_SUM(\n    \"o_celonis_MaterialMasterPlant\"\n    ,SQUARE(\n      \"o_celonis_MaterialMasterPlant\".\"AvgMonthlyConsQty12Months\"\n      - \n      PU_SUM(\n        DOMAIN_TABLE(\n          \"o_celonis_MaterialMovement\".\"MaterialMasterPlant_ID\"\n          ,ROUND_MONTH(\"o_celonis_MaterialMovement\".\"CreationTime\")\n        )\n        ,\"o_celonis_MaterialMovement\".\"MovementQuantityConverted\"\n        ,\"o_celonis_MaterialMovement\".\"IsConsumptionRelevant\" = 'Relevant' AND\n        \"o_celonis_MaterialMovement\".\"MovementDirection\" = 'Outgoing' AND\n        \"o_celonis_MaterialMovement\".\"MonthsSinceCreationTime\" BETWEEN 1 AND ${im_consideredpastmonths}\n      )\n    )\n    /\n    PU_COUNT(\n      DOMAIN_TABLE(\n        \"o_celonis_MaterialMovement\".\"MaterialMasterPlant_ID\"\n        ,ROUND_MONTH(\"o_celonis_MaterialMovement\".\"CreationTime\")\n      )\n      ,\"o_celonis_MaterialMovement\".\"MovementQuantityConverted\"\n      ,\"o_celonis_MaterialMovement\".\"IsConsumptionRelevant\" = 'Relevant' AND\n      \"o_celonis_MaterialMovement\".\"MovementDirection\" = 'Outgoing' AND\n      \"o_celonis_MaterialMovement\".\"MonthsSinceCreationTime\" BETWEEN 1 AND ${im_consideredpastmonths}\n    )\n    ,\"o_celonis_MaterialMovement\".\"IsConsumptionRelevant\" = 'Relevant' AND\n    \"o_celonis_MaterialMovement\".\"MovementDirection\" = 'Outgoing' AND\n    \"o_celonis_MaterialMovement\".\"MonthsSinceCreationTime\" BETWEEN 1 AND ${im_consideredpastmonths}\n  )\n  /\n  12\n)",
       "type": "ATTRIBUTE"
      },
      {
@@ -856,6 +929,7 @@
       "description": "Replenishment Lead time per Material || Plant, considering both production and Purchase planned data.",
       "displayName": "Planned Replenishment Lead Time",
       "id": "PlannedReplenishmentLeadTime",
+      "pql": "CASE\n  WHEN \"o_celonis_MaterialMasterPlant\".\"ProcurementType\" = 'External Procurement'\n  THEN \"O_CELONIS_MATERIALMASTERPLANT\".\"PlannedPurchaseLeadTime\"\n  WHEN \"o_celonis_MaterialMasterPlant\".\"ProcurementType\" = 'In-house Production'\n  THEN \"o_celonis_MaterialMasterPlant\".\"PlannedProductionLeadTimeDays\"\n  WHEN \"o_celonis_MaterialMasterPlant\".\"ProcurementType\" = 'Both Procurement Types'\n  THEN (\n    COALESCE(\"O_CELONIS_MATERIALMASTERPLANT\".\"PlannedPurchaseLeadTime\",\"o_celonis_MaterialMasterPlant\".\"PlannedProductionLeadTimeDays\")\n    + COALESCE(\"o_celonis_MaterialMasterPlant\".\"PlannedProductionLeadTimeDays\",\"O_CELONIS_MATERIALMASTERPLANT\".\"PlannedPurchaseLeadTime\")\n  )/2\n  WHEN \"o_celonis_MaterialMasterPlant\".\"ProcurementType\" IS NULL\n  THEN\n    LEAST(\n      \"O_CELONIS_MATERIALMASTERPLANT\".\"PlannedPurchaseLeadTime\"\n      ,\"o_celonis_MaterialMasterPlant\".\"PlannedProductionLeadTimeDays\"\n    )\n  ELSE NULL\nEND\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -864,6 +938,7 @@
       "description": null,
       "displayName": "Open Purchase Documents (Val.)",
       "id": "SumPurchaseScheduleLineFutureValue",
+      "pql": "\"O_CELONIS_MATERIALMASTERPLANT\".\"SumPurchaseScheduleLineFutureQuantity\" * \n\"O_CELONIS_MATERIALMASTERPLANT\".\"UnitPriceConverted\"",
       "type": "ATTRIBUTE"
      },
      {
@@ -872,6 +947,7 @@
       "description": null,
       "displayName": "Purchase Requisition (Val.)",
       "id": "SumPurchaseRequisitionLineFutureValue",
+      "pql": "\"O_CELONIS_MATERIALMASTERPLANT\".\"SumPurchaseRequisitionLineFutureQuantity\" * \"O_CELONIS_MATERIALMASTERPLANT\".\"UnitPriceConverted\"\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -880,6 +956,7 @@
       "description": null,
       "displayName": "Production Orders (Val.)",
       "id": "SumProductionOrderFutureValue",
+      "pql": "\"O_CELONIS_MATERIALMASTERPLANT\".\"SumProductionOrderFutureQuantity\" * \"O_CELONIS_MATERIALMASTERPLANT\".\"UnitPriceConverted\"\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -888,6 +965,7 @@
       "description": null,
       "displayName": "Planned Orders (Val.)",
       "id": "SumPlannedSupplyFutureValue",
+      "pql": "\"O_CELONIS_MATERIALMASTERPLANT\".\"SumPlannedSupplyFutureQuantity\" * \"O_CELONIS_MATERIALMASTERPLANT\".\"UnitPriceConverted\"\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -896,6 +974,7 @@
       "description": "Total available replenishment value of a material plant combination. This value is computed based on planned orders, purchase requisition, Purchase Documents, and production orders.",
       "displayName": "Open Replenishment (Val.)",
       "id": "SumReplenishmentFutureValue",
+      "pql": "\"O_CELONIS_MATERIALMASTERPLANT\".\"SumPlannedSupplyFutureValue\"\n+\n\"O_CELONIS_MATERIALMASTERPLANT\".\"SumPurchaseRequisitionLineFutureValue\"\n+\n\"O_CELONIS_MATERIALMASTERPLANT\".\"SumPurchaseScheduleLineFutureValue\"\n+\n\"O_CELONIS_MATERIALMASTERPLANT\".\"SumProductionOrderFutureValue\" \n",
       "type": "ATTRIBUTE"
      },
      {
@@ -904,6 +983,7 @@
       "description": null,
       "displayName": "Outgoing Reservations (Val.)",
       "id": "SumMaterialReservationFutureValue",
+      "pql": "\"O_CELONIS_MATERIALMASTERPLANT\".\"SumMaterialReservationFutureQuantity\" * \"O_CELONIS_MATERIALMASTERPLANT\".\"UnitPriceConverted\"\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -912,6 +992,7 @@
       "description": null,
       "displayName": "Sales Orders (Val.)",
       "id": "SumSalesOrderScheduleLineFutureValue",
+      "pql": "\"O_CELONIS_MATERIALMASTERPLANT\".\"SumSalesOrderScheduleLineFutureQuantity\" * \"O_CELONIS_MATERIALMASTERPLANT\".\"UnitPriceConverted\"\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -920,6 +1001,7 @@
       "description": null,
       "displayName": "Independent Requirements (Val.)",
       "id": "SumMaterialRequirementFutureValue",
+      "pql": "\"O_CELONIS_MATERIALMASTERPLANT\".\"SumMaterialRequirementFutureQuantity\" * \"O_CELONIS_MATERIALMASTERPLANT\".\"UnitPriceConverted\"\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -928,6 +1010,7 @@
       "description": "Total demand value of a material plant combination. This value is computed based on reservations, sales orders, and independent requirements.",
       "displayName": "Open Demand (Val.)",
       "id": "SumConsumptionFutureValue",
+      "pql": "\"O_CELONIS_MATERIALMASTERPLANT\".\"SumMaterialReservationFutureValue\"\n+\n\"O_CELONIS_MATERIALMASTERPLANT\".\"SumSalesOrderScheduleLineFutureValue\"\n+\n\"o_celonis_MaterialMasterPlant\".\"SumDeliveryLineFutureValue\"\n+\n\"O_CELONIS_MATERIALMASTERPLANT\".\"SumMaterialRequirementFutureValue\"",
       "type": "ATTRIBUTE"
      },
      {
@@ -936,6 +1019,7 @@
       "description": null,
       "displayName": "Service Level (On-Time, 12mo)",
       "id": "ServiceLevelOnTime12Months",
+      "pql": "PU_AVG(\n  \"o_celonis_MaterialMasterPlant\"\n  ,\"o_celonis_SalesOrderScheduleLine\".\"IsOnTime\"\n  ,(\"o_celonis_SalesOrderScheduleLine\".\"MonthsSinceLastGoodsIssueDate\" BETWEEN 1 AND ${im_consideredpastmonths})\n)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -944,6 +1028,7 @@
       "description": null,
       "displayName": "Sales Order Value (Late, 12mo)",
       "id": "SalesOrderValueLate12Months",
+      "pql": "COALESCE(\n  PU_SUM(\n  \"o_celonis_MaterialMasterPlant\"\n  ,  CASE\n      WHEN \"o_celonis_SalesOrderScheduleLine\".\"IsDeliveredLate\" = 1\n      THEN \"o_celonis_SalesOrderScheduleLine\".\"NetAmountConverted\"\n    END\n  ,(\"o_celonis_SalesOrderScheduleLine\".\"MonthsSinceLastGoodsIssueDate\" BETWEEN 1 AND ${im_consideredpastmonths})\n), 0.0)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -952,6 +1037,7 @@
       "description": "Value of all currently Open Sales Orders.",
       "displayName": "Open Sales Value",
       "id": "OpenSalesOrderScheduleLineValue",
+      "pql": "COALESCE(\n  PU_SUM(\n  \"o_celonis_MaterialMasterPlant\"\n  ,\"o_celonis_SalesOrderScheduleLine\".\"ConfirmedQuantityConverted\"\n  ,\"o_celonis_SalesOrderScheduleLine\".\"IsOpen\" = 'Open'\n) * PU_LAST(\n  \"o_celonis_MaterialMasterPlant\"\n  ,\"O_CELONIS_STOCKHISTORY\".\"UnitPriceConverted\"\n),0)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -960,6 +1046,7 @@
       "description": "Value of all currently Open Sales Orders, considering only open orders from the past.",
       "displayName": "Open Sales Backorder Value",
       "id": "OpenSalesOrderScheduleLineBackorderValue",
+      "pql": "COALESCE(\n  PU_SUM(\n  \"o_celonis_MaterialMasterPlant\"\n  ,\"o_celonis_SalesOrderScheduleLine\".\"ConfirmedQuantityConverted\"\n  ,\"o_celonis_SalesOrderScheduleLine\".\"IsOpenBackorder\" > 0.0\n), 0)\n*\nPU_LAST(\n  \"o_celonis_MaterialMasterPlant\"\n  ,\"O_CELONIS_STOCKHISTORY\".\"UnitPriceConverted\"\n)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -968,6 +1055,7 @@
       "description": null,
       "displayName": "No. of Sales Order Schedule Lines w/ Goods Issue",
       "id": "NumSalesOrderScheduleLinesWithoutGoodsIssue",
+      "pql": "PU_COUNT(\n  \"o_celonis_MaterialMasterPlant\"\n  ,\"o_celonis_SalesOrderScheduleLine\".\"ID\"\n  ,ISNULL(\"o_celonis_SalesOrderScheduleLine\".\"LastGoodsIssueDate\") = 0.0\n)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -976,6 +1064,7 @@
       "description": "Days of cover calculated based on current inventory on hand and a 12 months consumption timeframe for this material | plant.",
       "displayName": "Days of Cover (12mo)",
       "id": "DaysOfCover12Months",
+      "pql": "GREATEST(\n  365 * \"O_CELONIS_MATERIALMASTERPLANT\".\"CurrentValuatedStockAmountConverted\" /\n  (\n    \"O_CELONIS_MATERIALMASTERPLANT\".\"ConsumptionVal12Months\"\n    +\n    CASE\n      WHEN ${im_daysofcoverduedate} LIKE 'Consider'\n      THEN \"O_CELONIS_MATERIALMASTERPLANT\".\"OpenSalesOrderScheduleLineBackorderValue\"\n  END\n  ),\n  0\n)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -984,6 +1073,7 @@
       "description": null,
       "displayName": "Has Uncovered Open Demand?",
       "id": "HasUncoveredOpenDemand",
+      "pql": "CASE\n  WHEN \"O_CELONIS_MATERIALMASTERPLANT\".\"UncoveredDemandFutureQuantity\" > 0.0\n  AND \"O_CELONIS_MATERIALMASTERPLANT\".\"SumConsumptionFutureQuantity\" > 0.0\n  THEN 1.0\nEND\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -992,6 +1082,7 @@
       "description": "Remaining open demand quantity for orders after all currently open supply has been consumed. If fulfilling open demand requires taking inventory out of Safety Stock, the quantity needed to refill this Safety Stock is not considered Uncovered Demand for Orders.",
       "displayName": "Uncovered Open Demand for Orders (Qty.)",
       "id": "UncoveredOpenDemandOrderQuantity",
+      "pql": "CASE\n  WHEN \"O_CELONIS_MATERIALMASTERPLANT\".\"HasUncoveredOpenDemand\" > 0.0\n  THEN LEAST(\n      \"O_CELONIS_MATERIALMASTERPLANT\".\"UncoveredDemandFutureQuantity\",\n      \"O_CELONIS_MATERIALMASTERPLANT\".\"SumConsumptionFutureQuantity\"\n    )\n  ELSE 0.0\nEND\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -1000,6 +1091,7 @@
       "description": "Remaining open demand value for orders after all currently open supply has been consumed. If fulfilling open demand requires taking inventory out of Safety Stock, the value needed to refill this Safety Stock is not considered Uncovered Demand for Orders.",
       "displayName": "Uncovered Open Demand for Orders (Val.)",
       "id": "UncoveredOpenDemandOrderValue",
+      "pql": "\"O_CELONIS_MATERIALMASTERPLANT\".\"UncoveredOpenDemandOrderQuantity\" * \"O_CELONIS_MATERIALMASTERPLANT\".\"UnitPriceConverted\"\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -1008,6 +1100,7 @@
       "description": "Obsolete stock for this material | plant combination. A material | plant is flagged as obsolete if it has an excess stock rate of 100%, no open sales orders, and no follow-up material.",
       "displayName": "Obsolete Stock (Val.)",
       "id": "ObsoleteStockValue",
+      "pql": "CASE\n  WHEN KPI(IM_Dimension_MaterialMasterPlant_IsObsoleteStock) > 0.0\n  THEN\n    \"O_CELONIS_MATERIALMASTERPLANT\".\"CurrentValuatedStockAmountConverted\"\n  ELSE 0.0\nEND",
       "type": "ATTRIBUTE"
      },
      {
@@ -1016,6 +1109,7 @@
       "description": "Legacy stock for this material | plant combination. A material | plant is flagged as legacy if it has a follow-up material and is flagged as discontinued.",
       "displayName": "Legacy Stock (Val.)",
       "id": "LegacyStockValue",
+      "pql": "-- this attribute references \"o_celonis_MaterialMovement\".\"isconsumptionrelevant\"\n\nCASE\n  WHEN\n    KPI (\n      IM_Dimension_MaterialMasterPlant_IsLegacyStock\n    )\n    >\n    0.0\n  THEN\n    \"O_CELONIS_MATERIALMASTERPLANT\".\"CurrentValuatedStockAmountConverted\"\n  ELSE\n    0.0\nEND",
       "type": "ATTRIBUTE"
      },
      {
@@ -1024,6 +1118,7 @@
       "description": "This KPI is the average actual amount of time between Purchase Document Creation and Goods Receipt. It is aggregated to Material-Plant level using PU-functions. ",
       "displayName": "Median Purchase Lead Time (12mo)",
       "id": "MedianPurchaseLeadTime12Months",
+      "pql": "PU_MEDIAN(\n  \"o_celonis_MaterialMasterPlant\"\n  ,\"o_celonis_PurchaseDocumentLine\".\"ActualLeadTime\"\n  ,(\"o_celonis_PurchaseDocumentLine\".\"MonthsSinceGoodsReceipt\" BETWEEN 1 AND ${im_consideredpastmonths})\n)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -1032,6 +1127,7 @@
       "description": null,
       "displayName": "Lowest Stock Level (12mo.)",
       "id": "LowestStockLevel12Months",
+      "pql": "COALESCE(PU_MIN(\n  \"o_celonis_MaterialMasterPlant\", \n  \"o_celonis_StockHistory\".\"ValuatedStockQuantity\", \n  \"o_celonis_StockHistory\".\"MonthsSinceCurrentPeriod\" BETWEEN 1 AND 12\n),0.0)",
       "type": "ATTRIBUTE"
      },
      {
@@ -1040,6 +1136,7 @@
       "description": null,
       "displayName": "Highest Stock Level (12mo.)",
       "id": "HighestStockLevel12Months",
+      "pql": "COALESCE(PU_MAX(\n  \"o_celonis_MaterialMasterPlant\", \n  \"o_celonis_StockHistory\".\"ValuatedStockQuantity\", \n  \"o_celonis_StockHistory\".\"MonthsSinceCurrentPeriod\" BETWEEN 1 AND 12\n),0.0)",
       "type": "ATTRIBUTE"
      },
      {
@@ -1048,6 +1145,7 @@
       "description": null,
       "displayName": "Material No. & Name | Plant No. & Name",
       "id": "MaterialNumberNamePlantNumberNameConcat",
+      "pql": "BIND(\"o_celonis_MaterialMasterPlant\",\"o_celonis_Material\".\"NumberNameConcat\" || ' - ' ||\"o_celonis_Plant\".\"NumberNameConcat\")",
       "type": "ATTRIBUTE"
      },
      {
@@ -1056,6 +1154,7 @@
       "description": null,
       "displayName": "Open Delivery Lines (Val.)",
       "id": "SumDeliveryLineFutureValue",
+      "pql": "\"O_CELONIS_MATERIALMASTERPLANT\".\"SumDeliveryLineFutureQuantity\" * \"O_CELONIS_MATERIALMASTERPLANT\".\"UnitPriceConverted\"",
       "type": "ATTRIBUTE"
      },
      {
@@ -1073,6 +1172,7 @@
     "displayName": "MaterialMasterPlant",
     "id": "O_CELONIS_MATERIALMASTERPLANT",
     "identifier": null,
+    "isActivityTable": false,
     "newAttributes": [],
     "pql": "\"o_celonis_MaterialMasterPlant\"",
     "type": "RECORD"
@@ -1190,6 +1290,7 @@
       "description": "Unique ID of a Planned Order.",
       "displayName": "Planned Order Number",
       "id": "PlannedSupplyNumberFormatted",
+      "pql": "LTRIM(\"o_celonis_PlannedSupply\".\"PlannedSupplyNumber\",'0')",
       "type": "ATTRIBUTE"
      },
      {
@@ -1198,6 +1299,7 @@
       "description": "Date a Planned Order is expected to be finished based on current planning parameters.",
       "displayName": "Order Finish Date",
       "id": "OrderFinishDateFormatted",
+      "pql": "\"o_celonis_PlannedSupply\".\"OrderFinishDate\"",
       "type": "ATTRIBUTE"
      },
      {
@@ -1206,6 +1308,7 @@
       "description": "Type of Planned Order.",
       "displayName": "Object Type",
       "id": "ObjectTypeFormatted",
+      "pql": "\"o_celonis_PlannedSupply\".\"ObjectType\"",
       "type": "ATTRIBUTE"
      },
      {
@@ -1214,6 +1317,7 @@
       "description": "Total Planned Order Quantity converted to Stock keeping Units.",
       "displayName": "Planned Order Quantity",
       "id": "OrderQuantityConverted",
+      "pql": "COALESCE(\n  QUANTITY_CONVERT ( \n    \"o_celonis_PlannedSupply\".\"OrderQuantity\"\n    , FROM (\"o_celonis_PlannedSupply\".\"QuantityUnit\") \n    , TO (\"o_celonis_Material\".\"StockKeepingUnit\") \n    , \"o_celonis_Material\".\"MaterialNumber\"\n    , \"o_celonis_QuantityConversion\"\n  )\n  ,\"o_celonis_PlannedSupply\".\"OrderQuantity\"\n) ",
       "type": "ATTRIBUTE"
      },
      {
@@ -1222,6 +1326,7 @@
       "description": null,
       "displayName": "Open Planned Order Condition",
       "id": "IsOpen",
+      "pql": "          CASE \n            WHEN \n              \"o_celonis_PlannedSupply\".\"ObjectType\" = 'Planned Order'\n              AND \n              \"o_celonis_PlannedSupply\".\"OrderQuantityConverted\" - \"o_celonis_PlannedSupply\".\"AdjustmentQuantityConverted\" > 0\n            THEN 'Open'\n            ELSE 'Closed'\n          END",
       "type": "ATTRIBUTE"
      },
      {
@@ -1230,6 +1335,7 @@
       "description": "Adjustment quantity reducing a planned supply (e.g. implemented quantity or planned scrap) converted to Stock keeping Units.",
       "displayName": "Planned Adjustment Quantity",
       "id": "AdjustmentQuantityConverted",
+      "pql": "          COALESCE(\n            QUANTITY_CONVERT ( \n              \"o_celonis_PlannedSupply\".\"AdjustmentQuantity\"\n              , FROM (\"o_celonis_PlannedSupply\".\"QuantityUnit\") \n              , TO (\"o_celonis_Material\".\"StockKeepingUnit\") \n              , \"o_celonis_Material\".\"MaterialNumber\"\n              , \"o_celonis_QuantityConversion\"\n            )\n            ,\"o_celonis_PlannedSupply\".\"AdjustmentQuantity\"\n          ) ",
       "type": "ATTRIBUTE"
      }
     ],
@@ -1238,6 +1344,7 @@
     "displayName": "Planned Supply",
     "id": "O_CELONIS_PLANNEDSUPPLY",
     "identifier": null,
+    "isActivityTable": false,
     "newAttributes": [],
     "pql": "\"o_celonis_PlannedSupply\"",
     "type": "RECORD"
@@ -1304,6 +1411,7 @@
       "description": "Plant a material is stored at, produced at, or shipped to.",
       "displayName": "Plant No. & Name",
       "id": "NumberNameConcat",
+      "pql": "\"o_celonis_Plant\".\"PlantNumber\" || ' - ' || \"o_celonis_Plant\".\"PlantName\"\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -1312,6 +1420,7 @@
       "description": "Plant a material is stored at, produced at, or shipped to.",
       "displayName": "Plant No.",
       "id": "NumberFormatted",
+      "pql": "\"o_celonis_Plant\".\"PlantNumber\"\n",
       "type": "ATTRIBUTE"
      }
     ],
@@ -1320,6 +1429,7 @@
     "displayName": "Plant",
     "id": "O_CELONIS_PLANT",
     "identifier": null,
+    "isActivityTable": false,
     "newAttributes": [],
     "pql": "\"o_celonis_Plant\"",
     "type": "RECORD"
@@ -1472,6 +1582,7 @@
       "description": "Indicates whether a Purchase Document has been flagged for deletion. ",
       "displayName": "Order Deletion Indicator",
       "id": "IsDeletedFormatted",
+      "pql": "\"o_celonis_PurchaseDocument\".\"IsCanceled\"",
       "type": "ATTRIBUTE"
      }
     ],
@@ -1480,6 +1591,7 @@
     "displayName": "PurchaseDocument",
     "id": "O_CELONIS_PURCHASEDOCUMENT",
     "identifier": null,
+    "isActivityTable": false,
     "newAttributes": [],
     "pql": "\"o_celonis_PurchaseDocument\"",
     "type": "RECORD"
@@ -1681,6 +1793,7 @@
       "description": null,
       "displayName": "Deletion Indicator",
       "id": "IsDeletedFormatted",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"IsCanceled\"",
       "type": "ATTRIBUTE"
      },
      {
@@ -1689,6 +1802,7 @@
       "description": "Whether goods can be delivered against a Purchase Document Line.",
       "displayName": "Goods Receipt Indicator",
       "id": "IsGoodsReceiptRequiredFormatted",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"IsGoodsReceiptRequired\"",
       "type": "ATTRIBUTE"
      },
      {
@@ -1697,6 +1811,7 @@
       "description": "Date on which the last shipment (first in case of scheduling agreement) as part of a Purchase Document has been received.",
       "displayName": "Purchase Document Goods Receipt Date",
       "id": "GoodsReceiptDate",
+      "pql": "CASE \n  WHEN \"o_celonis_PurchaseDocument\".\"DocumentCategory\" = 'Scheduling Agreement'-- Take first GR for Scheduling Agreements\n  THEN\n    PU_FIRST(\n      \"o_celonis_PurchaseDocumentLine\"\n      , CREATE_EVENTLOG(\"o_celonis_PurchaseDocumentLine\", INCLUDE[\"e_celonis_PostGoodsReceipt\"]).\"TIMESTAMP\"\n    )\n  ELSE\n    PU_LAST(\n      \"o_celonis_PurchaseDocumentLine\"\n      , CREATE_EVENTLOG(\"o_celonis_PurchaseDocumentLine\", INCLUDE[\"e_celonis_PostGoodsReceipt\"]).\"TIMESTAMP\"\n    )\nEND\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -1705,6 +1820,7 @@
       "description": null,
       "displayName": "Months in Purchase History Timeframe",
       "id": "MonthsSinceGoodsReceipt",
+      "pql": "ROUND(\n  MONTHS_BETWEEN(\n    ROUND_MONTH(\n      \"o_celonis_PurchaseDocumentLine\".\"GoodsReceiptDate\"\n    )\n    ,ROUND_MONTH(\n      TODAY()\n    )\n  )\n)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -1713,6 +1829,7 @@
       "description": null,
       "displayName": "Actual Purchase Document Lead Time",
       "id": "ActualLeadTime",
+      "pql": "DAYS_BETWEEN(\n  PU_FIRST(\n    \"o_celonis_PurchaseDocumentLine\"\n    ,CREATE_EVENTLOG(\"o_celonis_PurchaseDocumentLine\", INCLUDE[\"e_celonis_CreatePurchaseDocumentLine\"]).\"TIMESTAMP\"\n  )\n  ,\"o_celonis_PurchaseDocumentLine\".\"GoodsReceiptDate\"\n)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -1721,6 +1838,7 @@
       "description": null,
       "displayName": "Days from Due Date",
       "id": "DaysFromDueDate",
+      "pql": "DAYS_BETWEEN (\n    PU_FIRST(\n  \"o_celonis_PurchaseDocumentLine\"\n  ,\"o_celonis_PurchaseScheduleLine\".\"ExpectedDeliveryDate\"\n)\n,\n   CASE\n  WHEN \"o_celonis_PurchaseDocument\".\"DocumentCategory\" = 'Scheduling Agreement'-- Take first GR for Scheduling Agreements\n  THEN\n    PU_FIRST(\n      \"o_celonis_PurchaseDocumentLine\"\n      , CREATE_EVENTLOG(\"o_celonis_PurchaseDocumentLine\", INCLUDE[\"e_celonis_PostGoodsReceipt\"]).\"TIMESTAMP\"\n    )\n  ELSE\n    PU_LAST(\n      \"o_celonis_PurchaseDocumentLine\"\n      , CREATE_EVENTLOG(\"o_celonis_PurchaseDocumentLine\", INCLUDE[\"e_celonis_PostGoodsReceipt\"]).\"TIMESTAMP\"\n    )\nEND\n)",
       "type": "ATTRIBUTE"
      },
      {
@@ -1729,6 +1847,7 @@
       "description": null,
       "displayName": "Is Open?",
       "id": "IsOpen",
+      "pql": "CASE WHEN \nCASE\n  WHEN \n    ISNULL(\"o_celonis_PurchaseDocument\".\"IsCanceled\") = 1 AND\n    \"o_celonis_PurchaseDocumentLine\".\"IsGoodsReceiptRequired\" = 1 AND \n    ISNULL(\"o_celonis_PurchaseDocumentLine\".\"IsCanceled\") = 1 \n  THEN 1\n  ELSE NULL\nEND\n > 0.0\nTHEN 'X'\nEND",
       "type": "ATTRIBUTE"
      },
      {
@@ -1737,6 +1856,7 @@
       "description": null,
       "displayName": "Month",
       "id": "MonthGoodsReceiptDate",
+      "pql": "ROUND_MONTH(\"o_celonis_PurchaseDocumentLine\".\"GoodsReceiptDate\")",
       "type": "ATTRIBUTE"
      },
      {
@@ -1745,6 +1865,7 @@
       "description": null,
       "displayName": "Month of Order Creation",
       "id": "CreationTimeMonth",
+      "pql": "ROUND_MONTH(\"o_celonis_PurchaseDocumentLine\".\"CreationTime\")",
       "type": "ATTRIBUTE"
      },
      {
@@ -1753,6 +1874,7 @@
       "description": null,
       "displayName": "Is Late",
       "id": "GracePeriodIsLate",
+      "pql": "${im_graceperiodpurchasedocumentlineislateindays}",
       "type": "ATTRIBUTE"
      },
      {
@@ -1761,6 +1883,7 @@
       "description": null,
       "displayName": "Is Early",
       "id": "GracePeriodIsEarly",
+      "pql": "${im_graceperiodpurchasedocumentlineisearlyindays}*(-1)",
       "type": "ATTRIBUTE"
      },
      {
@@ -1769,6 +1892,7 @@
       "description": null,
       "displayName": "Converted Net Unit Price",
       "id": "NetUnitPriceConverted",
+      "pql": "COALESCE(\n    CURRENCY_CONVERT(\n      \"o_celonis_PurchaseDocumentLine\".\"NetUnitPrice\"\n      ,FROM(\"o_celonis_PurchaseDocumentLine\".\"Currency\")\n      ,TO('${im_currency}')\n      ,\"o_celonis_PurchaseDocumentLine\".\"CreationTime\"\n      ,\"o_celonis_CurrencyConversion\"\n      ,'${im_currencyexchangeratetype}'\n      ,\"o_celonis_PurchaseDocumentLine\".\"SourceSystemInstance\"\n    )\n  , 0.0\n)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -1777,6 +1901,7 @@
       "description": "Date on which the last shipment (first in case of scheduling agreement) as part of a Purchase Document has been received.",
       "displayName": "Line Delivery Date",
       "id": "LineDeliveryDate",
+      "pql": "PU_FIRST(\n  \"o_celonis_PurchaseDocumentLine\"\n  ,\"o_celonis_PurchaseScheduleLine\".\"ExpectedDeliveryDate\"\n)\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -1785,6 +1910,7 @@
       "description": "Indicates whether a Purchase Document was received on time. The KPI is negatively impacted by early (tolerance: ${im_graceperiodpurchasedocumentlineisearlyindays} days) and late (tolerance: ${im_graceperiodpurchasedocumentlineislateindays} days) deliveries.",
       "displayName": "Purchase Document Received Outcomes",
       "id": "PurchaseDocumentReceivedOutcomes",
+      "pql": "CASE\n  WHEN ISNULL(\"o_celonis_PurchaseDocumentLine\".\"LineDeliveryDate\") = 1 THEN 'NO_DATE'\n  WHEN ISNULL(\"o_celonis_PurchaseDocumentLine\".\"GoodsReceiptDate\") = 1 AND DAYS_BETWEEN(\"o_celonis_PurchaseDocumentLine\".\"LineDeliveryDate\",TODAY()) <= 0 THEN 'NO_GR_AND_FUTURE_DUE_DATE'\n  WHEN ISNULL(\"o_celonis_PurchaseDocumentLine\".\"GoodsReceiptDate\") = 1 AND DAYS_BETWEEN(\"o_celonis_PurchaseDocumentLine\".\"LineDeliveryDate\",TODAY()) > 0 AND DAYS_BETWEEN(\"o_celonis_PurchaseDocumentLine\".\"LineDeliveryDate\",TODAY()) <= ${im_graceperiodpurchasedocumentlineisearlyindays}\n  THEN 'NO_GR_PASSED_DUE_DATE_WITHIN_TOLERANCE'\n  WHEN ISNULL(\"o_celonis_PurchaseDocumentLine\".\"GoodsReceiptDate\") = 1 AND DAYS_BETWEEN(\"o_celonis_PurchaseDocumentLine\".\"LineDeliveryDate\",TODAY()) > ${im_graceperiodpurchasedocumentlineislateindays}\n  THEN 'NO_GR_PASSED_DUE_DATE_OUT_OF_TOLERANCE'\n  WHEN\n    ROUND(DAYS_BETWEEN(\n    \"o_celonis_PurchaseDocumentLine\".\"GoodsReceiptDate\"\n    ,\"o_celonis_PurchaseDocumentLine\".\"LineDeliveryDate\"))\n    > ${im_graceperiodpurchasedocumentlineisearlyindays}\n  THEN 'EARLY'\n  WHEN\n    ROUND(\n      DAYS_BETWEEN(\n        \"o_celonis_PurchaseDocumentLine\".\"GoodsReceiptDate\"\n        ,\"o_celonis_PurchaseDocumentLine\".\"LineDeliveryDate\"\n      )\n    )\n    >= 0.0\n    AND\n    ROUND(\n      DAYS_BETWEEN(\n        \"o_celonis_PurchaseDocumentLine\".\"GoodsReceiptDate\"\n        ,\"o_celonis_PurchaseDocumentLine\".\"LineDeliveryDate\"\n      )\n    )\n    <= ${im_graceperiodpurchasedocumentlineisearlyindays}\n  THEN 'ON_TIME_BEFORE_DUE_DATE'\n  WHEN\n    ROUND(\n      DAYS_BETWEEN(\n        \"o_celonis_PurchaseDocumentLine\".\"GoodsReceiptDate\"\n        ,\"o_celonis_PurchaseDocumentLine\".\"LineDeliveryDate\"\n      )\n    )\n    <= 0.0\n    AND\n    ROUND(\n      DAYS_BETWEEN(\n        \"o_celonis_PurchaseDocumentLine\".\"GoodsReceiptDate\"\n        ,\"o_celonis_PurchaseDocumentLine\".\"LineDeliveryDate\"\n      )\n    )\n    >= ${im_graceperiodpurchasedocumentlineislateindays} * (-1.0)\n    THEN 'ON_TIME_AFTER_DUE_DATE'\n  ELSE 'LATE'\nEND\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -1793,6 +1919,7 @@
       "description": null,
       "displayName": "Delivered Late?",
       "id": "DeliveredLate",
+      "pql": "CASE\n  WHEN\n    \"o_celonis_PurchaseDocumentLine\".\"PurchaseDocumentReceivedOutcomes\" IN ('LATE', 'NO_GR_PASSED_DUE_DATE_OUT_OF_TOLERANCE')\n  THEN 1\n  WHEN\n    \"o_celonis_PurchaseDocumentLine\".\"PurchaseDocumentReceivedOutcomes\" IN ('ON_TIME_AFTER_DUE_DATE', 'ON_TIME_BEFORE_DUE_DATE', 'EARLY')\n  THEN 0\n  ELSE NULL\nEND\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -1801,6 +1928,7 @@
       "description": "Indicates whether a Purchase Document was received on time. The KPI is negatively impacted by early deliveries.",
       "displayName": "Delivered On Time?",
       "id": "DeliveredOnTime",
+      "pql": "CASE\n  WHEN \"o_celonis_PurchaseDocumentLine\".\"PurchaseDocumentReceivedOutcomes\" = 'NO_DATE' THEN NULL\n  WHEN \"o_celonis_PurchaseDocumentLine\".\"PurchaseDocumentReceivedOutcomes\" = 'NO_GR_AND_FUTURE_DUE_DATE' THEN NULL\n  WHEN \"o_celonis_PurchaseDocumentLine\".\"PurchaseDocumentReceivedOutcomes\" = 'NO_GR_PASSED_DUE_DATE_WITHIN_TOLERANCE' THEN NULL\n  WHEN \"o_celonis_PurchaseDocumentLine\".\"PurchaseDocumentReceivedOutcomes\" = 'ON_TIME_AFTER_DUE_DATE' THEN 1.0\n  WHEN \"o_celonis_PurchaseDocumentLine\".\"PurchaseDocumentReceivedOutcomes\" = 'ON_TIME_BEFORE_DUE_DATE' THEN 1.0\n  WHEN \"o_celonis_PurchaseDocumentLine\".\"PurchaseDocumentReceivedOutcomes\" = 'LATE' THEN 0.0\n  WHEN \"o_celonis_PurchaseDocumentLine\".\"PurchaseDocumentReceivedOutcomes\" = 'NO_GR_PASSED_DUE_DATE_OUT_OF_TOLERANCE' THEN NULL\n  WHEN \"o_celonis_PurchaseDocumentLine\".\"PurchaseDocumentReceivedOutcomes\" = 'EARLY' THEN 0.0\nEND\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -1809,6 +1937,7 @@
       "description": null,
       "displayName": "Net Amount Converted",
       "id": "NetAmountConverted",
+      "pql": "COALESCE(\n    CURRENCY_CONVERT(\n      \"o_celonis_PurchaseDocumentLine\".\"NetAmount\"\n      ,FROM(\"o_celonis_PurchaseDocumentLine\".\"Currency\")\n      ,TO('${im_currency}')\n      ,\"o_celonis_PurchaseDocumentLine\".\"CreationTime\"\n      ,\"o_celonis_CurrencyConversion\"\n      ,'${im_currencyexchangeratetype}'\n      ,\"o_celonis_PurchaseDocumentLine\".\"SourceSystemInstance\"\n    )\n  ,  \"o_celonis_PurchaseDocumentLine\".\"NetAmount\" --0.0\n\n)",
       "type": "ATTRIBUTE"
      },
      {
@@ -1817,6 +1946,7 @@
       "description": null,
       "displayName": "Purchase Document Line & No.",
       "id": "PurchaseDocumentLineNum",
+      "pql": "\"o_celonis_PurchaseDocumentLine\".\"PurchaseDocumentNumber\" || ' - ' || \"o_celonis_PurchaseDocumentLine\".\"LineNumber\"\n",
       "type": "ATTRIBUTE"
      }
     ],
@@ -1825,6 +1955,7 @@
     "displayName": "PurchaseDocumentLine",
     "id": "O_CELONIS_PURCHASEDOCUMENTLINE",
     "identifier": null,
+    "isActivityTable": false,
     "newAttributes": [],
     "pql": "\"o_celonis_PurchaseDocumentLine\"",
     "type": "RECORD"
@@ -1964,6 +2095,7 @@
       "description": null,
       "displayName": "Purchase Document No.",
       "id": "PurchaseDocumentNumber",
+      "pql": "LTRIM(\"o_celonis_PurchaseScheduleLine\".\"PurchaseDocumentNumber\",'0')",
       "type": "ATTRIBUTE"
      },
      {
@@ -1972,6 +2104,7 @@
       "description": null,
       "displayName": "Purchase Document Line",
       "id": "PurchaseDocumentLine",
+      "pql": "LTRIM(\"o_celonis_PurchaseScheduleLine\".\"LineNumber\", '0')",
       "type": "ATTRIBUTE"
      },
      {
@@ -1980,6 +2113,7 @@
       "description": null,
       "displayName": "Purchase Order Schedule Line",
       "id": "PurchaseOrderScheduleLine",
+      "pql": "LTRIM(\"o_celonis_PurchaseScheduleLine\".\"DeliveryNumber\",'0')",
       "type": "ATTRIBUTE"
      },
      {
@@ -1988,6 +2122,7 @@
       "description": "Date a Purchase Document is expected to arrive based on current planning parameters.",
       "displayName": "Delivery Date",
       "id": "DeliveryDate",
+      "pql": "\"o_celonis_PurchaseScheduleLine\".\"ExpectedDeliveryDate\"",
       "type": "ATTRIBUTE"
      },
      {
@@ -1996,6 +2131,7 @@
       "description": "This KPI is the scheduled quantity to be delivered in a given Purchase Order Schedule Line converted to Stock Keeping Units.",
       "displayName": "Scheduled Quantity",
       "id": "ExpectedQuantityConverted",
+      "pql": "COALESCE(\n  QUANTITY_CONVERT ( \n    \"o_celonis_PurchaseScheduleLine\".\"ExpectedQuantity\"\n    , FROM (\"o_celonis_PurchaseDocumentLine\".\"QuantityUnit\") \n    , TO (\"o_celonis_Material\".\"StockKeepingUnit\") \n    , \"o_celonis_Material\".\"MaterialNumber\"\n    , \"o_celonis_QuantityConversion\" \n  )\n  ,\"o_celonis_PurchaseScheduleLine\".\"ExpectedQuantity\"\n) ",
       "type": "ATTRIBUTE"
      },
      {
@@ -2004,6 +2140,7 @@
       "description": "This KPI is the goods received quantity to be delivered in a given Purchase Order Schedule Line converted to Stock Keeping Units.",
       "displayName": "Goods Receipt Quantity",
       "id": "ReceivedQuantityConverted",
+      "pql": "COALESCE(\n  QUANTITY_CONVERT ( \n    \"o_celonis_PurchaseScheduleLine\".\"ReceivedQuantity\"\n    , FROM (\"o_celonis_PurchaseDocumentLine\".\"QuantityUnit\") \n    , TO (\"o_celonis_Material\".\"StockKeepingUnit\") \n    , \"o_celonis_Material\".\"MaterialNumber\"\n    , \"o_celonis_QuantityConversion\"\n  )\n  ,\"o_celonis_PurchaseScheduleLine\".\"ReceivedQuantity\"\n) ",
       "type": "ATTRIBUTE"
      },
      {
@@ -2012,6 +2149,7 @@
       "description": "Indicates whether the order is open.",
       "displayName": "Is Open",
       "id": "IsOpen",
+      "pql": "CASE \n  WHEN \n    \"o_celonis_PurchaseDocument\".\"IsCanceled\" = 0 AND\n    \"o_celonis_PurchaseDocumentLine\".\"IsGoodsReceiptRequired\" = 1 AND \n    \"o_celonis_PurchaseDocumentLine\".\"IsCanceled\" = 0 AND\n    \"o_celonis_PurchaseScheduleLine\".\"ExpectedQuantity\" > \"o_celonis_PurchaseScheduleLine\".\"ReceivedQuantity\"\n  THEN 'Open'\n  ELSE 'Closed'\nEND",
       "type": "ATTRIBUTE"
      }
     ],
@@ -2020,6 +2158,7 @@
     "displayName": "PurchaseScheduleLine",
     "id": "O_CELONIS_PURCHASESCHEDULELINE",
     "identifier": null,
+    "isActivityTable": false,
     "newAttributes": [],
     "pql": "\"o_celonis_PurchaseScheduleLine\"",
     "type": "RECORD"
@@ -2138,6 +2277,7 @@
       "description": "Unique ID and Name of a Supplier company. ",
       "displayName": "Supplier No. & Name",
       "id": "SupplierNumberNameConcat",
+      "pql": "LTRIM(\"o_celonis_Vendor\".\"VendorNumber\",'0') ||' - '|| \"o_celonis_Vendor\".\"Name\"\n",
       "type": "ATTRIBUTE"
      },
      {
@@ -2146,6 +2286,7 @@
       "description": "Country a given Supplier is located in. ",
       "displayName": "Country",
       "id": "Country",
+      "pql": "\"o_celonis_Vendor\".\"Country\"",
       "type": "ATTRIBUTE"
      },
      {
@@ -2154,6 +2295,7 @@
       "description": "City a given Supplier is located in. ",
       "displayName": "City",
       "id": "City",
+      "pql": "\"o_celonis_Vendor\".\"City\"",
       "type": "ATTRIBUTE"
      },
      {
@@ -2162,6 +2304,7 @@
       "description": null,
       "displayName": "Internal Supplier",
       "id": "IsInternalSupplier",
+      "pql": "CASE WHEN \"o_celonis_Vendor\".\"IsInternalVendor\" = 1 THEN 'Yes' ELSE 'No' END",
       "type": "ATTRIBUTE"
      },
      {
@@ -2170,6 +2313,7 @@
       "description": "Supplier Identifier as an attribute",
       "displayName": "Supplier ID",
       "id": "IDENTIFIER_AS_ATTRIBUTE",
+      "pql": "\"o_celonis_Vendor\".\"ID\"\n",
       "type": "ATTRIBUTE"
      }
     ],
@@ -2190,6 +2334,7 @@
      "scope": null,
      "shortDisplayName": null
     },
+    "isActivityTable": false,
     "newAttributes": [],
     "pql": "o_celonis_Vendor",
     "type": "RECORD"
@@ -2212,130 +2357,10 @@
    "columns": [
     [
      "ID",
-     "ID"
-    ]
-   ],
-   "many": "r_e_celonis_PostGoodsIssue__DeliveryLine",
-   "one": "e_celonis_PostGoodsIssue"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "BillOfMaterialComponent_ID"
-    ]
-   ],
-   "many": "o_celonis_RelationshipBillOfMaterials",
-   "one": "o_celonis_BillOfMaterialComponent"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "BillOfMaterialProduct_ID"
-    ]
-   ],
-   "many": "o_celonis_RelationshipBillOfMaterials",
-   "one": "o_celonis_BillOfMaterialProduct"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "Customer_ID"
-    ]
-   ],
-   "many": "o_celonis_SalesOrder",
-   "one": "o_celonis_Customer"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "DeliveryLine_ID"
-    ]
-   ],
-   "many": "r_e_celonis_PostGoodsIssue__DeliveryLine",
-   "one": "o_celonis_DeliveryLine"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "ID"
-    ]
-   ],
-   "many": "r_o_celonis_DeliveryLine__SalesOrderScheduleLines",
-   "one": "o_celonis_DeliveryLine"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "Material_ID"
-    ]
-   ],
-   "many": "o_celonis_MaterialMasterPlant",
-   "one": "o_celonis_Material"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "MaterialMasterPlant_ID"
-    ]
-   ],
-   "many": "o_celonis_MaterialMovement",
-   "one": "o_celonis_MaterialMasterPlant"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "MaterialMasterPlant_ID"
-    ]
-   ],
-   "many": "o_celonis_MaterialRequirement",
-   "one": "o_celonis_MaterialMasterPlant"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "MaterialMasterPlant_ID"
-    ]
-   ],
-   "many": "o_celonis_MaterialReservation",
-   "one": "o_celonis_MaterialMasterPlant"
-  },
-  {
-   "columns": [
-    [
-     "ID",
      "MaterialMasterPlant_ID"
     ]
    ],
    "many": "o_celonis_PlannedSupply",
-   "one": "o_celonis_MaterialMasterPlant"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "MaterialMasterPlant_ID"
-    ]
-   ],
-   "many": "o_celonis_ProductionOrder",
-   "one": "o_celonis_MaterialMasterPlant"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "MaterialMasterPlant_ID"
-    ]
-   ],
-   "many": "o_celonis_PurchaseRequisitionLine",
    "one": "o_celonis_MaterialMasterPlant"
   },
   {
@@ -2352,101 +2377,11 @@
    "columns": [
     [
      "ID",
-     "MaterialMasterPlantComponent_ID"
-    ]
-   ],
-   "many": "o_celonis_RelationshipBillOfMaterials",
-   "one": "o_celonis_MaterialMasterPlant"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "MaterialMasterPlant_ID"
-    ]
-   ],
-   "many": "o_celonis_SalesOrderScheduleLine",
-   "one": "o_celonis_MaterialMasterPlant"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "MaterialMasterPlant_ID"
-    ]
-   ],
-   "many": "o_celonis_StockHistory",
-   "one": "o_celonis_MaterialMasterPlant"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "MaterialMovement_ID"
-    ]
-   ],
-   "many": "e_celonis_PostGoodsIssue",
-   "one": "o_celonis_MaterialMovement"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "MaterialMovement_ID"
-    ]
-   ],
-   "many": "e_celonis_PostGoodsReceipt",
-   "one": "o_celonis_MaterialMovement"
-  },
-  {
-   "columns": [
-    [
-     "ID",
      "Plant_ID"
     ]
    ],
    "many": "o_celonis_MaterialMasterPlant",
    "one": "o_celonis_Plant"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "ProductionOrder_ID"
-    ]
-   ],
-   "many": "e_celonis_CreateProductionOrder",
-   "one": "o_celonis_ProductionOrder"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "ProductionOrder_ID"
-    ]
-   ],
-   "many": "e_celonis_FinishProductionOrder",
-   "one": "o_celonis_ProductionOrder"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "ProductionOrder_ID"
-    ]
-   ],
-   "many": "e_celonis_StartProduction",
-   "one": "o_celonis_ProductionOrder"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "PurchaseDocument_ID"
-    ]
-   ],
-   "many": "e_celonis_CreatePurchaseDocumentLine",
-   "one": "o_celonis_PurchaseDocument"
   },
   {
    "columns": [
@@ -2465,58 +2400,8 @@
      "PurchaseDocumentLine_ID"
     ]
    ],
-   "many": "e_celonis_CreatePurchaseDocumentLine",
-   "one": "o_celonis_PurchaseDocumentLine"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "PurchaseDocumentLine_ID"
-    ]
-   ],
-   "many": "e_celonis_PostGoodsReceipt",
-   "one": "o_celonis_PurchaseDocumentLine"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "PurchaseDocumentLine_ID"
-    ]
-   ],
    "many": "o_celonis_PurchaseScheduleLine",
    "one": "o_celonis_PurchaseDocumentLine"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "Vendor_ID"
-    ]
-   ],
-   "many": "o_celonis_PurchaseRequisitionLine",
-   "one": "o_celonis_PurchaseRequisitionLine__Vendor"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "SalesOrder_ID"
-    ]
-   ],
-   "many": "o_celonis_SalesOrderScheduleLine",
-   "one": "o_celonis_SalesOrder"
-  },
-  {
-   "columns": [
-    [
-     "ID",
-     "SalesOrderScheduleLines_ID"
-    ]
-   ],
-   "many": "r_o_celonis_DeliveryLine__SalesOrderScheduleLines",
-   "one": "o_celonis_SalesOrderScheduleLine"
   },
   {
    "columns": [
@@ -2535,5 +2420,177 @@
   "package_id": "fixture-package",
   "space_id": "fixture-space",
   "tenant_id": "fixture-tenant"
+ },
+ "tables": {
+  "o_celonis_MaterialMasterPlant": {
+   "columns": {
+    "BaseCurrency": "STRING",
+    "CurrentValuatedStockAmount": "FLOAT",
+    "CurrentValuatedStockQuantity": "FLOAT",
+    "ID": "STRING",
+    "IsDiscontinued": "INTEGER",
+    "MRPController": "STRING",
+    "MRPType": "STRING",
+    "Material_ID": "STRING",
+    "MinimumLotSizeQuantity": "FLOAT",
+    "PlannedDeliveryTimeDays": "INTEGER",
+    "PlannedProductionLeadTimeDays": "INTEGER",
+    "Plant_ID": "STRING",
+    "ProcurementType": "STRING",
+    "SafetyStockQuantity": "FLOAT",
+    "SourceSystemInstance": "STRING",
+    "UnitPriceAmount": "FLOAT",
+    "ValidityPeriodEndDate": "DATE",
+    "ValidityPeriodStartDate": "DATE"
+   },
+   "primary_key": [
+    "ID"
+   ]
+  },
+  "o_celonis_PlannedSupply": {
+   "columns": {
+    "AdjustmentQuantity": "FLOAT",
+    "ID": "STRING",
+    "IsFirmOrder": "INTEGER",
+    "MaterialMasterPlant_ID": "STRING",
+    "ObjectType": "STRING",
+    "OrderFinishDate": "DATE",
+    "OrderQuantity": "FLOAT",
+    "PlannedSupplyNumber": "STRING",
+    "QuantityUnit": "STRING",
+    "SourceSystemInstance": "STRING"
+   },
+   "primary_key": [
+    "ID"
+   ]
+  },
+  "o_celonis_Plant": {
+   "columns": {
+    "Country": "STRING",
+    "CountryName": "STRING",
+    "ID": "STRING",
+    "PlantName": "STRING",
+    "PlantNumber": "STRING",
+    "SourceSystemInstance": "STRING"
+   },
+   "primary_key": [
+    "ID"
+   ]
+  },
+  "o_celonis_PurchaseDocument": {
+   "columns": {
+    "CreatedBy_ID": "STRING",
+    "CreationExecutionType": "STRING",
+    "CreationTime": "DATE",
+    "Currency": "STRING",
+    "DocumentCategory": "STRING",
+    "DocumentType": "STRING",
+    "DocumentTypeText": "STRING",
+    "ID": "STRING",
+    "IsCanceled": "INTEGER",
+    "PaymentTerms": "STRING",
+    "PurchaseDocumentNumber": "STRING",
+    "PurchaseOrganization": "STRING",
+    "PurchaseOrganizationName": "STRING",
+    "SourceSystemInstance": "STRING",
+    "Vendor_ID": "STRING"
+   },
+   "primary_key": [
+    "ID"
+   ]
+  },
+  "o_celonis_PurchaseDocumentLine": {
+   "columns": {
+    "ChangeDate": "DATE",
+    "CreatedBy_ID": "STRING",
+    "CreationExecutionType": "STRING",
+    "CreationTime": "DATE",
+    "Currency": "STRING",
+    "Description": "STRING",
+    "DocumentCategory": "STRING",
+    "DocumentType": "STRING",
+    "Header_ID": "STRING",
+    "ID": "STRING",
+    "IsCanceled": "INTEGER",
+    "IsGoodsReceiptRequired": "INTEGER",
+    "LineNumber": "STRING",
+    "Material_ID": "STRING",
+    "NetAmount": "FLOAT",
+    "NetUnitPrice": "FLOAT",
+    "PurchaseDocumentNumber": "STRING",
+    "Quantity": "FLOAT",
+    "QuantityUnit": "STRING",
+    "RequestedBy_ID": "STRING",
+    "SourceSystemInstance": "STRING"
+   },
+   "primary_key": [
+    "ID"
+   ]
+  },
+  "o_celonis_PurchaseScheduleLine": {
+   "columns": {
+    "CreationTime": "DATE",
+    "DeliveryNumber": "STRING",
+    "ExpectedDeliveryDate": "DATE",
+    "ExpectedQuantity": "FLOAT",
+    "ID": "STRING",
+    "LineNumber": "STRING",
+    "MaterialMasterPlant_ID": "STRING",
+    "Plant_ID": "STRING",
+    "PurchaseDocumentLine_ID": "STRING",
+    "PurchaseDocumentNumber": "STRING",
+    "QuantityUnit": "STRING",
+    "ReceivedQuantity": "FLOAT",
+    "SourceSystemInstance": "STRING"
+   },
+   "primary_key": [
+    "ID"
+   ]
+  },
+  "o_celonis_Vendor": {
+   "columns": {
+    "City": "STRING",
+    "Country": "STRING",
+    "ID": "STRING",
+    "IsBlockedForPayment": "INTEGER",
+    "IsInternalVendor": "INTEGER",
+    "Name": "STRING",
+    "SourceSystemInstance": "STRING",
+    "VendorNumber": "STRING"
+   },
+   "primary_key": [
+    "ID"
+   ]
+  }
+ },
+ "validation": {
+  "O_CELONIS_MATERIALMASTERPLANT": {
+   "AvgMonthlyConsQty12Months": "returned values that are not int (O_CELONIS_MATERIALMASTERPLANT.avg_monthly_cons_qty12_months expects int, received float 1.4166666666666667.)",
+   "EndNodeIndicator": "fails in Celonis: FAILED LINK_TARGET: Object Link is not configured.",
+   "HasPurchaseDocumentLines": "fails in Celonis: FAILED Pull-Up-function could not be executed. PU_COUNT: Cannot execute PU-function on tables [\"o_celonis_MaterialMasterPlant\"] and [\"o_celonis_PurchaseDocument",
+   "IncomingBomLinkIndicator": "fails in Celonis: FAILED LINK_TARGET: Object Link is not configured.",
+   "IsEndNode": "fails in Celonis: FAILED LINK_TARGET: Object Link is not configured.",
+   "IsStartNode": "fails in Celonis: FAILED LINK_TARGET: Object Link is not configured.",
+   "LegacyStockValue": "fails in Celonis: FAILED Error in Calculated Attribute \"o_celonis_MaterialMasterPlant\".\"ActualPurchaseLeadTime\". Table could not be found. Table with name \"Average\" cannot be fou",
+   "NetworkStreams": "fails in Celonis: FAILED LINK_TARGET: Object Link is not configured.",
+   "NoIncomingBomLinkIndicator": "fails in Celonis: FAILED LINK_TARGET: Object Link is not configured.",
+   "NoSelfLinkLinkIndicator": "fails in Celonis: FAILED LINK_TARGET: Object Link is not configured.",
+   "NumIncomingBillOfMaterialLinks": "fails in Celonis: FAILED LINK_TARGET: Object Link is not configured.",
+   "NumOutgoingBillOfMaterialLinks": "fails in Celonis: FAILED LINK_SOURCE: Object Link is not configured.",
+   "NumPurchaseDocumentLines": "fails in Celonis: FAILED Pull-Up-function could not be executed. PU_COUNT: Cannot execute PU-function on tables [\"o_celonis_MaterialMasterPlant\"] and [\"o_celonis_PurchaseDocument",
+   "NumSelfBillOfMaterialLinks": "fails in Celonis: FAILED LINK_TARGET: Object Link is not configured.",
+   "ObsoleteStockValue": "fails in Celonis: FAILED Error in Calculated Attribute \"o_celonis_MaterialMasterPlant\".\"ActualPurchaseLeadTime\". Table could not be found. Table with name \"Average\" cannot be fou",
+   "OpenSalesOrderScheduleLineBackorderValue": "fails in Celonis: FAILED Error in Calculated Attribute \"o_celonis_SalesOrderScheduleLine\".\"DueDate\". Table could not be found. Table with name \"Requested\" cannot be found.",
+   "OutgoingBomLinkIndicator": "fails in Celonis: FAILED LINK_SOURCE: Object Link is not configured.",
+   "StartNode": "fails in Celonis: FAILED LINK_TARGET: Object Link is not configured.",
+   "SumConsumptionFutureValue": "returned values that are not int (O_CELONIS_MATERIALMASTERPLANT.sum_consumption_future_value expects int, received float 571.7049000000001.)",
+   "SumMaterialReservationFutureValue": "returned values that are not int (O_CELONIS_MATERIALMASTERPLANT.sum_material_reservation_future_value expects int, received float 571.7049000000001.)",
+   "SumProductionOrderFutureValue": "returned values that are not int (O_CELONIS_MATERIALMASTERPLANT.sum_production_order_future_value expects int, received float -8.279790000000315.)",
+   "SumPurchaseRequisitionLineFutureValue": "returned values that are not int (O_CELONIS_MATERIALMASTERPLANT.sum_purchase_requisition_line_future_value expects int, received float 5949.87.)",
+   "SumReplenishmentFutureValue": "returned values that are not int (O_CELONIS_MATERIALMASTERPLANT.sum_replenishment_future_value expects int, received float 5949.87.)"
+  },
+  "O_CELONIS_PURCHASEDOCUMENTLINE": {
+   "DeliveredOnTime": "returned values that are not str (O_CELONIS_PURCHASEDOCUMENTLINE.delivered_on_time expects str, received float 1.0.)"
+  }
  }
 }

@@ -46,26 +46,16 @@ package-id = "PACKAGE_ID"
 key = "inventory-km"
 mode = "draft"
 output = "generated/inventory"
-
-[tool.celofast.knowledge-models.inventory.mapping]
-exclude = ["EL_CELONIS_DELIVERYLINE"]      # records that are not business objects
-
-[tool.celofast.knowledge-models.inventory.mapping.objects.O_CELONIS_PLANT]
-class = "Plant"
-key = ["ID"]
-
-[tool.celofast.knowledge-models.inventory.mapping.objects.O_CELONIS_PLANT.links.materials]
-target = "O_CELONIS_MATERIALMASTERPLANT"
-cardinality = "many"
-on = { ID = "PLANT_ID" }
 ```
 
-Every generated object type needs a verified key. `--check` lists each record,
-key, type, and relationship that still needs a mapping or an explicit exclusion:
+Pull derives object types, keys, field types, and links from the KM and its Data
+Model. Calculated attributes are test-run, and anything that cannot be generated
+is skipped and listed in the generated `definitions.py`. An optional `mapping`
+holds overrides such as link names:
 
 ```bash
-uv run celofast km pull inventory --check
 uv run celofast km pull inventory
+uv run celofast km pull inventory --check   # report drift in CI
 ```
 
 Then retrieve typed objects:
@@ -134,6 +124,6 @@ uv run pytest
 Read [Development](docs/development.md) for repository structure, documentation
 checks, and the opt-in live tests.
 
-The repository's Inventory KM (configured in `pyproject.toml`, with its object
-mapping in `inventory-objects.toml`) backs the opt-in live tests. Its generated
+The repository's Inventory KM (configured in `pyproject.toml`, with four link
+names overridden in `inventory-objects.toml`) backs the live tests. Its generated
 package is ignored by Git and must be pulled in each checkout.

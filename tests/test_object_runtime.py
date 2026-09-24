@@ -168,12 +168,13 @@ def test_relationships_are_explicit_typed_requests(sdk, client, transport):
 
 def test_composite_keys(sdk, client, transport):
     transport.reply(["P1", pd.Timestamp("2024-01-31"), 7], columns=["plant_id", "day", "qty"])
+    # Celonis DATE columns load as datetimes; a date argument means its midnight.
     line = client.objects(sdk.StockLine).get(("P1", date(2024, 1, 31)))
-    assert line.key == ("P1", date(2024, 1, 31)) and line.qty == 7
+    assert line.key == ("P1", datetime(2024, 1, 31)) and line.qty == 7
     filters = [f.query for f in transport.requests[0].query.filters]
     assert filters == [
         eq_filter('"o_Stock"."Plant_ID"', "'P1'"),
-        eq_filter('"o_Stock"."Day"', "{d '2024-01-31'}"),
+        eq_filter('"o_Stock"."Day"', "{t 1706659200000}"),
     ]
     with pytest.raises(QueryValidationError, match="2 parts"):
         client.objects(sdk.StockLine).get("P1")
@@ -425,3 +426,16 @@ def test_aggregate_validation(sdk):
     # Plant.stock has no foreign key: no Pull-Up path to aggregate over.
     with pytest.raises(QueryValidationError, match="Pull-Up aggregates need one"):
         ToManyRelation("stock", Plant, Stock).count()
+
+
+def test_datetime_fields_accept_date_filters_as_midnight(sdk):
+    updated = sdk.Material.fields.updated
+    assert type(updated).__name__ == "DateTimeField"
+    assert updated.gte(date(2024, 5, 1)).operand == datetime(2024, 5, 1)
+    assert updated.between(date(2024, 5, 1), date(2024, 6, 1)).operand == (
+        datetime(2024, 5, 1), datetime(2024, 6, 1)
+    )
+    assert updated.is_in([date(2024, 5, 1)]).operand == (datetime(2024, 5, 1),)
+    # A strict date field (types override) still rejects datetimes.
+    with pytest.raises(ObjectValueError, match="expects date"):
+        sdk.Plant.fields.opened.eq(datetime(2020, 1, 1, 8))

@@ -49,6 +49,61 @@ def _configuration(name: str, project: Path | None) -> tuple[dict[str, Any], Pat
     return settings, project.parent
 
 
+class _Progress:
+    """Progress for slow pull steps: a Rich bar with ETA, or plain lines when redirected."""
+
+    def __init__(self) -> None:
+        from rich.console import Console
+
+        self._console = Console(stderr=True)
+        self._bar: Any = None
+        self._task: Any = None
+        self._title: str | None = None
+        self._started = 0.0
+
+    def __call__(self, task: str, completed: int, total: int) -> None:
+        import time
+
+        title = task.split(":", 1)[0]
+        if not self._console.is_terminal:
+            if title != self._title:
+                self._title, self._started = title, time.monotonic()
+            elapsed = time.monotonic() - self._started
+            eta = elapsed / completed * (total - completed) if completed else 0.0
+            suffix = f", ETA {eta:.0f}s" if 0 < completed < total else ""
+            self._console.print(f"celofast: {task} ({completed}/{total}{suffix})", markup=False)
+            return
+        if title != self._title:
+            self.close()
+            from rich.progress import (
+                BarColumn,
+                MofNCompleteColumn,
+                Progress,
+                TextColumn,
+                TimeElapsedColumn,
+                TimeRemainingColumn,
+            )
+
+            self._bar = Progress(
+                TextColumn("{task.description}"),
+                BarColumn(),
+                MofNCompleteColumn(),
+                TimeElapsedColumn(),
+                TimeRemainingColumn(),
+                console=self._console,
+                transient=True,
+            )
+            self._task = self._bar.add_task(task, total=total)
+            self._bar.start()
+            self._title = title
+        self._bar.update(self._task, completed=completed, total=total, description=task)
+
+    def close(self) -> None:
+        if self._bar is not None:
+            self._bar.stop()
+        self._bar = self._task = self._title = None
+
+
 def _mapping(value: Any, base: Path) -> dict[str, Any] | None:
     """Read an inline mapping table or a TOML file relative to ``base``."""
     if value is None or isinstance(value, dict):
@@ -81,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
     pull.add_argument(
         "--mapping",
         type=Path,
-        help="TOML file with object keys, types, exclusions, and links",
+        help="Optional TOML file of overrides: exclusions, keys, types, and link names",
     )
     pull.add_argument(
         "--check",
@@ -130,13 +185,26 @@ def main(argv: list[str] | None = None) -> int:
             mode=settings["mode"],
         )
         native = cf._resolver.knowledge_model(settings["key"])
-        capture = retrieve(
-            native,
-            data_model=cf._resolver.data_model(native),
-            space_id=settings["space-id"],
-            package_id=settings["package-id"],
-            mode=settings["mode"],
-        )
+        progress = _Progress()
+        try:
+            capture = retrieve(
+                native,
+                data_model=cf._resolver.data_model(native),
+                space_id=settings["space-id"],
+                package_id=settings["package-id"],
+                mode=settings["mode"],
+                progress=progress,
+            )
+            from celofast.sdk.validation import resolve_types, validate
+
+            connection = cf._km_connection(settings["key"])
+            capture = resolve_types(capture, connection._type_of, mapping=mapping, progress=progress)
+            rejected = validate(capture, connection._probe, mapping=mapping, progress=progress)
+            for rid, reasons in capture.validation.items():
+                rejected.setdefault(rid, {}).update(reasons)
+            capture = capture.with_validation(rejected)
+        finally:
+            progress.close()
         changes = write_package(capture, output, mapping=mapping, check=args.check)
         for change in changes:
             print(change)
@@ -147,6 +215,14 @@ def main(argv: list[str] | None = None) -> int:
             return 1 if changes else 0
         print(
             f"{capture.source.key}: {'generated' if changes else 'up to date'} at {output.resolve()}"
+        )
+        from celofast.sdk.mapping import normalize
+
+        model = normalize(capture, mapping)
+        links = sum(len(spec.links) for spec in model.objects)
+        print(
+            f"{len(model.objects)} object types, {links} links; "
+            f"{len(model.diagnostics)} items skipped (listed in definitions.py)."
         )
         return 0
     except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001 -- CLI error boundary

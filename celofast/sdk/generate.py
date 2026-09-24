@@ -54,6 +54,10 @@ def _annotation(value_type: str, key: bool) -> str:
     return type_ if key else f"{type_} | None"
 
 
+def _field_class(value_type: str) -> str:
+    return "DateTimeField" if value_type == "datetime" else "Field"
+
+
 def _key_annotation(spec: ObjectSpec) -> str:
     types = [
         _annotation(next(f for f in spec.fields if f.name == name).value_type, True)
@@ -95,7 +99,10 @@ def _definitions(model: ModelSpec, capture: Capture) -> str:
         lines.append(f"\n\n@dataclass(frozen=True, kw_only=True)\nclass {spec.class_name}Definition(_d.ObjectDefinition):\n")
         lines.append(_docstring(spec.description))
         for field in spec.fields:
-            lines.append(f"    {field.name}: _d.Field[{_annotation(field.value_type, field.key)}]\n")
+            lines.append(
+                f"    {field.name}: _d.{_field_class(field.value_type)}"
+                f"[{_annotation(field.value_type, field.key)}]\n"
+            )
             lines.append(_docstring(field.attribute_id))
         metadata = {"displayName": spec.display_name, "description": spec.record_description}
         lines.append("    _model: ClassVar[_d.ModelInfo] = _MODEL\n")
@@ -120,7 +127,7 @@ def _definitions(model: ModelSpec, capture: Capture) -> str:
                 if value is not None
             )
             lines += [
-                f"    {field.name}=_d.Field(\n",
+                f"    {field.name}=_d.{_field_class(field.value_type)}(\n",
                 f"        model=_MODEL, owner={spec.record_id!r}, name={field.name!r}, "
                 f"id={field.attribute_id!r},\n",
                 f"        value_type={field.value_type!r}, nullable={not field.key!r}{optional},\n",

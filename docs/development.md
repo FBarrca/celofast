@@ -76,11 +76,12 @@ uv run pytest -m "not live"
 [test_inventory_rules.py](../tests/test_inventory_rules.py) runs the same
 questions offline over hand-built objects that cover every branch.
 
-After changing `inventory-objects.toml`, refresh the offline fixture (this reads
-the live KM, so it needs credentials) with
-`uv run python tests/fixtures/build_inventory_fixture.py`
-so `tests/fixtures/inventory_km.json` uses the same records, fields, and Data
-Model foreign keys.
+After changing `inventory-objects.toml` or the derivation rules, refresh the
+offline fixture (this reads the live KM, so it needs credentials) with
+`uv run python tests/fixtures/build_inventory_fixture.py`. It captures exactly
+what `celofast km pull` does (Data Model tables, primary keys, column types,
+foreign keys, and validation results) for the seven object types the offline
+tests use.
 
 The live suite is skipped unless `CELOFAST_LIVE_KM=1` is set when tests are
 collected. Inspect [test_sdk_live.py](../tests/test_sdk_live.py) before selecting
