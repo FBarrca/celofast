@@ -71,7 +71,7 @@ def capture(**changes):
     }
     # The Data Model joins plants to materials; stock lines have no foreign key,
     # so Plant.links.stock is traversal-only.
-    return Capture.create(SOURCE, layer, joins=JOINS, tables=TABLES)
+    return Capture(source=SOURCE, definition=layer, joins=JOINS, tables=TABLES)
 
 
 JOINS = [{"one": "o_Plant", "many": "o_Material", "columns": [["ID", "Plant_ID"]]}]

@@ -255,9 +255,7 @@ class Transport:
 
 
 def real_client(sdk, transport):
-    connection = KnowledgeModelConnection(
-        MagicMock(), SimpleNamespace(id="fixture-dm"), source=sdk.km.source
-    )
+    connection = KnowledgeModelConnection(MagicMock(), SimpleNamespace(id="fixture-dm"))
     connection._export = transport
     return KnowledgeModelClient(connection, sdk.km)
 

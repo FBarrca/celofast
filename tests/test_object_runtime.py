@@ -62,9 +62,7 @@ def transport():
 
 @pytest.fixture
 def client(sdk, transport):
-    connection = KnowledgeModelConnection(
-        MagicMock(), SimpleNamespace(id="dm"), source=sdk.km.source
-    )
+    connection = KnowledgeModelConnection(MagicMock(), SimpleNamespace(id="dm"))
     connection._export = transport
     return KnowledgeModelClient(connection, sdk.km, variables={"factor": "2"})
 

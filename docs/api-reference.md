@@ -17,7 +17,7 @@ from celofast import CeloFast, KnowledgeModelClient, get_celonis
 | --- | --- |
 | `get_celonis(base_url=None)` | Cached OAuth-authenticated PyCelonis client. Uses environment/`.env` when no URL is supplied. |
 | `CeloFast(space_id, package_id, *, mode="draft", client=None)` | A package-scoped connection. Mode is `draft` or `published`. |
-| `cf.km(inventory, *, variables=None)` | `KnowledgeModelClient` for a generated object model. Validates tenant, Space, Package, lifecycle, KM, and Data Model. KM keys raise `TypeError`. |
+| `cf.km(inventory, *, variables=None)` | `KnowledgeModelClient` for a generated object model. Validates Space, Package, lifecycle, KM, and Data Model. KM keys raise `TypeError`. |
 | `cf.augmentation_tables("exact-km-key")` | Augmentation tables of the Data Model behind a KM; no generated package needed. |
 | `cf.view("exact-key", *, variables=None)` | A View handle, cached for that key and set of bindings. |
 

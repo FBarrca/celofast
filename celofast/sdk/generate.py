@@ -13,12 +13,11 @@ the generated code. The capture itself is only the input to generation.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
 from typing import Any
 
 from celofast.sdk.capture import Capture
 from celofast.sdk.loading import RUNTIME_API_VERSION
-from celofast.sdk.mapping import MappingConfig, ModelSpec, ObjectSpec, normalize
+from celofast.sdk.mapping import MappingInput, ModelSpec, ObjectSpec, normalize
 
 PACKAGE_FILES = (
     "__init__.py",
@@ -231,9 +230,7 @@ def _init(model: ModelSpec, capture: Capture) -> str:
     )
 
 
-def generate(
-    capture: Capture, mapping: Mapping[str, Any] | MappingConfig | None = None
-) -> dict[str, bytes]:
+def generate(capture: Capture, mapping: MappingInput = None) -> dict[str, bytes]:
     """Render a self-contained Python package without touching the filesystem."""
     model = normalize(capture, mapping)
     modules = {

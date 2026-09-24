@@ -17,7 +17,7 @@ BOUND = 'PU_COUNT_DISTINCT("Target", BIND("Bridge", "Source"."ID"))'
 
 
 def capture():
-    return Capture.create(SOURCE, {"records": [{
+    return Capture(source=SOURCE, definition={"records": [{
         "id": "TARGET", "pql": "Target", "attributes": [
             attribute("ID", '"Target"."ID"'),
             attribute("NumSources", COUNT, "INTEGER"),
@@ -35,7 +35,7 @@ def capture():
 
 def test_key_count_and_dependent_attributes_are_repaired_without_input_variables(tmp_path):
     cap = capture()
-    before = cap.to_json()
+    before = cap.model_dump_json()
     probes = []
 
     def execute(expressions, limit):
@@ -44,14 +44,14 @@ def test_key_count_and_dependent_attributes_are_repaired_without_input_variables
         assert BOUND in expressions[2] and '"NumSources"' not in expressions[2]
         return [("T1", 2, "X"), ("T2", 0, None)]
 
-    assert validate(cap, execute) == {}
+    assert validate(cap, execute).validation == {}
     for name, content in generate(cap).items():
         (tmp_path / name).write_bytes(content)
     sdk = load(tmp_path, "count_bridge_sdk")
     assert sdk.Target.fields.num_sources.expression == BOUND
     assert probes[0][2] == f"({sdk.Target.fields.has_sources.expression}\n)"
     assert Expressions(cap).resolve("KPI(CountSources)") == f"({BOUND}\n)"
-    assert cap.to_json() == before
+    assert cap.model_dump_json() == before
 
 
 @pytest.mark.parametrize("expression", [
@@ -67,7 +67,7 @@ def test_other_counts_and_literal_text_are_preserved(expression):
 
 @pytest.mark.parametrize("change", ["ambiguous", "parallel_fk", "direct", "reverse", "multi_hop", "composite", "no_key"])
 def test_repair_requires_one_unambiguous_bridge_and_one_source_key(change):
-    payload = json.loads(capture().to_json())
+    payload = json.loads(capture().model_dump_json())
     if change == "ambiguous":
         payload["joins"].extend([
             {"one": "Target", "many": "OtherBridge", "columns": [["ID", "Target_ID"]]},

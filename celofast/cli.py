@@ -13,7 +13,9 @@ except ImportError:  # Python 3.10
     import tomli as tomllib  # type: ignore[no-redef]
 
 from celofast.sdk.capture import retrieve
+from celofast.sdk.mapping import normalize
 from celofast.sdk.package import write_package
+from celofast.sdk.validation import resolve_types, validate
 
 
 def _configuration(name: str, project: Path | None) -> tuple[dict[str, Any], Path]:
@@ -195,14 +197,9 @@ def main(argv: list[str] | None = None) -> int:
                 mode=settings["mode"],
                 progress=progress,
             )
-            from celofast.sdk.validation import resolve_types, validate
-
             connection = cf._km_connection(settings["key"])
             capture = resolve_types(capture, connection._type_of, mapping=mapping, progress=progress)
-            rejected = validate(capture, connection._probe, mapping=mapping, progress=progress)
-            for rid, reasons in capture.validation.items():
-                rejected.setdefault(rid, {}).update(reasons)
-            capture = capture.with_validation(rejected)
+            capture = validate(capture, connection._probe, mapping=mapping, progress=progress)
         finally:
             progress.close()
         changes = write_package(capture, output, mapping=mapping, check=args.check)
@@ -216,8 +213,6 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"{capture.source.key}: {'generated' if changes else 'up to date'} at {output.resolve()}"
         )
-        from celofast.sdk.mapping import normalize
-
         model = normalize(capture, mapping)
         links = sum(len(spec.links) for spec in model.objects)
         print(

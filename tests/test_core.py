@@ -272,7 +272,7 @@ def test_invalid_resource_mode_is_rejected_before_client_resolution():
 def test_object_client_checks_each_source_and_shares_native_connection(mode):
     from celofast.exceptions import QueryValidationError
     from celofast.resources.knowledge_model import KnowledgeModelClient
-    from celofast.sdk import Capture, ObjectModel, Source
+    from celofast.sdk import ObjectModel, Source
     from celofast.sdk.definitions import ModelInfo
 
     def model(source, data_model_id="dm-id"):
@@ -286,26 +286,16 @@ def test_object_client_checks_each_source_and_shares_native_connection(mode):
         key="orders-km",
         mode=mode,
     )
-    capture = Capture.create(source, {"dataModelId": "dm-id"})
     cf = CeloFast("space-id", "package-id", mode=mode, client=cast(Celonis, client))
-    with (
-        patch("celofast.core.retrieve", return_value=capture) as retrieve,
-        patch(
-            "pycelonis.ems.studio.content_node.knowledge_model.KnowledgeModel.get_content",
-            return_value=SimpleNamespace(data_model_id="dm-id"),
-        ),
+    with patch(
+        "pycelonis.ems.studio.content_node.knowledge_model.KnowledgeModel.get_content",
+        return_value=SimpleNamespace(data_model_id="dm-id"),
     ):
         first = cf.km(model(source))
         second = cf.km(model(source))
         assert isinstance(first, KnowledgeModelClient)
         assert first._connection is second._connection is cf._km_connection("orders-km")
         assert first.mode == mode
-        assert first._connection._source == capture.source
-        assert retrieve.call_args.kwargs["mode"] == mode
-        assert retrieve.call_count == 1
-        other_source = source.model_copy(update={"tenant_id": "other-tenant"})
-        with pytest.raises(QueryValidationError, match="different KM source"):
-            cf.km(model(other_source))
         with pytest.raises(QueryValidationError, match="Data Model"):
             cf.km(model(source, "other-dm"))
         wrong_mode = source.model_copy(

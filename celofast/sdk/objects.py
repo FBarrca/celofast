@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar
 
 from celofast.exceptions import (
     ObjectValueError,
@@ -33,30 +33,11 @@ from celofast.sdk.definitions import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from celofast.resources.knowledge_model import KnowledgeModelClient
 
 O = TypeVar("O", bound="Object")
 T = TypeVar("T")
 MAX_PAGE_SIZE = 10_000
-
-
-class _Session(Protocol):
-    """The private runtime that retrieves objects for one connected client."""
-
-    @property
-    def model(self) -> ObjectModel: ...
-
-    def objects(self, object_type: type[O]) -> ObjectCollection[O]: ...
-
-    def _read(
-        self,
-        object_type: type[O],
-        predicates: tuple[Predicate, ...],
-        order: tuple[Sort, ...],
-        *,
-        limit: int,
-        offset: int,
-    ) -> list[O]: ...
 
 
 @dataclass(frozen=True)
@@ -202,9 +183,9 @@ class Object:
     relations: ClassVar[Relations] = Relations()
     # The loading client is attached per instance but is not a dataclass
     # field, so equality, repr, and dataclasses.asdict() see only values.
-    _context: ClassVar[_Session | None] = None
+    _context: ClassVar[KnowledgeModelClient | None] = None
 
-    def _attach(self: O, context: _Session) -> O:
+    def _attach(self: O, context: KnowledgeModelClient) -> O:
         object.__setattr__(self, "_context", context)
         return self
 
@@ -234,7 +215,7 @@ class Links:
     def _definition(self, name: str) -> LinkDefinition:
         return type(self._owner).fields.links[name]
 
-    def _session(self) -> _Session:
+    def _session(self) -> KnowledgeModelClient:
         session = self._owner._context
         if session is None:
             raise QueryValidationError(
@@ -305,7 +286,7 @@ class ObjectPage(Generic[O]):
 class ObjectCollection(Generic[O]):
     """An immutable, filterable set of one object type; fetches are explicit."""
 
-    _session: _Session
+    _session: KnowledgeModelClient
     _type: type[O]
     _predicates: tuple[Predicate, ...] = ()
     _order: tuple[Sort, ...] = ()

@@ -11,10 +11,10 @@ from objects_fixture import JOINS, MAPPING, TABLES, attribute, capture
 
 
 def with_calculated(*attributes):
-    layer = capture().to_dict()
+    layer = capture().definition
     plant = next(item for item in layer["records"] if item["id"] == "O_PLANT")
     plant["attributes"] += list(attributes)
-    return Capture.create(capture().source, layer, joins=JOINS, tables=TABLES)
+    return Capture(source=capture().source, definition=layer, joins=JOINS, tables=TABLES)
 
 
 class Export:
@@ -40,8 +40,8 @@ def test_failing_attributes_are_isolated_by_bisection():
         attribute("BAD2", 'FAIL(1)'),
     )
     export = Export({})
-    rejected = validate(captured, export, mapping=MAPPING)
-    assert rejected == {"O_PLANT": {
+    validated = validate(captured, export, mapping=MAPPING)
+    assert validated.validation == {"O_PLANT": {
         "BAD1": "fails in Celonis: Syntax error near FAIL",
         "BAD2": "fails in Celonis: Syntax error near FAIL",
     }}
@@ -51,7 +51,7 @@ def test_failing_attributes_are_isolated_by_bisection():
     assert first[0] == '("o_Plant"."ID"\n)'
     assert not any('"o_Plant"."Opened"' in e for query in export.queries for e in query)
     # The rejected attributes are skipped at generation.
-    model = normalize(captured.with_validation(rejected), MAPPING)
+    model = normalize(validated, MAPPING)
     plant = next(o for o in model.objects if o.record_id == "O_PLANT")
     assert {"GOOD", "OTHER"} <= {f.attribute_id for f in plant.fields}
     assert not {"BAD1", "BAD2"} & {f.attribute_id for f in plant.fields}
@@ -59,15 +59,15 @@ def test_failing_attributes_are_isolated_by_bisection():
 
 def test_values_that_do_not_decode_are_rejected():
     captured = with_calculated(attribute("FLAG", 'CASE WHEN "o_Plant"."Country" = \'DE\' THEN 1.0 END'))
-    rejected = validate(captured, Export({'CASE WHEN "o_Plant"."Country" = \'DE\' THEN 1.0 END': 1.0}),
-                        mapping=MAPPING)
-    reason = rejected["O_PLANT"]["FLAG"]
+    validated = validate(captured, Export({'CASE WHEN "o_Plant"."Country" = \'DE\' THEN 1.0 END': 1.0}),
+                         mapping=MAPPING)
+    reason = validated.validation["O_PLANT"]["FLAG"]
     assert reason.startswith("returned values that are not str")
 
 
 def test_records_without_calculated_attributes_need_no_query():
     export = Export({})
-    assert validate(capture(), export, mapping=MAPPING) == {}
+    assert validate(capture(), export, mapping=MAPPING).validation == {}
     # Only the Material record's ${factor} attribute is calculated, and
     # attributes with input variables are not probed.
     assert export.queries == []

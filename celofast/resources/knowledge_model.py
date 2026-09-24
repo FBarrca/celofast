@@ -15,7 +15,6 @@ from pycelonis.pql.saola_connector import KnowledgeModelSaolaConnector
 from celofast.exceptions import ObjectValueError, QueryValidationError
 from celofast.query import query_to_pql, validate_variables
 from celofast.resources.augmentation_table import AugmentationTableCollection
-from celofast.sdk.capture import Capture, Source
 from celofast.sdk.definitions import ModelInfo, Predicate, Sort
 from celofast.sdk.hydration import ValueType, hydrate
 from celofast.sdk.objects import Object, ObjectCollection, ObjectModel
@@ -36,9 +35,6 @@ class KnowledgeModelConnection:
         data_model: Native Data Model resolved from the KM's final content.
         draft: Whether exports target the Studio draft; ``False`` for Apps.
         augmentation_tables: Optional shared augmentation-table collection.
-        source: Verified KM identity, if available from native content.
-        capture_loader: Lazy provenance retrieval used when generated
-            definitions require verification and native content omitted it.
 
     The connection has no public query methods. Object clients and View tables
     use its private export path; ``native`` and ``data_model`` remain escape
@@ -52,15 +48,11 @@ class KnowledgeModelConnection:
         *,
         draft: bool = True,
         augmentation_tables: AugmentationTableCollection | None = None,
-        source: Source | None = None,
-        capture_loader: Callable[[], Capture] | None = None,
     ) -> None:
         self._native = knowledge_model
         self._data_model = data_model
         self._draft = draft
         self._augmentation_tables = augmentation_tables
-        self._source = source
-        self._capture_loader = capture_loader
         self._connector = KnowledgeModelSaolaConnector(
             data_model,
             knowledge_model,
@@ -68,15 +60,8 @@ class KnowledgeModelConnection:
         )
 
     def _validate_model(self, model: ModelInfo) -> None:
-        if self._source is None and self._capture_loader is not None:
-            current = self._capture_loader()
-            if current.definition.get("dataModelId") != self._data_model.id:
-                raise QueryValidationError("Connected KM targets a different Data Model.")
-            self._source = current.source
-        if self._source is None or model.source != self._source:
-            raise QueryValidationError(
-                "Generated model belongs to a different KM source or the source is unverified."
-            )
+        # Space, package, lifecycle, and KM key are checked when the connection
+        # is chosen; the Data Model ID pins the tenant's actual data.
         if model.data_model_id != self._data_model.id:
             raise QueryValidationError("Generated model targets a different Data Model.")
 

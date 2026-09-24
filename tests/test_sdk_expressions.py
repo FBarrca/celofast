@@ -14,7 +14,7 @@ from objects_fixture import SOURCE, attribute, load
 
 
 def capture(default="Requested", due=None):
-    return Capture.create(SOURCE, {"records": [{
+    return Capture(source=SOURCE, definition={"records": [{
         "id": "O_LINE", "pql": "o_Line",
         "attributes": [
             attribute("ID", '"o_Line"."ID"'),
@@ -25,15 +25,14 @@ def capture(default="Requested", due=None):
             attribute("Classification", 'CASE WHEN "o_Line"."DueDate" < TODAY() THEN \'LATE\' ELSE \'ON_TIME\' END'),
             attribute("IsDeliveredLate", 'CASE WHEN "o_Line"."Classification" = \'LATE\' THEN 1 ELSE 0 END', "INTEGER"),
         ],
-    }]}, input_variables={"choice": {"dataType": "TEXT", "defaultValue": default}},
-        tables={"o_Line": {"primary_key": ["ID"], "columns": {
+    }]}, input_variables={"choice": {"dataType": "TEXT", "defaultValue": default}}, tables={"o_Line": {"primary_key": ["ID"], "columns": {
             "ID": "STRING", "RequestedDate": "DATE", "ConfirmedDate": "DATE",
         }}})
 
 
 def test_pull_validation_and_generated_reads_share_resolved_pql(tmp_path):
     cap = capture()
-    original = cap.to_json()
+    original = cap.model_dump_json()
     probes = []
 
     def execute(expressions, limit):
@@ -43,7 +42,7 @@ def test_pull_validation_and_generated_reads_share_resolved_pql(tmp_path):
         assert "'Requested' LIKE 'Requested'" in expressions[-1]
         return [("L1", "LATE", 1)]
 
-    assert validate(cap, execute) == {}
+    assert validate(cap, execute).validation == {}
     assert len(probes) == 1
     for name, content in generate(cap).items():
         (tmp_path / name).write_bytes(content)
@@ -53,7 +52,7 @@ def test_pull_validation_and_generated_reads_share_resolved_pql(tmp_path):
     assert probes[0][-1] == f"({field.expression}\n)"
     assert "'Requested' LIKE 'Requested'" in field.expression
     assert sdk.km.variables == ()
-    assert cap.to_json() == original  # Resolving never edits the captured source.
+    assert cap.model_dump_json() == original  # Resolving never edits the captured source.
 
 
 def test_quoted_placeholders_and_text_values_are_escaped_once():
@@ -100,15 +99,14 @@ def test_dependency_cycles_are_reported_without_recursing_forever():
 
 def test_physical_columns_never_expand_to_calculated_definitions():
     cap = capture()
-    layer = cap.to_dict()
+    layer = cap.definition
     layer["records"][0]["attributes"].append(attribute("RequestedDate", "${choice}"))
-    changed = Capture.create(SOURCE, layer, input_variables=cap.input_variables,
-                             tables=json.loads(cap.tables_json))
+    changed = Capture(source=SOURCE, definition=layer, input_variables=cap.input_variables, tables=cap.tables)
     assert Expressions(changed).resolve('"o_Line"."RequestedDate"') == '"o_Line"."RequestedDate"'
 
 
 def kpi_capture():
-    return Capture.create(SOURCE, {"records": [{
+    return Capture(source=SOURCE, definition={"records": [{
         "id": "O_LINE", "pql": "o_Line", "attributes": [
             attribute("ID", '"o_Line"."ID"'),
             attribute("ActualPurchaseLeadTime", "CASE WHEN ${choice} = 'Average' THEN 1 ELSE 2 END", "FLOAT"),
@@ -119,13 +117,12 @@ def kpi_capture():
         {"id": "LeadTime", "pql": '"o_Line"."ActualPurchaseLeadTime"'},
         {"id": "Constant", "pql": "1.0"},
         {"id": "Parameterized", "pql": "${choice}", "parameters": [{"id": "ARG"}]},
-    ]}, input_variables={"choice": {"dataType": "TEXT", "defaultValue": "Average"}},
-        tables={"o_Line": {"primary_key": ["ID"], "columns": {"ID": "STRING"}}})
+    ]}, input_variables={"choice": {"dataType": "TEXT", "defaultValue": "Average"}}, tables={"o_Line": {"primary_key": ["ID"], "columns": {"ID": "STRING"}}})
 
 
 def test_nested_kpi_inputs_are_bound_for_validation_and_generated_reads(tmp_path):
     cap = kpi_capture()
-    original = cap.to_json()
+    original = cap.model_dump_json()
     probes = []
 
     def execute(expressions, limit):
@@ -136,12 +133,12 @@ def test_nested_kpi_inputs_are_bound_for_validation_and_generated_reads(tmp_path
         assert "${" not in expressions[-1]
         return [("L1", 10.0)]
 
-    assert validate(cap, execute) == {}
+    assert validate(cap, execute).validation == {}
     for name, content in generate(cap).items():
         (tmp_path / name).write_bytes(content)
     sdk = load(tmp_path, "kpi_inputs_sdk")
     assert probes[0][-1] == f"({sdk.Line.fields.legacy_stock_value.expression}\n)"
-    assert cap.to_json() == original
+    assert cap.model_dump_json() == original
 
 
 @pytest.mark.parametrize("expression", ['KPI(LeadTime)', 'kpi ( "leadtime" )'])
@@ -162,16 +159,14 @@ def test_kpi_dependencies_keep_explicit_runtime_inputs_and_report_missing_defaul
     mapping = {"objects": {"O_LINE": {"include-fields": ["LegacyStockValue"]}}}
     field = normalize(cap, mapping).objects[0].fields[-1]
     assert "${choice}" in field.expression and "KPI" not in field.expression
-    missing = Capture.create(SOURCE, cap.to_dict(), input_variables={"choice": {"dataType": "TEXT"}},
-                             tables=json.loads(cap.tables_json))
+    missing = Capture(source=SOURCE, definition=cap.definition, input_variables={"choice": {"dataType": "TEXT"}}, tables=cap.tables)
     assert any("LegacyStockValue: calculated dependency needs KM input values" in d
                for d in normalize(missing).diagnostics)
 
 
 def test_cycles_through_kpis_and_attributes_are_reported():
     cap = kpi_capture()
-    layer = cap.to_dict()
+    layer = cap.definition
     layer["records"][0]["attributes"][1]["pql"] = "KPI(IsLegacy)"
-    cap = Capture.create(SOURCE, layer, input_variables=cap.input_variables,
-                         tables=json.loads(cap.tables_json))
+    cap = Capture(source=SOURCE, definition=layer, input_variables=cap.input_variables, tables=cap.tables)
     assert any("cyclic calculated attribute or KPI" in d for d in normalize(cap).diagnostics)

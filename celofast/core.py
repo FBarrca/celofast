@@ -20,7 +20,6 @@ from celofast.resources.knowledge_model import (
 )
 from celofast.resources.view import ViewHandle
 from celofast.types import ResourceMode
-from celofast.sdk.capture import Source, retrieve
 from celofast.exceptions import QueryValidationError
 from celofast.sdk.objects import ObjectModel
 
@@ -174,8 +173,8 @@ class CeloFast:
 
         Raises:
             TypeError: If ``model`` is not a generated object model.
-            QueryValidationError: If the model targets another tenant, Space,
-                Package, lifecycle, KM, or Data Model.
+            QueryValidationError: If the model targets another Space,
+                Package, lifecycle, or Data Model.
         """
 
         if not isinstance(model, ObjectModel):
@@ -215,17 +214,6 @@ class CeloFast:
         if key not in self._km_connections:
             native = self._resolver.knowledge_model(key)
             data_model = self._resolver.data_model(native)
-            content = self._resolver._knowledge_model_content[native.id]
-            tenant_id = getattr(content, "tenant_id", None)
-            source = None
-            if isinstance(tenant_id, str) and tenant_id:
-                source = Source(
-                    tenant_id=tenant_id,
-                    space_id=self._resolver.space_id,
-                    package_id=self._resolver.package_id,
-                    key=key,
-                    mode=self.mode,
-                )
             augmentation_tables = self._augmentation_collections.get(data_model.id)
             if augmentation_tables is None:
                 augmentation_tables = AugmentationTableCollection(data_model)
@@ -235,13 +223,6 @@ class CeloFast:
                 data_model,
                 draft=self._resolver.draft,
                 augmentation_tables=augmentation_tables,
-                source=source,
-                capture_loader=lambda: retrieve(
-                    native,
-                    space_id=self._resolver.space_id,
-                    package_id=self._resolver.package_id,
-                    mode=self.mode,
-                ),
             )
         return self._km_connections[key]
 

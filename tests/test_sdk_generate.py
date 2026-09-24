@@ -23,7 +23,7 @@ def record(layer, record_id):
 
 def rebuild(layer, *, joins=JOINS, tables=TABLES):
     """A capture of a changed layer with the fixture's Data Model metadata."""
-    return Capture.create(capture().source, layer, joins=joins, tables=tables)
+    return Capture(source=capture().source, definition=layer, joins=joins, tables=tables)
 
 
 def spec(model, record_id):
@@ -139,7 +139,7 @@ def test_package_is_self_contained_python(tmp_path):
 
 
 def test_variables_in_comments_are_not_reported(tmp_path):
-    layer = capture().to_dict()
+    layer = capture().definition
     record(layer, "O_PLANT")["attributes"][1]["pql"] = '"o_Plant"."Country" -- was ${old}'
     module = load(write(tmp_path / "commented", rebuild(layer)))
     assert module.km.variables == ("factor",)
@@ -170,18 +170,18 @@ def test_records_keys_and_types_are_derived_from_the_data_model():
 
 def test_records_without_primary_key_or_that_are_event_logs_are_skipped():
     tables = {**TABLES, "o_Stock": {**TABLES["o_Stock"], "primary_key": []}}
-    model = normalize(rebuild(capture().to_dict(), tables=tables), {})
+    model = normalize(rebuild(capture().definition, tables=tables), {})
     assert "O_STOCK" not in {o.record_id for o in model.objects}
     assert "O_STOCK: no primary key or declared identifier; not an object type." in model.diagnostics
 
-    layer = capture().to_dict()
+    layer = capture().definition
     record(layer, "O_STOCK")["isActivityTable"] = True
     model = normalize(rebuild(layer), {})
     assert "O_STOCK: event log; not an object type." in model.diagnostics
 
 
 def test_unknown_types_and_missing_expressions_are_skipped_and_reported():
-    layer = capture().to_dict()
+    layer = capture().definition
     record(layer, "O_MATERIAL")["attributes"] += [
         attribute("CALC", 'CASE WHEN "o_Material"."Count" > 1 THEN 1 END', None),
         {"id": "EMPTY", "columnType": "STRING", "type": "ATTRIBUTE"},
@@ -198,7 +198,7 @@ def test_unknown_types_and_missing_expressions_are_skipped_and_reported():
 
 
 def test_attributes_rejected_at_pull_are_skipped_and_reported():
-    rejected = capture().with_validation({"O_MATERIAL": {"COUNT": "fails in Celonis: boom"}})
+    rejected = capture().model_copy(update={"validation": {"O_MATERIAL": {"COUNT": "fails in Celonis: boom"}}})
     model = normalize(rejected, {})
     assert "COUNT" not in {f.attribute_id for f in spec(model, "O_MATERIAL").fields}
     assert "O_MATERIAL.COUNT: fails in Celonis: boom; not generated." in model.diagnostics
@@ -213,7 +213,7 @@ def test_automatic_links_follow_foreign_keys():
 
     # A second foreign key to the same table: each to-one is named by its
     # column; the to-many names clash, so the later one gets its column suffix.
-    layer = capture().to_dict()
+    layer = capture().definition
     record(layer, "O_MATERIAL")["attributes"].append(attribute("ORIGIN_ID", '"o_Material"."Origin_ID"'))
     tables = {**TABLES, "o_Material": {
         **TABLES["o_Material"], "columns": {**TABLES["o_Material"]["columns"], "Origin_ID": "STRING"}}}
@@ -248,10 +248,10 @@ def test_keys_are_verified(change, message):
 
 def test_declared_identifier_is_the_key_without_a_primary_key():
     tables = {**TABLES, "o_Plant": {**TABLES["o_Plant"], "primary_key": []}}
-    model = normalize(rebuild(capture().to_dict(), tables=tables), {})
+    model = normalize(rebuild(capture().definition, tables=tables), {})
     assert spec(model, "O_PLANT").key == ("id",)
 
-    layer = capture().to_dict()
+    layer = capture().definition
     record(layer, "O_PLANT")["identifier"] = {"pql": '"o_Plant"."Other"'}
     model = normalize(rebuild(layer, tables=tables), {})
     assert "O_PLANT" not in {o.record_id for o in model.objects}
@@ -294,7 +294,7 @@ def test_invalid_mapping_documents_and_names_fail_clearly():
 
 
 def test_reserved_and_colliding_names_get_readable_suffixes(tmp_path):
-    layer = capture().to_dict()
+    layer = capture().definition
     plant = record(layer, "O_PLANT")
     plant["attributes"] += [
         attribute("KEY", '"o_Plant"."Key"'),
@@ -311,7 +311,7 @@ def test_reserved_and_colliding_names_get_readable_suffixes(tmp_path):
 
 
 def test_an_id_in_several_collections_loads_the_first():
-    layer = capture().to_dict()
+    layer = capture().definition
     record(layer, "O_PLANT")["newAttributes"] = [attribute("COUNTRY", '"o_Plant"."C2"')]
     changed = rebuild(layer)
     model = normalize(changed, MAPPING)
@@ -345,7 +345,7 @@ def test_links_are_classified_against_data_model_joins(tmp_path):
 
 
 def test_to_one_links_without_foreign_keys_use_lookup(tmp_path):
-    no_joins = rebuild(capture().to_dict(), joins=[])
+    no_joins = rebuild(capture().definition, joins=[])
     mapping = json.loads(json.dumps(MAPPING))
     mapping["objects"]["O_PLANT"]["links"]["materials"] = {
         "target": "O_MATERIAL", "cardinality": "many", "on": {"ID": "PLANT_ID"}}

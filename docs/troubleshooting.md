@@ -31,7 +31,7 @@ generated packages, object retrieval, Views, or output writes.
 | A field has an unexpected name | Reserved or colliding names get suffixes, such as `key_attribute`; `definitions.py` lists each field with its attribute ID. Look fields up by attribute ID with `Plant.fields["ID"]`. |
 | Missing `km.select`, `km.execute`, or `inventory.records` | The query API was removed. See the [0.5 migration guide](migration-0.5.md). |
 | `TypeError` from `cf.km("key")` | Pass the generated model: `cf.km(inventory)`. Use `cf.augmentation_tables("key")` for output tables. |
-| `QueryValidationError` about source or Data Model | Connect to the matching tenant, Space, Package, lifecycle, and Data Model. |
+| `QueryValidationError` about source or Data Model | Connect to the matching Space, Package, lifecycle, and Data Model. |
 | Cloud edits are missing after pull | Restart Python so every generated module reloads with the new capture. |
 
 ## Retrieving objects

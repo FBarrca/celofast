@@ -10,7 +10,7 @@ from objects_fixture import SOURCE, attribute
 
 
 def model(attributes):
-    return Capture.create(SOURCE, {"records": [{
+    return Capture(source=SOURCE, definition={"records": [{
         "id": "O_VENDOR", "pql": "o_Vendor",
         "identifier": {"pql": '"o_Vendor"."ID"'},
         "attributes": [attribute("ID", '"o_Vendor"."ID"'), *attributes],
@@ -68,7 +68,7 @@ def test_km_attribute_is_not_replaced_by_generated_data_model_column(reverse):
                   attributeSource="KNOWLEDGE_MODEL", displayName="Rejection Reason",
                   description="Indicates if (and why) the line has been rejected."),
     ]
-    cap = Capture.create(SOURCE, {"records": [{
+    cap = Capture(source=SOURCE, definition={"records": [{
         "id": "O_LINE", "pql": "o_Line",
         "attributes": [attribute("ID", '"o_Line"."ID"'),
                        *(reversed(attributes) if reverse else attributes)],
@@ -90,7 +90,7 @@ def test_column_aliases_do_not_change_keys_or_automatic_links(reverse):
     def ordered(items):
         return list(reversed(items)) if reverse else items
 
-    cap = Capture.create(SOURCE, {"records": [
+    cap = Capture(source=SOURCE, definition={"records": [
         {"id": "O_PLANT", "pql": "o_Plant", "attributes": ordered([
             attribute("PlantKey", '"o_Plant"."ID"'), attribute("ID", '"o_Plant"."ID"'),
         ])},

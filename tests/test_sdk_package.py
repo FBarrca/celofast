@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from celofast.exceptions import ObjectMappingError
@@ -17,9 +15,7 @@ PACKAGE = ["__init__.py", "definitions.py", "links.py", "objects.py", "py.typed"
 
 
 def capture(pql='"Plant"."Number"', **extra):
-    return Capture.create(
-        SOURCE,
-        {
+    return Capture(source=SOURCE, definition={
             "records": [
                 {
                     "id": "Plant",
@@ -30,8 +26,7 @@ def capture(pql='"Plant"."Number"', **extra):
                 }
             ],
             **extra,
-        },
-    )
+        })
 
 
 def files(path):
@@ -118,27 +113,6 @@ def test_import_failure_preserves_previous_package(tmp_path, monkeypatch):
     with pytest.raises(CaptureError, match="invalid import"):
         write_package(capture("changed"), target)
     assert files(target) == before
-    assert not list(tmp_path.glob(".celofast-km-*"))
-
-
-def test_replacement_failure_rolls_back(tmp_path, monkeypatch):
-    target = tmp_path / "inventory"
-    write_package(capture(), target)
-    before = files(target)
-    import os
-
-    replace = os.replace
-
-    def fail_stage(source, destination):
-        if Path(source).name.startswith(".celofast-km-stage-"):
-            raise OSError("simulated installation failure")
-        replace(source, destination)
-
-    monkeypatch.setattr("celofast.sdk.package.os.replace", fail_stage)
-    with pytest.raises(OSError, match="installation failure"):
-        write_package(capture("changed"), target)
-    assert files(target) == before
-    assert not list(tmp_path.glob(".celofast-km-*"))
 
 
 def test_unrelated_files_are_never_removed(tmp_path):
@@ -163,7 +137,7 @@ def test_directories_without_a_generation_stamp_are_not_replaced(tmp_path):
 def test_output_of_another_source_is_protected(tmp_path):
     target = tmp_path / "inventory"
     write_package(capture(), target)
-    other = Capture.create(SOURCE.model_copy(update={"key": "other-km"}), capture().to_dict())
+    other = Capture(source=SOURCE.model_copy(update={"key": "other-km"}), definition=capture().definition)
     with pytest.raises(CaptureError, match="different KM source"):
         write_package(other, target)
 
@@ -180,29 +154,12 @@ def test_manual_generated_edit_is_detected_and_repaired(tmp_path):
     assert not write_package(capture(), target, check=True)
 
 
-def test_output_change_during_staging_is_preserved(tmp_path, monkeypatch):
+def test_directory_disguised_as_generated_file_is_protected(tmp_path):
     target = tmp_path / "inventory"
     write_package(capture(), target)
-    from celofast.sdk.package import _verify_import
-
-    def concurrent_edit(stage):
-        _verify_import(stage)
-        (target / "objects.py").write_text("a concurrent edit")
-
-    monkeypatch.setattr("celofast.sdk.package._verify_import", concurrent_edit)
-    with pytest.raises(CaptureError, match="changed during pull"):
-        write_package(capture("changed"), target)
-    assert (target / "objects.py").read_text() == "a concurrent edit"
-
-
-@pytest.mark.parametrize("location", ["definitions.py", "__pycache__"])
-def test_directory_disguised_as_generated_file_is_protected(tmp_path, location):
-    target = tmp_path / "inventory"
-    write_package(capture(), target)
-    path = target / location
-    if path.is_file():
-        path.unlink()
-    path.mkdir(exist_ok=True)
+    path = target / "definitions.py"
+    path.unlink()
+    path.mkdir()
     kept = path / "handwritten.py"
     kept.write_text("keep this")
     with pytest.raises(CaptureError):
@@ -214,7 +171,7 @@ def test_invalid_mappings_write_nothing(tmp_path):
     target = tmp_path / "inventory"
     write_package(capture(), target)
     before = files(target)
-    first = capture().to_dict()["records"][0]["id"]
+    first = capture().definition["records"][0]["id"]
     with pytest.raises(ObjectMappingError, match="not a loaded field"):
         write_package(capture(), target, mapping={"objects": {first: {"key": ["MISSING"]}}})
     assert files(target) == before

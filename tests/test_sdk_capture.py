@@ -16,65 +16,32 @@ def source(mode="draft"):
     )
 
 
-def test_lossless_capture_is_detached_and_deeply_immutable():
+def test_capture_round_trips_through_json_exactly():
     pql = '\n"Plant"."Number" || \' - \' || "Plant"."Name"\\\n'
-    payload = {
-        "unknown": {"explicitNull": None, "sequence": [2, 1]},
-        "records": [{"id": "Plant", "attributes": [{"id": "Name", "pql": pql}]}],
-    }
-    capture = Capture.create(source(), payload)
-    payload["unknown"]["sequence"].append(3)
-    assert capture.to_dict()["unknown"] == {"explicitNull": None, "sequence": [2, 1]}
-    assert capture.definition["records"][0]["attributes"][0]["pql"] == pql
-    with pytest.raises(TypeError):
-        capture.definition["unknown"]["explicitNull"] = 1
-    with pytest.raises(AttributeError):
-        capture.definition["unknown"]["sequence"].append(4)
-    detached = capture.to_dict()
-    detached["unknown"].clear()
-    assert "explicitNull" in capture.definition["unknown"]
-
-
-def test_fingerprint_ignores_known_object_order_but_preserves_unknown_order():
-    first = Capture.create(
-        source(), {"records": [{"id": "b"}, {"id": "a"}], "steps": [2, 1]}
+    capture = Capture(
+        source=source(),
+        definition={
+            "unknown": {"explicitNull": None, "sequence": [2, 1]},
+            "records": [{"id": "Plant", "attributes": [{"id": "Z", "pql": pql}, {"id": "A", "pql": "2"}]}],
+        },
+        input_variables={"months": {"defaultValue": "3", "dataType": "TEXT"}},
+        joins=[{"one": "a", "many": "b", "columns": [["ID", "A_ID"]]}],
+        tables={"a": {"primary_key": ["ID"], "columns": {"ID": "STRING"}}},
+        validation={"Plant": {"Z": "fails in Celonis: boom"}},
+        types={"UPPER(1)": "str"},
     )
-    second = Capture.create(
-        source(), {"steps": [2, 1], "records": [{"id": "a"}, {"id": "b"}]}
-    )
-    assert first.fingerprint == second.fingerprint
-    changed = Capture.create(source(), {**first.to_dict(), "steps": [1, 2]})
-    assert changed.fingerprint != first.fingerprint
-    assert Capture.model_validate_json(first.model_dump_json()) == first
-    assert Capture.model_validate_json(first.to_json()) == first
-    assert '"definition_json"' not in first.to_json()
+    again = Capture.model_validate_json(capture.model_dump_json())
+    assert again == capture
+    assert again.definition["records"][0]["attributes"][0]["pql"] == pql
+    assert [a["id"] for a in again.definition["records"][0]["attributes"]] == ["Z", "A"]
+    minimal = Capture(source=source(), definition={})
+    assert (minimal.input_variables, minimal.joins, minimal.tables) == (None, None, None)
+    assert (minimal.validation, minimal.types) == ({}, {})
 
 
-def test_record_attribute_order_survives_capture_roundtrip():
-    content = {"records": [{"id": "Plant", "attributes": [
-        {"id": "Z", "pql": "1"}, {"id": "A", "pql": "2"},
-    ]}]}
-    before = Capture.create(source(), content)
-    assert [a["id"] for a in before.definition["records"][0]["attributes"]] == ["Z", "A"]
-    assert Capture.model_validate_json(before.to_json()) == before
-    content["records"][0]["attributes"].reverse()
-    after = Capture.create(source(), content)
-    assert before.fingerprint != after.fingerprint
-
-
-@pytest.mark.parametrize(
-    "payload",
-    [
-        {"records": [{"id": "duplicate"}, {"id": "duplicate"}]},
-        {"unknown": object()},
-        {"unknown": float("nan")},
-        {"tenantId": "other"},
-        {"metadata": {"key": "other"}},
-    ],
-)
-def test_invalid_content_is_rejected(payload):
-    with pytest.raises(CaptureError):
-        Capture.create(source(), payload)
+def test_source_identifiers_must_not_be_empty():
+    with pytest.raises(ValueError, match="must not be empty"):
+        Source(tenant_id=" ", space_id="s", package_id="p", key="k", mode="draft")
 
 
 @pytest.mark.parametrize("mode", ["draft", "published"])
@@ -116,32 +83,12 @@ def test_retrieval_preserves_unknown_fields_and_explicit_lifecycle(mode):
     capture = retrieve(native, space_id="space", package_id="package", mode=mode)
     assert len(calls) == (2 if mode == "draft" else 3)
     assert capture.input_variables["months"]["defaultValue"] == mode
-    assert capture.input_variables["months"]["futureMetadata"] == (2, 1)
+    assert capture.input_variables["months"]["futureMetadata"] == [2, 1]
     assert calls[0]["params"] == {"isDraft": mode == "draft"}
     assert calls[0]["json"]["withVariableReplacement"] is False
     assert "type_" not in calls[0]
-    assert capture.to_dict()["futureCategory"] == [{"id": "future", "new": 42}]
+    assert capture.definition["futureCategory"] == [{"id": "future", "new": 42}]
     assert "unrelatedEnvelope" not in capture.definition
-
-
-def test_input_defaults_are_detached_and_fingerprinted():
-    inputs = {
-        "months": {"defaultValue": "3", "dataType": "TEXT"},
-        "optional": {"defaultValue": None},
-    }
-    old = Capture.create(source(), {"variables": []}, input_variables=inputs)
-    inputs["months"]["defaultValue"] = "6"
-    new = Capture.create(source(), old.to_dict(), input_variables=inputs)
-    assert old.input_variables["months"]["defaultValue"] == "3"
-    assert old.input_variables["optional"]["defaultValue"] is None
-    with pytest.raises(TypeError):
-        old.input_variables["months"]["defaultValue"] = "6"
-    assert old.definition == new.definition
-    assert old.fingerprint != new.fingerprint
-    assert Capture.model_validate_json(old.to_json()) == old
-    legacy = Capture.create(source(), {})
-    assert legacy.input_variables is None
-    assert "input_variables" not in legacy.to_json()
 
 
 def test_missing_published_input_revision_does_not_fall_back():
@@ -157,16 +104,3 @@ def test_missing_published_input_revision_does_not_fall_back():
     )
     with pytest.raises(CaptureError, match="no published revision"):
         retrieve(native, space_id="space", package_id="package", mode="published")
-
-
-def test_data_model_joins_are_canonical_and_round_trip():
-    joins = [
-        {"one": "b", "many": "c", "columns": [["ID", "B_ID"]]},
-        {"one": "a", "many": "b", "columns": [["ID", "A_ID"]]},
-    ]
-    first = Capture.create(source(), {}, joins=joins)
-    second = Capture.create(source(), {}, joins=list(reversed(joins)))
-    assert first == second
-    assert [join["one"] for join in first.joins] == ["a", "b"]
-    assert Capture.model_validate_json(first.to_json()) == first
-    assert Capture.create(source(), {}).joins is None

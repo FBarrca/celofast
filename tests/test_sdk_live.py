@@ -36,8 +36,8 @@ def live_context():
         mode="draft",
     )
     record_id = os.environ["CELOFAST_LIVE_RECORD_ID"]
-    record = next(r for r in capture.to_dict()["records"] if r.get("id") == record_id)
-    others = [r["id"] for r in capture.to_dict()["records"] if r.get("id") != record_id]
+    record = next(r for r in capture.definition["records"] if r.get("id") == record_id)
+    others = [r["id"] for r in capture.definition["records"] if r.get("id") != record_id]
     # Load only typed attributes with expressions; the rest are excluded explicitly.
     loadable = [
         a["id"] for c in ("attributes", "newAttributes", "augmentedAttributes")

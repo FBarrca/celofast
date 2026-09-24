@@ -18,15 +18,14 @@ from objects_fixture import SOURCE, attribute, load
 
 
 def capture():
-    return Capture.create(SOURCE, {"records": [{
+    return Capture(source=SOURCE, definition={"records": [{
         "id": "O_PLANT", "pql": "o_Plant", "identifier": {"pql": '"o_Plant"."ID"'},
         "attributes": [
             attribute("ID", '"o_Plant"."ID"'),
             attribute("Total", '"o_Plant"."Planned" + "o_Plant"."Purchased"', None),
             attribute("Planned", "COALESCE(PU_SUM(\"o_Plant\", \"o_Order\".\"Quantity\", DAYS_BETWEEN(TODAY(), \"o_Order\".\"Due\") < ${months}), 0.0)", None),
         ],
-    }]}, input_variables={"months": {"dataType": "NUMBER", "defaultValue": 3}},
-        tables={"o_Plant": {"primary_key": ["ID"], "columns": {"ID": "STRING"}}})
+    }]}, input_variables={"months": {"dataType": "NUMBER", "defaultValue": 3}}, tables={"o_Plant": {"primary_key": ["ID"], "columns": {"ID": "STRING"}}})
 
 
 @pytest.mark.parametrize("expression", [
@@ -34,7 +33,7 @@ def capture():
     '"o_Line"."CalculatedDate"',  # A reference absent from the physical column catalog.
 ])
 def test_incorrect_declared_type_is_corrected_before_validation_and_generation(tmp_path, expression):
-    original = Capture.create(SOURCE, {"records": [{
+    original = Capture(source=SOURCE, definition={"records": [{
         "id": "O_LINE", "pql": "o_Line", "attributes": [
             attribute("ID", '"o_Line"."ID"'),
             attribute("ActualDeliveryTimestamp", expression, "STRING"),
@@ -46,9 +45,9 @@ def test_incorrect_declared_type_is_corrected_before_validation_and_generation(t
         return "datetime"
 
     cap = resolve_types(original, describe)
-    assert cap.definition_json == original.definition_json
-    cap = Capture.model_validate_json(cap.to_json())
-    assert validate(cap, lambda expressions, limit: [("L1", datetime(2024, 3, 28)), ("L2", None)]) == {}
+    assert cap.definition == original.definition
+    cap = Capture.model_validate_json(cap.model_dump_json())
+    assert validate(cap, lambda expressions, limit: [("L1", datetime(2024, 3, 28)), ("L2", None)]).validation == {}
     for name, content in generate(cap).items():
         (tmp_path / name).write_bytes(content)
     sdk = load(tmp_path, "corrected_type_sdk")
@@ -58,7 +57,7 @@ def test_incorrect_declared_type_is_corrected_before_validation_and_generation(t
 
 
 def test_runtime_inputs_keep_declared_types_without_schema_queries():
-    original = Capture.create(SOURCE, {"records": [{
+    original = Capture(source=SOURCE, definition={"records": [{
         "id": "O_LINE", "pql": "o_Line", "attributes": [
             attribute("ID", '"o_Line"."ID"'),
             attribute("Value", "${choice}", "STRING"),
@@ -82,18 +81,15 @@ def test_missing_type_is_resolved_then_validated_and_generated(tmp_path):
 
     cap = resolve_types(original, describe)
     assert len(described) == 1  # Direct input attributes still follow include-fields.
-    assert cap.definition_json == original.definition_json
-    assert cap.fingerprint == original.fingerprint
+    assert cap.definition == original.definition
     assert original.types == {}
-    cap = Capture.model_validate_json(cap.to_json())
-    with pytest.raises(TypeError):
-        cap.types[described[0]] = "int"
+    cap = Capture.model_validate_json(cap.model_dump_json())
 
     def execute(expressions, limit):
         assert expressions[-1] == f"({described[0]}\n)"
         return [("P1", 1.25), ("P2", None)]
 
-    assert validate(cap, execute) == {}
+    assert validate(cap, execute).validation == {}
     for name, content in generate(cap).items():
         (tmp_path / name).write_bytes(content)
     sdk = load(tmp_path, "result_type_sdk")
@@ -109,7 +105,7 @@ def test_explicit_types_and_exclusions_do_not_query_the_schema(catalog):
     for settings in ({"types": {"Total": "int"}}, {"exclude-fields": ["Total"]}):
         original = capture()
         if not catalog:
-            original = original.model_copy(update={"tables_json": None})
+            original = original.model_copy(update={"tables": None})
         cap = resolve_types(original, unexpected, mapping={"objects": {"O_PLANT": settings}})
         assert cap.types == {}
 

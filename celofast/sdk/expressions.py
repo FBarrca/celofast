@@ -50,25 +50,21 @@ class Expressions:
         }
         self.definitions: dict[tuple[str, ...], str] = {}
         self.cache: dict[tuple[str, ...], str] = {}
-        layer = capture.to_dict()
+        layer = capture.definition
         # Parameterized KPIs retain their server-side argument semantics.
         for kpi in layer.get("kpis") or ():
-            if not isinstance(kpi, dict) or kpi.get("parameters"):
-                continue
-            id_, expression = kpi.get("id"), kpi.get("pql")
-            if isinstance(id_, str) and isinstance(expression, str):
-                self.definitions[(id_.casefold(),)] = expression
-        for record in layer.get("records", ()):
-            if not isinstance(record, dict):
-                continue
-            table = record_table(record.get("pql"))
+            if isinstance(kpi, dict) and not kpi.get("parameters"):
+                id_, expression = kpi.get("id"), kpi.get("pql")
+                if isinstance(id_, str) and isinstance(expression, str):
+                    self.definitions[(id_.casefold(),)] = expression
+        for record in layer.get("records") or ():
+            table = record_table(record.get("pql")) if isinstance(record, dict) else None
             if table is None:
                 continue
             for collection in ("attributes", "newAttributes", "augmentedAttributes"):
                 for attribute in record.get(collection) or ():
-                    if not isinstance(attribute, dict):
-                        continue
-                    id_, expression = attribute.get("id"), attribute.get("pql")
+                    id_ = attribute.get("id") if isinstance(attribute, dict) else None
+                    expression = attribute.get("pql") if isinstance(attribute, dict) else None
                     if not isinstance(id_, str) or not isinstance(expression, str):
                         continue
                     key = (table.casefold(), id_.casefold())
@@ -170,10 +166,10 @@ def _count_bridges(capture: Capture) -> dict[tuple[str, ...], str]:
                 pending.extend(children.get(table, ()))
         return end in descendants
 
-    bridges = {}
+    bridges: dict[tuple[str, ...], str] = {}
     for (target, source), paths in candidates.items():
         # Only bridge peer tables; preserve existing ancestor/descendant paths.
-        key = tables.get(source, {}).get("primary_key") or ()
+        key: list[str] = tables.get(source, {}).get("primary_key") or []
         if len(paths) == 1 and len(key) == 1 and not reaches(target, source) and not reaches(source, target):
             bridges[(target, source, key[0].casefold())] = paths[0]
     return bridges

@@ -49,14 +49,11 @@ try:
     )
     connection = cf._km_connection(settings["key"])
     capture = resolve_types(capture, connection._type_of, mapping=mapping, progress=progress)
-    rejected = validate(capture, connection._probe, mapping=mapping, progress=progress)
-    for rid, reasons in capture.validation.items():
-        rejected.setdefault(rid, {}).update(reasons)
-    capture = capture.with_validation(rejected)
+    capture = validate(capture, connection._probe, mapping=mapping, progress=progress)
 finally:
     progress.close()
 
-real = json.loads(capture.to_json())
+real = json.loads(capture.model_dump_json())
 specs = [spec for spec in normalize(capture, mapping).objects if spec.class_name in USED]
 keep = {spec.record_id for spec in specs}
 expressions = {field.expression for spec in specs for field in spec.fields}
@@ -73,7 +70,7 @@ def trim(item):
 
 records = []
 tables = set()
-for record in capture.to_dict()["records"]:
+for record in capture.definition["records"]:
     if record["id"] in keep:
         trimmed = trim(record)
         for collection in ("attributes", "newAttributes", "augmentedAttributes"):

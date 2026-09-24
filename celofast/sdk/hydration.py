@@ -16,10 +16,10 @@ from celofast.exceptions import ObjectIdentityError, ObjectValueError
 
 if TYPE_CHECKING:
     from celofast.sdk.definitions import Field, Operand
-    from celofast.sdk.objects import Object, _Session
+    from celofast.resources.knowledge_model import KnowledgeModelClient
+    from celofast.sdk.objects import Object
 
 ValueType = Literal["str", "int", "float", "bool", "date", "datetime"]
-VALUE_TYPES: tuple[ValueType, ...] = ("str", "int", "float", "bool", "date", "datetime")
 KEY_TYPES: tuple[ValueType, ...] = ("str", "int", "date", "datetime")
 
 O = TypeVar("O", bound="Object")
@@ -61,13 +61,8 @@ def filter_value(field: Operand[Any], value: object) -> object:
     return value
 
 
-def decode(field: Field[Any], raw: object) -> object:
-    """Convert one transport value to the field's declared Python type."""
-    if raw is None:
-        if not field.nullable:
-            raise ObjectIdentityError(f"{field.owner}.{field.name} key value is null.")
-        return None
-    value_type = field.value_type
+def convert(value_type: ValueType, raw: object) -> object:
+    """Convert one non-null transport value to ``value_type``; ValueError otherwise."""
     value: object = raw
     if value_type == "int" and isinstance(raw, float) and raw.is_integer():
         value = int(raw)  # Integer columns containing nulls arrive as floats.
@@ -77,23 +72,30 @@ def decode(field: Field[Any], raw: object) -> object:
         value = bool(raw)  # PQL has no boolean literal; flags are 0/1.
     elif value_type == "date" and isinstance(raw, datetime):
         if raw.timetz().replace(tzinfo=None) != time():
-            raise ObjectValueError(
-                f"{field.owner}.{field.name} is a date but received time {raw.time()}."
-            )
+            raise ValueError(f"is a date but received time {raw.time()}.")
         value = raw.date()
     if not _accepts(value_type, value):
-        raise ObjectValueError(
-            f"{field.owner}.{field.name} expects {value_type}, "
-            f"received {type(raw).__name__} {raw!r}."
-        )
+        raise ValueError(f"expects {value_type}, received {type(raw).__name__} {raw!r}.")
     return value
+
+
+def decode(field: Field[Any], raw: object) -> object:
+    """Convert one transport value to the field's declared Python type."""
+    if raw is None:
+        if not field.nullable:
+            raise ObjectIdentityError(f"{field.owner}.{field.name} key value is null.")
+        return None
+    try:
+        return convert(field.value_type, raw)
+    except ValueError as exc:
+        raise ObjectValueError(f"{field.owner}.{field.name} {exc}") from None
 
 
 def hydrate(
     object_type: type[O],
     rows: Iterable[Sequence[object]],
     *,
-    context: _Session,
+    context: KnowledgeModelClient,
 ) -> list[O]:
     """Build one immutable instance per key, in first-seen row order."""
     definition = object_type.fields
