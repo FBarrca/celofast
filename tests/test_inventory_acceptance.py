@@ -62,6 +62,7 @@ def moment(day: date) -> datetime:
     return day if isinstance(day, datetime) else datetime.combine(day, time())
 
 
+<<<<<<< HEAD
 # The object types the documented questions use. Pull generates more (every
 # record with a primary key); they are not loaded here.
 USED = (
@@ -70,6 +71,8 @@ USED = (
 )
 
 
+=======
+>>>>>>> dcd5ebff2de9bbe77c1be42e7ee0b2490a368b68
 def _purge() -> None:
     for name in list(sys.modules):
         if name.split(".")[0] == "generated":

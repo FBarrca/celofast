@@ -131,6 +131,48 @@ precedence over missing or incorrect KM `columnType` metadata; explicit `types`
 overrides and Data Model column types retain priority. Discovered types are saved
 separately from the source definition; offline generation uses that snapshot.
 
+<<<<<<< HEAD
+During pull, references to calculated attributes and parameterless KPIs that
+depend on KM inputs are expanded locally and their captured defaults are bound
+as PQL values. Text
+defaults are quoted, including when the source formula omitted quotes. The
+generated field uses the same expression that pull validated; the live KM is
+never edited. Repull after changing those defaults. Missing defaults are
+reported, and `include-fields` retains placeholders for explicit runtime bindings.
+
+A `PU_COUNT` of a source table's single-column primary key can be normalized
+through a unique shared child table using `BIND` and `PU_COUNT_DISTINCT`. This
+counts each related source object once. Ambiguous paths, filtered counts, and
+counts of non-key columns are left unchanged.
+=======
+| Situation | Required action |
+| --- | --- |
+| Record declares no identifier | Set `key`, or add the record to `exclude`. |
+| Identifier expression matches no loaded attribute | Set `key`. |
+| Attribute has no or an unknown `columnType` | Pull reads its Celonis export schema. If the result type remains unknown, use `types` or `exclude-fields`. |
+| Attribute has no expression | Add it to `exclude-fields`. |
+| Attribute ID appears in several collections | Add it to `exclude-fields`. |
+| Key attribute is a `float` or `bool` | Choose another key. Keys are `str`, `int`, `date`, or `datetime`. |
+| To-one link does not map exactly the target key | Map the key, or use `cardinality = "many"`. |
+| Link fields differ in type or are not loaded | Fix the mapping. |
+
+A record whose declared KM identifier resolves to a loaded attribute needs no
+mapping entry. Celonis often projects the identifier as several attributes (for
+example `ID` and `IDENTIFIER_AS_ATTRIBUTE`); each distinct attribute name is
+preserved, and the attribute matching the column name is preferred for the key.
+Casing variants with the same expression share one field. Celofast never infers
+a key from a field *name*, and a record's ID is never an instance's key.
+
+Supported value types are `str`, `int`, `float`, `bool`, `date`, and
+`datetime`. Every field is `T | None` except key fields, which are never null.
+>>>>>>> dcd5ebff2de9bbe77c1be42e7ee0b2490a368b68
+
+Calculated field types are resolved from the Celonis result schema during pull,
+including empty or all-null results when a schema is returned. This schema takes
+precedence over missing or incorrect KM `columnType` metadata; explicit `types`
+overrides and Data Model column types retain priority. Discovered types are saved
+separately from the source definition; offline generation uses that snapshot.
+
 During pull, references to calculated attributes and parameterless KPIs that
 depend on KM inputs are expanded locally and their captured defaults are bound
 as PQL values. Text
