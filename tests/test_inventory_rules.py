@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import importlib
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -38,6 +38,11 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = Path(__file__).with_name("fixtures") / "inventory_km.json"
 MAPPING = ROOT / "inventory-objects.toml"
 AS_OF = date(2026, 9, 23)
+
+
+def at(day: date | None) -> datetime | None:
+    """Celonis DATE values load as datetimes; test data uses midnights."""
+    return None if day is None else datetime.combine(day, time())
 
 
 def _purge() -> None:
@@ -99,7 +104,7 @@ def stock_scenario(sdk):
 
     def plan(id_, target, *, firm=1, quantity=20.0, finish=date(2026, 9, 30)):
         objects.append(make(Supply, id=id_, material_master_plant_id=target, is_firm_order=firm,
-                            order_quantity=quantity, order_finish_date=finish))
+                            order_quantity=quantity, order_finish_date=at(finish)))
 
     item("A")                                            # no supply at all -> at risk
     item("B"); plan("S-B", "B")                          # firm supply in horizon -> covered
@@ -157,7 +162,7 @@ def purchase_scenario(sdk):
 
     def schedule(id_, line, expected_date, received=0.0, expected=10.0):
         objects.append(make(Schedule, id=id_, purchase_document_line_id=line,
-                            expected_delivery_date=expected_date,
+                            expected_delivery_date=at(expected_date),
                             received_quantity=received, expected_quantity=expected))
 
     schedule("S-LATE", "L-ACTIVE", date(2026, 9, 1), received=5.0)     # overdue, partial
@@ -180,7 +185,7 @@ def test_overdue_external_schedules(offline):
     client = MemoryClient(offline.sdk.km, purchase_scenario(offline.sdk))
     page = offline.rules.overdue_external_schedules(client, AS_OF)
     assert keys(page) == ["S-LATEST", "S-LATE"]  # earliest expected delivery first
-    assert [d.expected_delivery_date for d in page] == [date(2026, 7, 15), date(2026, 9, 1)]
+    assert [d.expected_delivery_date for d in page] == [at(date(2026, 7, 15)), at(date(2026, 9, 1))]
 
 
 def test_reusable_purchase_predicates(offline):
@@ -278,7 +283,8 @@ def test_relations_render_into_one_query(offline):
     # ~any(): PU_COUNT of matching planned supplies on the material-plant table is 0.
     pu = f"PU_COUNT({mmp}, {expression(supply.id)}, (CASE WHEN {expression(supply.is_firm_order)} = 1"
     assert f"CASE WHEN {pu}" in condition
-    assert "{d '2026-09-23'}" in condition and "{d '2026-10-07'}" in condition
+    # Date arguments compare as midnight: 2026-09-23 and 2026-10-07 in epoch milliseconds.
+    assert "{t 1790121600000}" in condition and "{t 1791331200000}" in condition
     assert ") > 0 THEN 1 ELSE 0 END = 0" in condition
     stock_qty, safety = expression(stock.current_valuated_stock_quantity), expression(stock.safety_stock_quantity)
     assert f"CASE WHEN {stock_qty} < {safety} THEN 1 ELSE 0 END = 1" in condition

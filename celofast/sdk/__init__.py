@@ -3,6 +3,7 @@
 from celofast.sdk.capture import Capture, CaptureError, Source
 from celofast.sdk.definitions import (
     Aggregate,
+    DateTimeField,
     Field,
     LinkDefinition,
     ModelInfo,
@@ -27,6 +28,7 @@ __all__ = [
     "Aggregate",
     "Capture",
     "CaptureError",
+    "DateTimeField",
     "Field",
     "LinkDefinition",
     "Links",

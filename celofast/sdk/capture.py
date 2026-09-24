@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping, Sequence
+import re
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from functools import cached_property
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+
+if TYPE_CHECKING:
+    from celofast.sdk.hydration import ValueType
 
 FORMAT_VERSION: Literal[1] = 1
 
@@ -110,6 +114,12 @@ class Capture(BaseModel):
     input_variables_json: str | None = None
     joins_json: str | None = None
     """Data Model foreign keys as ``{"one", "many", "columns": [[one, many]]}``."""
+    tables_json: str | None = None
+    """Data Model tables by PQL name: ``{"primary_key": [...], "columns": {name: TYPE}}``."""
+    validation_json: str | None = None
+    """Calculated attributes rejected at pull: ``{record_id: {attribute_id: reason}}``."""
+    types_json: str | None = None
+    """Result types reported by Celonis, keyed by the resolved PQL expression."""
 
     @model_validator(mode="before")
     @classmethod
@@ -133,7 +143,23 @@ class Capture(BaseModel):
                 raise ValueError("Capture must contain one join snapshot.")
             value = dict(value)
             value["joins_json"] = json.dumps(value.pop("joins"), ensure_ascii=False)
+        for name in ("tables", "validation", "types"):
+            if isinstance(value, dict) and name in value:
+                if f"{name}_json" in value:
+                    raise ValueError(f"Capture must contain one {name} snapshot.")
+                value = dict(value)
+                value[f"{name}_json"] = json.dumps(value.pop(name), ensure_ascii=False)
         return value
+
+    @field_validator("tables_json", "validation_json", "types_json")
+    @classmethod
+    def canonical_mapping(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        payload = json.loads(value)
+        if not isinstance(payload, dict):
+            raise ValueError("Data Model snapshots must be JSON objects.")
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
     @field_validator("joins_json")
     @classmethod
@@ -197,6 +223,8 @@ class Capture(BaseModel):
         *,
         input_variables: Mapping[str, Any] | None = None,
         joins: Sequence[Mapping[str, Any]] | None = None,
+        tables: Mapping[str, Any] | None = None,
+        validation: Mapping[str, Mapping[str, str]] | None = None,
     ) -> Capture:
         """Detach from source state, preserving unknown fields and exact strings."""
         normalized = _normalize(definition)
@@ -219,7 +247,30 @@ class Capture(BaseModel):
                 _normalize(input_variables), ensure_ascii=False, allow_nan=False
             ),
             joins_json=None if joins is None else json.dumps(list(joins), ensure_ascii=False),
+            tables_json=None if tables is None else json.dumps(dict(tables), ensure_ascii=False),
+            validation_json=None
+            if validation is None
+            else json.dumps({k: dict(v) for k, v in validation.items()}, ensure_ascii=False),
         )
+
+    def with_validation(self, validation: Mapping[str, Mapping[str, str]]) -> Capture:
+        """A copy that records calculated attributes rejected at pull."""
+        return Capture.model_validate(
+            {
+                **self.model_dump(),
+                "validation_json": json.dumps(
+                    {k: dict(v) for k, v in validation.items()}, ensure_ascii=False
+                ),
+            }
+        )
+
+    def with_types(self, types: Mapping[str, ValueType]) -> Capture:
+        """Keep discovered types separate from the original KM definition."""
+        return Capture.model_validate({**self.model_dump(), "types_json": json.dumps(dict(types))})
+
+    @cached_property
+    def types(self) -> Mapping[str, ValueType]:
+        return _freeze(json.loads(self.types_json)) if self.types_json is not None else _freeze({})
 
     @cached_property
     def fingerprint(self) -> str:
@@ -242,6 +293,16 @@ class Capture(BaseModel):
         if self.joins_json is None:
             return None
         return tuple(_freeze(item) for item in json.loads(self.joins_json))
+
+    @cached_property
+    def tables(self) -> Mapping[str, Any] | None:
+        """Data Model tables by PQL name, with primary key and column types."""
+        return None if self.tables_json is None else _freeze(json.loads(self.tables_json))
+
+    @cached_property
+    def validation(self) -> Mapping[str, Mapping[str, str]]:
+        """Calculated attributes rejected at pull, with the reason, by record ID."""
+        return {} if self.validation_json is None else _freeze(json.loads(self.validation_json))
 
     @cached_property
     def definition(self) -> Mapping[str, Any]:
@@ -270,6 +331,15 @@ class Capture(BaseModel):
                         if self.joins_json is not None
                         else {}
                     ),
+                    **{
+                        name: json.loads(text)
+                        for name, text in (
+                            ("tables", self.tables_json),
+                            ("validation", self.validation_json),
+                            ("types", self.types_json),
+                        )
+                        if text is not None
+                    },
                 },
                 indent=2,
                 ensure_ascii=False,
@@ -278,6 +348,57 @@ class Capture(BaseModel):
             )
             + "\n"
         )
+
+
+_TABLE = re.compile(r'^\s*"?([A-Za-z_][\w$]*)"?\s*$')
+
+
+def record_table(expression: Any) -> str | None:
+    """The table a record reads when its expression is a plain table name."""
+    match = _TABLE.match(expression) if isinstance(expression, str) else None
+    return match.group(1) if match else None
+
+
+Progress = Callable[[str, int, int], None]
+"""Reports (task, completed, total) during slow pull steps."""
+
+
+def data_model_tables(
+    data_model: Any,
+    *,
+    only: Iterable[str] | None = None,
+    progress: Progress | None = None,
+    max_workers: int = 16,
+) -> dict[str, dict[str, Any]]:
+    """Tables of a native Data Model by PQL name, with primary key and column types.
+
+    ``table.columns`` is a partial transport (every type reads STRING), so the
+    column types come from ``get_columns()``: one request per table, which is
+    slow, so requests run in parallel and ``only`` limits them to the tables
+    the KM's records read (names compared case-insensitively).
+    """
+    # Imported here: generated packages import this module and stay light.
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    wanted = None if only is None else {name.lower() for name in only}
+    tables = [
+        table for table in data_model.get_tables()
+        if wanted is None or (table.alias or table.name).lower() in wanted
+    ]
+    result: dict[str, dict[str, Any]] = {}
+    if progress is not None:
+        progress("Fetching Data Model columns", 0, len(tables))
+    with ThreadPoolExecutor(max_workers=max(1, min(max_workers, len(tables)))) as executor:
+        futures = {executor.submit(table.get_columns): table for table in tables}
+        for done, future in enumerate(as_completed(futures), start=1):
+            table = futures[future]
+            result[table.alias or table.name] = {
+                "primary_key": list(table.primary_keys or ()),
+                "columns": {column.name: column.type_ for column in future.result()},
+            }
+            if progress is not None:
+                progress(f"Fetching Data Model columns: {table.alias or table.name}", done, len(tables))
+    return result
 
 
 def data_model_joins(data_model: Any) -> list[dict[str, Any]]:
@@ -313,6 +434,7 @@ def retrieve(
     package_id: str,
     mode: Literal["draft", "published"],
     data_model: Any = None,
+    progress: Progress | None = None,
 ) -> Capture:
     """Read one final-layer response through the authenticated PyCelonis client.
 
@@ -394,5 +516,22 @@ def retrieve(
         if not isinstance(key, str) or not key or key in inputs:
             raise CaptureError("Studio input variables have missing or duplicate keys.")
         inputs[key] = item
-    joins = None if data_model is None else data_model_joins(data_model)
-    return Capture.create(source, layer, input_variables=inputs, joins=joins)
+    if data_model is None:
+        return Capture.create(source, layer, input_variables=inputs)
+    return Capture.create(
+        source,
+        layer,
+        input_variables=inputs,
+        joins=data_model_joins(data_model),
+        tables=data_model_tables(
+            data_model,
+            only={
+                table
+                for record in layer.get("records") or ()
+                if isinstance(record, dict)
+                for table in [record_table(record.get("pql"))]
+                if table is not None
+            },
+            progress=progress,
+        ),
+    )

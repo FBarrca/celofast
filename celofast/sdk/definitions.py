@@ -8,13 +8,14 @@ from data files at import.
 
 from __future__ import annotations
 
+import datetime as _dt
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any, ClassVar, Generic, Literal, TypeVar
 
 from celofast.exceptions import ObjectValueError, QueryValidationError
 from celofast.sdk.capture import Source
-from celofast.sdk.hydration import ValueType, check_filter_value
+from celofast.sdk.hydration import ValueType, filter_value
 
 T = TypeVar("T")
 
@@ -76,8 +77,7 @@ class Operand(Generic[T]):
         for value in options:
             if value is None:
                 raise ObjectValueError("is_in() values cannot be None; combine with eq(None).")
-            check_filter_value(self, value)
-        return Comparison(self, "in", options)
+        return Comparison(self, "in", tuple(filter_value(self, value) for value in options))
 
     def between(self, low: T, high: T) -> Predicate:
         """Within ``low`` and ``high``, both inclusive (PQL ``BETWEEN``)."""
@@ -85,9 +85,7 @@ class Operand(Generic[T]):
             raise ObjectValueError("between() needs two values.")
         if self.value_type == "bool":
             raise ObjectValueError(f"{self.owner}.{self.name} is boolean and has no ordering.")
-        check_filter_value(self, low)
-        check_filter_value(self, high)
-        return Comparison(self, "between", (low, high))
+        return Comparison(self, "between", (filter_value(self, low), filter_value(self, high)))
 
     def like(self, pattern: str) -> Predicate:
         """Matches a PQL ``LIKE`` pattern: ``%`` any text, ``_`` one character."""
@@ -119,7 +117,7 @@ class Operand(Generic[T]):
         elif other is None and ordering:
             raise ObjectValueError(f"{op}() needs a value; nulls only support eq() and ne().")
         else:
-            check_filter_value(self, other)
+            other = filter_value(self, other)
         if ordering and self.value_type == "bool":
             raise ObjectValueError(f"{self.owner}.{self.name} is boolean and has no ordering.")
         return Comparison(self, op, other)
@@ -139,6 +137,35 @@ class Field(Operand[T]):
     nullable: bool = True
     display_name: str | None = None
     description: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class DateTimeField(Field[T]):
+    """A datetime field; filters also accept a ``date``, meaning its midnight."""
+
+    def eq(self, other: T | _dt.date | Operand[Any]) -> Predicate:
+        return self._compare("eq", other)
+
+    def ne(self, other: T | _dt.date | Operand[Any]) -> Predicate:
+        return self._compare("ne", other)
+
+    def lt(self, other: T | _dt.date | Operand[Any]) -> Predicate:
+        return self._compare("lt", other)
+
+    def lte(self, other: T | _dt.date | Operand[Any]) -> Predicate:
+        return self._compare("lte", other)
+
+    def gt(self, other: T | _dt.date | Operand[Any]) -> Predicate:
+        return self._compare("gt", other)
+
+    def gte(self, other: T | _dt.date | Operand[Any]) -> Predicate:
+        return self._compare("gte", other)
+
+    def is_in(self, values: Iterable[T | _dt.date]) -> Predicate:
+        return super().is_in(values)  # type: ignore[arg-type]
+
+    def between(self, low: T | _dt.date, high: T | _dt.date) -> Predicate:
+        return super().between(low, high)  # type: ignore[arg-type]
 
 
 AggregateFunction = Literal["count", "count_distinct", "sum", "avg", "min", "max", "median"]

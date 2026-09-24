@@ -17,7 +17,7 @@ from celofast.query import query_to_pql, validate_variables
 from celofast.resources.augmentation_table import AugmentationTableCollection
 from celofast.sdk.capture import Capture, Source
 from celofast.sdk.definitions import ModelInfo, Predicate, Sort
-from celofast.sdk.hydration import hydrate
+from celofast.sdk.hydration import ValueType, hydrate
 from celofast.sdk.objects import Object, ObjectCollection, ObjectModel
 from celofast.sdk.planning import ReadPlan, plan_read
 from celofast.types import ResourceMode
@@ -139,6 +139,32 @@ class KnowledgeModelConnection:
             raise QueryValidationError("distinct must be a boolean.")
         native_query = query_to_pql(query, variables=variables)
         return self._export(native_query, limit=limit, offset=offset, distinct=distinct)
+
+    def _probe(self, expressions: Sequence[str], limit: int) -> list[tuple[object, ...]]:
+        """Export expressions for a sample of rows; used to validate attributes at pull."""
+        aliases = [f"c{index}" for index in range(len(expressions))]
+        query = pql.PQL(
+            columns=[pql.PQLColumn(name=alias, query=q) for alias, q in zip(aliases, expressions)]
+        )
+        return list(_rows(self._export(query, limit=limit), aliases))
+
+    def _type_of(self, expression: str) -> ValueType | None:
+        """Read the export schema, including for null values; never guess from rows."""
+        import pyarrow as pa
+        import pyarrow.parquet as parquet
+
+        query = pql.PQL(columns=[pql.PQLColumn(name="value", query=expression)], limit=1)
+        export = self._native._create_data_export(query, self._draft)
+        export.wait_for_execution()
+        for chunk in export.get_chunks():
+            type_ = parquet.read_schema(chunk).field("value").type
+            checks: tuple[tuple[Callable[..., bool], ValueType], ...] = (
+                (pa.types.is_string, "str"), (pa.types.is_integer, "int"),
+                (pa.types.is_floating, "float"), (pa.types.is_boolean, "bool"),
+                (pa.types.is_timestamp, "datetime"), (pa.types.is_date, "date"),
+            )
+            return next((value for check, value in checks if check(type_)), None)
+        return None
 
 
 def _plain(value: object) -> object:

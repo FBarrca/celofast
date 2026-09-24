@@ -30,9 +30,12 @@ assert_type(plant.links.materials.fetch_page(), ObjectPage[Material])
 material = plant.links.materials.fetch_page().items[0]
 assert_type(material.links.plant, ToOne[Plant])
 assert_type(material.links.plant.fetch(), Plant | None)
-line = client.objects(StockLine).get(("P1", date(2024, 1, 1)))
-assert_type(line.key, tuple[str, date])
 from celofast.sdk import Predicate, ToManyRelation, ToOneRelation
+line = client.objects(StockLine).get(("P1", date(2024, 1, 1)))
+assert_type(line.key, tuple[str, datetime])
+# Celonis DATE columns are datetimes; their filters also take a date.
+recent: Predicate = Material.fields.updated.gte(date(2024, 1, 1)) & Material.fields.updated.between(
+    date(2024, 1, 1), datetime(2024, 2, 1))
 assert_type(Plant.relations.materials, ToManyRelation[Material])
 assert_type(Material.relations.plant, ToOneRelation[Plant])
 rule: Predicate = (

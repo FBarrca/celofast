@@ -43,12 +43,14 @@ def _accepts(value_type: ValueType, value: object) -> bool:
     return isinstance(value, datetime)
 
 
-def check_filter_value(field: Operand[Any], value: object) -> None:
-    """Reject filter values a field can never hold."""
+def filter_value(field: Operand[Any], value: object) -> object:
+    """Check a filter value against a field; a date on a datetime field means midnight."""
     if value is None:
         if not field.nullable:
             raise ObjectValueError(f"{field.owner}.{field.name} is never null.")
-        return
+        return None
+    if field.value_type == "datetime" and isinstance(value, date) and not isinstance(value, datetime):
+        value = datetime.combine(value, time())
     if not _accepts(field.value_type, value):
         raise ObjectValueError(
             f"{field.owner}.{field.name} expects {field.value_type}, "
@@ -56,6 +58,7 @@ def check_filter_value(field: Operand[Any], value: object) -> None:
         )
     if isinstance(value, datetime) and value.microsecond % 1000:
         raise ObjectValueError("Datetime filters require millisecond precision.")
+    return value
 
 
 def decode(field: Field[Any], raw: object) -> object:

@@ -22,7 +22,7 @@ import importlib
 import os
 import sys
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -55,6 +55,11 @@ pytestmark = [
 ROOT = Path(__file__).resolve().parents[1]
 SPEC_DATE = date(2026, 9, 23)  # The planning date used in the documented examples.
 PLAIN = (str, int, float, bool, date, datetime, type(None))
+
+
+def moment(day: date) -> datetime:
+    """Celonis DATE values load as datetimes; a date argument means its midnight."""
+    return day if isinstance(day, datetime) else datetime.combine(day, time())
 
 
 def _purge() -> None:
@@ -150,9 +155,9 @@ def test_pulled_package_declares_the_documented_api(km):
             "safety_stock_quantity": "float", "material_id": "str", "plant_id": "str",
         },
         Plant: {"country": "str"},
-        PlannedSupply: {"is_firm_order": "int", "order_quantity": "float", "order_finish_date": "date"},
+        PlannedSupply: {"is_firm_order": "int", "order_quantity": "float", "order_finish_date": "datetime"},
         PurchaseScheduleLine: {
-            "expected_delivery_date": "date", "received_quantity": "float", "expected_quantity": "float",
+            "expected_delivery_date": "datetime", "received_quantity": "float", "expected_quantity": "float",
         },
         PurchaseDocumentLine: {"is_canceled": "int"},
         PurchaseDocument: {"is_canceled": "int"},
@@ -204,6 +209,7 @@ def run_at_risk(client, as_of):
 
 
 def covering(supply, as_of):
+    as_of = moment(as_of)
     horizon = as_of + timedelta(days=14)
     return (
         supply.is_firm_order == 1
@@ -328,7 +334,7 @@ def expected_overdue(km, as_of):
     lines = active_external_lines(km)
     matches = [
         s for s in km.all["PurchaseScheduleLine"]
-        if s.expected_delivery_date is not None and s.expected_delivery_date < as_of
+        if s.expected_delivery_date is not None and s.expected_delivery_date < moment(as_of)
         and s.received_quantity is not None and s.expected_quantity is not None
         and s.received_quantity < s.expected_quantity
         and s.purchase_document_line_id in lines
@@ -349,7 +355,7 @@ def test_overdue_external_schedules(km):
 
         # B. Each result satisfies the rule along its relationship path.
         for delivery in overdue.items:
-            assert delivery.expected_delivery_date < as_of
+            assert delivery.expected_delivery_date < moment(as_of)
             assert delivery.received_quantity < delivery.expected_quantity
             line = delivery.links.purchase_document_line.fetch()
             assert line.is_canceled == 0

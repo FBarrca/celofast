@@ -12,11 +12,22 @@ from celofast.sdk import Field, ObjectModel
 from celofast.sdk.generate import PACKAGE_FILES, generate
 from celofast.sdk.mapping import _names, normalize
 
-from objects_fixture import MAPPING, attribute, capture, load, write
+from celofast.sdk import Capture
+
+from objects_fixture import JOINS, MAPPING, TABLES, attribute, capture, load, write
 
 
 def record(layer, record_id):
     return next(item for item in layer["records"] if item["id"] == record_id)
+
+
+def rebuild(layer, *, joins=JOINS, tables=TABLES):
+    """A capture of a changed layer with the fixture's Data Model metadata."""
+    return Capture.create(capture().source, layer, joins=joins, tables=tables)
+
+
+def spec(model, record_id):
+    return next(o for o in model.objects if o.record_id == record_id)
 
 
 def test_package_layout_and_offline_import(tmp_path):
@@ -87,13 +98,17 @@ def test_generated_source_declares_explicit_types(tmp_path):
     annotations = {
         n.target.id: ast.unparse(n.annotation) for n in stock.body if isinstance(n, ast.AnnAssign)
     }
-    assert annotations["key"] == "tuple[str, _dt.date]"
+    # Celonis DATE columns hold timestamps: they load as datetimes.
+    assert annotations["key"] == "tuple[str, _dt.datetime]"
+    assert annotations["day"] == "_dt.datetime"
     assert annotations["plant_id"] == "str"
     assert annotations["qty"] == "int | None"
     assert annotations["fields"] == "ClassVar[_defs.StockLineDefinition]"
     definitions = files["definitions.py"].decode()
     assert "country: _d.Field[str | None]" in definitions
     assert "id: _d.Field[str]" in definitions
+    assert "day: _d.DateTimeField[_dt.datetime]" in definitions
+    assert "opened: _d.Field[_dt.date | None]" in definitions  # types override
     links = files["links.py"].decode()
     assert "def plant(self) -> _o.ToOne[_objects.Plant]:" in links
     assert "def materials(self) -> _o.ObjectCollection[_objects.Material]:" in links
@@ -126,9 +141,7 @@ def test_package_is_self_contained_python(tmp_path):
 def test_variables_in_comments_are_not_reported(tmp_path):
     layer = capture().to_dict()
     record(layer, "O_PLANT")["attributes"][1]["pql"] = '"o_Plant"."Country" -- was ${old}'
-    from celofast.sdk import Capture
-
-    module = load(write(tmp_path / "commented", Capture.create(capture().source, layer)))
+    module = load(write(tmp_path / "commented", rebuild(layer)))
     assert module.km.variables == ("factor",)
 
 
@@ -136,39 +149,91 @@ def test_generation_is_deterministic():
     assert generate(capture(), MAPPING) == generate(capture(), MAPPING)
 
 
-def test_unidentified_records_require_mapping_or_exclusion():
-    with pytest.raises(ObjectMappingError) as error:
-        generate(capture(), {})
-    message = str(error.value)
-    assert "O_MATERIAL (map it under objects or add it to exclude): no declared identifier" in message
-    assert "O_STOCK" in message and "EL_LOG" in message
-    # Records with a declared identifier matching one attribute need no mapping.
-    assert "O_PLANT" not in message
+def test_records_keys_and_types_are_derived_from_the_data_model():
+    model = normalize(capture(), {})
+    assert [(o.record_id, o.class_name, o.key) for o in model.objects] == [
+        ("O_MATERIAL", "Material", ("id",)),
+        ("O_PLANT", "Plant", ("id",)),
+        ("O_STOCK", "Stock", ("plant_id", "day")),  # Class name from the table.
+    ]
+    types = {f.attribute_id: f.value_type for f in spec(model, "O_MATERIAL").fields}
+    # Data Model column types win over the KM's declared (or missing) types.
+    assert types == {
+        "ID": "str", "PLANT_ID": "str", "ACTIVE": "bool", "UPDATED": "datetime",
+        "COUNT": "int", "UNTYPED": "str",
+    }
+    assert {f.attribute_id: f.value_type for f in spec(model, "O_PLANT").fields}["OPENED"] == "datetime"
+    diagnostics = "\n".join(model.diagnostics)
+    assert "EL_LOG: no primary key or declared identifier; not an object type." in diagnostics
+    assert "O_MATERIAL.STOCK: uses KM input variables; add it to include-fields" in diagnostics
 
 
-def test_unknown_types_and_missing_expressions_are_never_weakened():
-    mapping = json.loads(json.dumps(MAPPING))
-    del mapping["objects"]["O_MATERIAL"]["types"]
-    with pytest.raises(ObjectMappingError, match="'UNTYPED' has unknown type None"):
-        normalize(capture(), mapping)
-    mapping["objects"]["O_MATERIAL"]["exclude-fields"] = ["UNTYPED"]
-    spec = normalize(capture(), mapping)
-    material = next(o for o in spec.objects if o.record_id == "O_MATERIAL")
-    assert "UNTYPED" not in {f.attribute_id for f in material.fields}
+def test_records_without_primary_key_or_that_are_event_logs_are_skipped():
+    tables = {**TABLES, "o_Stock": {**TABLES["o_Stock"], "primary_key": []}}
+    model = normalize(rebuild(capture().to_dict(), tables=tables), {})
+    assert "O_STOCK" not in {o.record_id for o in model.objects}
+    assert "O_STOCK: no primary key or declared identifier; not an object type." in model.diagnostics
 
-    layer_capture = capture()
-    layer = layer_capture.to_dict()
-    record(layer, "O_STOCK")["attributes"].append({"id": "EMPTY", "columnType": "STRING"})
-    from celofast.sdk import Capture
+    layer = capture().to_dict()
+    record(layer, "O_STOCK")["isActivityTable"] = True
+    model = normalize(rebuild(layer), {})
+    assert "O_STOCK: event log; not an object type." in model.diagnostics
 
-    with pytest.raises(ObjectMappingError, match="'EMPTY' has no expression"):
-        normalize(Capture.create(layer_capture.source, layer), MAPPING)
+
+def test_unknown_types_and_missing_expressions_are_skipped_and_reported():
+    layer = capture().to_dict()
+    record(layer, "O_MATERIAL")["attributes"] += [
+        attribute("CALC", 'CASE WHEN "o_Material"."Count" > 1 THEN 1 END', None),
+        {"id": "EMPTY", "columnType": "STRING", "type": "ATTRIBUTE"},
+    ]
+    changed = rebuild(layer)
+    model = normalize(changed, {})
+    loaded = {f.attribute_id for f in spec(model, "O_MATERIAL").fields}
+    assert not {"CALC", "EMPTY"} & loaded
+    assert "O_MATERIAL.CALC: unknown type None; not generated." in model.diagnostics
+    assert "O_MATERIAL.EMPTY: no expression; not generated." in model.diagnostics
+    # An explicit type loads a calculated attribute the KM leaves untyped.
+    model = normalize(changed, {"objects": {"O_MATERIAL": {"types": {"CALC": "int"}}}})
+    assert {f.attribute_id: f.value_type for f in spec(model, "O_MATERIAL").fields}["CALC"] == "int"
+
+
+def test_attributes_rejected_at_pull_are_skipped_and_reported():
+    rejected = capture().with_validation({"O_MATERIAL": {"COUNT": "fails in Celonis: boom"}})
+    model = normalize(rejected, {})
+    assert "COUNT" not in {f.attribute_id for f in spec(model, "O_MATERIAL").fields}
+    assert "O_MATERIAL.COUNT: fails in Celonis: boom; not generated." in model.diagnostics
+
+
+def test_automatic_links_follow_foreign_keys():
+    model = normalize(capture(), {})
+    assert [(l.name, l.target, l.cardinality, l.on, l.join) for l in spec(model, "O_PLANT").links] == [
+        ("materials", "O_MATERIAL", "many", (("id", "plant_id"),), "fk"),
+    ]
+    assert [(l.name, l.cardinality) for l in spec(model, "O_MATERIAL").links] == [("plant", "one")]
+
+    # A second foreign key to the same table: each to-one is named by its
+    # column; the to-many names clash, so the later one gets its column suffix.
+    layer = capture().to_dict()
+    record(layer, "O_MATERIAL")["attributes"].append(attribute("ORIGIN_ID", '"o_Material"."Origin_ID"'))
+    tables = {**TABLES, "o_Material": {
+        **TABLES["o_Material"], "columns": {**TABLES["o_Material"]["columns"], "Origin_ID": "STRING"}}}
+    joins = [*JOINS, {"one": "o_Plant", "many": "o_Material", "columns": [["ID", "Origin_ID"]]}]
+    model = normalize(rebuild(layer, joins=joins, tables=tables), {})
+    assert {l.name for l in spec(model, "O_MATERIAL").links} == {"plant", "origin"}
+    assert {l.name for l in spec(model, "O_PLANT").links} == {"materials", "materials_by_plant"}
+
+
+def test_declared_links_rename_matching_automatic_links():
+    mapping = {"objects": {"O_PLANT": {"links": {"inventory": {
+        "target": "O_MATERIAL", "cardinality": "many", "on": {"ID": "PLANT_ID"}}}}}}
+    model = normalize(capture(), mapping)
+    assert [(l.name, l.join) for l in spec(model, "O_PLANT").links] == [("inventory", "fk")]
 
 
 @pytest.mark.parametrize(
     ("change", "message"),
     [
-        ({"key": ["COUNT"], "types": {"UNTYPED": "str", "COUNT": "float"}}, "keys need"),
+        ({"key": ["COUNT"], "types": {"COUNT": "float"}}, "has type float"),
         ({"key": ["MISSING"]}, "not a loaded field"),
         ({"key": ["ID", "ID"]}, "repeats"),
         ({"exclude-fields": ["NOPE"], "key": ["ID"]}, "unknown attribute 'NOPE'"),
@@ -181,13 +246,16 @@ def test_keys_are_verified(change, message):
         normalize(capture(), mapping)
 
 
-def test_identifier_is_not_guessed_from_field_names():
+def test_declared_identifier_is_the_key_without_a_primary_key():
+    tables = {**TABLES, "o_Plant": {**TABLES["o_Plant"], "primary_key": []}}
+    model = normalize(rebuild(capture().to_dict(), tables=tables), {})
+    assert spec(model, "O_PLANT").key == ("id",)
+
     layer = capture().to_dict()
     record(layer, "O_PLANT")["identifier"] = {"pql": '"o_Plant"."Other"'}
-    from celofast.sdk import Capture
-
-    with pytest.raises(ObjectMappingError, match="O_PLANT: declared identifier matches no loaded attribute"):
-        normalize(Capture.create(capture().source, layer), MAPPING)
+    model = normalize(rebuild(layer, tables=tables), {})
+    assert "O_PLANT" not in {o.record_id for o in model.objects}
+    assert "O_PLANT: no primary key or declared identifier; not an object type." in model.diagnostics
 
 
 @pytest.mark.parametrize(
@@ -211,13 +279,13 @@ def test_invalid_mapping_documents_and_names_fail_clearly():
         normalize(capture(), {"objects": {"O_PLANT": {"unknown": 1}}})
     mapping = json.loads(json.dumps(MAPPING))
     mapping["objects"]["O_STOCK"]["class"] = "Plant"
-    with pytest.raises(ObjectMappingError, match="class name 'Plant' is also used by O_PLANT"):
+    with pytest.raises(ObjectMappingError, match="O_STOCK: no free class name among Plant"):
         normalize(capture(), mapping)
     mapping["objects"]["O_STOCK"]["class"] = "not a class"
     with pytest.raises(ObjectMappingError, match="capitalized Python identifier"):
         normalize(capture(), mapping)
     mapping = json.loads(json.dumps(MAPPING))
-    mapping["exclude"].append("O_STOCK")
+    mapping["exclude"] = ["O_STOCK"]
     mapping["objects"]["MISSING"] = {"key": ["ID"]}
     with pytest.raises(ObjectMappingError) as error:
         normalize(capture(), mapping)
@@ -235,26 +303,24 @@ def test_reserved_and_colliding_names_get_readable_suffixes(tmp_path):
         attribute("Country", '"o_Plant"."C1"'),
     ]
     plant["newAttributes"] = [attribute("Region", '"o_Plant"."R"')]
-    from celofast.sdk import Capture
-
-    module = load(write(tmp_path / "names", Capture.create(capture().source, layer)))
+    module = load(write(tmp_path / "names", rebuild(layer)))
     names = [f.name for f in module.Plant.fields]
     assert {"key_attribute", "links_attribute", "date", "region"} <= set(names)
     assert {"country_attribute_1", "country_attribute_2"} <= set(names)
     assert module.Plant.fields["Country"].name != module.Plant.fields["COUNTRY"].name
 
 
-def test_an_id_in_several_collections_must_be_excluded():
+def test_an_id_in_several_collections_loads_the_first():
     layer = capture().to_dict()
     record(layer, "O_PLANT")["newAttributes"] = [attribute("COUNTRY", '"o_Plant"."C2"')]
-    from celofast.sdk import Capture
-
-    changed = Capture.create(capture().source, layer)
-    with pytest.raises(ObjectMappingError, match="'COUNTRY' is defined in several collections"):
-        normalize(changed, MAPPING)
+    changed = rebuild(layer)
+    model = normalize(changed, MAPPING)
+    countries = [f for f in spec(model, "O_PLANT").fields if f.attribute_id == "COUNTRY"]
+    assert [(f.name, f.expression) for f in countries] == [("country", '"o_Plant"."Country"')]
+    assert "O_PLANT.newAttributes.COUNTRY: ID also defined in attributes; not generated." in model.diagnostics
     mapping = json.loads(json.dumps(MAPPING))
     mapping["objects"]["O_PLANT"]["exclude-fields"] = ["COUNTRY"]
-    plant = next(o for o in normalize(changed, mapping).objects if o.record_id == "O_PLANT")
+    plant = spec(normalize(changed, mapping), "O_PLANT")
     assert "COUNTRY" not in {f.attribute_id for f in plant.fields}
     ids = ["ID", "ID_ATTRIBUTE", "ID_ATTRIBUTE_1", "NumberName", "number_name", "KEY"]
     assert _names(ids, {"id", "key"}, suffixes=["attribute"] * 6) == [
@@ -279,10 +345,13 @@ def test_links_are_classified_against_data_model_joins(tmp_path):
 
 
 def test_to_one_links_without_foreign_keys_use_lookup(tmp_path):
-    from celofast.sdk import Capture
-
-    no_joins = Capture.create(capture().source, capture().to_dict())
-    module = load(write(tmp_path / "unjoined", no_joins))
+    no_joins = rebuild(capture().to_dict(), joins=[])
+    mapping = json.loads(json.dumps(MAPPING))
+    mapping["objects"]["O_PLANT"]["links"]["materials"] = {
+        "target": "O_MATERIAL", "cardinality": "many", "on": {"ID": "PLANT_ID"}}
+    mapping["objects"]["O_MATERIAL"]["links"] = {
+        "plant": {"target": "O_PLANT", "cardinality": "one", "on": {"PLANT_ID": "ID"}}}
+    module = load(write(tmp_path / "unjoined", no_joins, mapping))
     assert module.Material.fields.links["plant"].join == "lookup"
     assert module.Plant.fields.links["materials"].join is None
     assert hasattr(module.Material.relations, "plant")

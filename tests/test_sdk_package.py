@@ -214,10 +214,9 @@ def test_invalid_mappings_write_nothing(tmp_path):
     target = tmp_path / "inventory"
     write_package(capture(), target)
     before = files(target)
-    broken = capture().to_dict()
-    del broken["records"][0]["identifier"]
-    with pytest.raises(ObjectMappingError, match="no declared identifier"):
-        write_package(Capture.create(SOURCE, broken), target)
+    first = capture().to_dict()["records"][0]["id"]
+    with pytest.raises(ObjectMappingError, match="not a loaded field"):
+        write_package(capture(), target, mapping={"objects": {first: {"key": ["MISSING"]}}})
     assert files(target) == before
 
 
