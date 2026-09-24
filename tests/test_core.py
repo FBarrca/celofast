@@ -273,10 +273,9 @@ def test_object_client_checks_each_source_and_shares_native_connection(mode):
     from celofast.exceptions import QueryValidationError
     from celofast.resources.knowledge_model import KnowledgeModelClient
     from celofast.sdk import ObjectModel, Source
-    from celofast.sdk.definitions import ModelInfo
 
     def model(source, data_model_id="dm-id"):
-        return ObjectModel(ModelInfo(source, data_model_id), ())
+        return ObjectModel(source, data_model_id, (), ())
 
     client = make_client()[0] if mode == "draft" else make_published_client()[0]
     source = Source(

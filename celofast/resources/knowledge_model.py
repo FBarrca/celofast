@@ -15,10 +15,10 @@ from pycelonis.pql.saola_connector import KnowledgeModelSaolaConnector
 from celofast.exceptions import ObjectValueError, QueryValidationError
 from celofast.query import query_to_pql, validate_variables
 from celofast.resources.augmentation_table import AugmentationTableCollection
-from celofast.sdk.definitions import ModelInfo, Predicate, Sort
+from celofast.sdk.definitions import Predicate, Sort
 from celofast.sdk.hydration import ValueType, hydrate
 from celofast.sdk.objects import Object, ObjectCollection, ObjectModel
-from celofast.sdk.planning import ReadPlan, plan_read
+from celofast.sdk.planning import plan_read
 from celofast.types import ResourceMode
 
 O = TypeVar("O", bound=Object)
@@ -59,7 +59,7 @@ class KnowledgeModelConnection:
             draft=draft,
         )
 
-    def _validate_model(self, model: ModelInfo) -> None:
+    def _validate_model(self, model: ObjectModel) -> None:
         # Space, package, lifecycle, and KM key are checked when the connection
         # is chosen; the Data Model ID pins the tenant's actual data.
         if model.data_model_id != self._data_model.id:
@@ -171,43 +171,24 @@ def _rows(frame: pd.DataFrame, columns: Sequence[str]) -> Iterator[tuple[object,
         yield tuple(_plain(value) for value in row)
 
 
-def _log_plan(
-    title: str,
-    plan: ReadPlan,
-    *,
-    limit: int | None,
-    offset: int | None = None,
-    names: Sequence[str] = (),
-) -> None:
+def _log_query(title: str, query: pql.PQL, *, limit: int, offset: int, names: Sequence[str]) -> None:
     """Log the exact PQL of one export at DEBUG level on ``celofast.km``."""
     if not logger.isEnabledFor(logging.DEBUG):
         return
-    last = len(plan.columns) - 1
+    last = len(query.columns) - 1
     columns = "\n".join(
-        f'    {query} AS "{alias}"'
+        f'    {column.query} AS "{column.name}"'
         + ("" if index == last else ",")
         + (f"  -- {names[index]}" if index < len(names) else "")
-        for index, (alias, query) in enumerate(plan.columns)
+        for index, column in enumerate(query.columns)
     )
-    lines = [f"{title} (limit={limit}, offset={offset or 0}, distinct)", f"TABLE (\n{columns}\n)"]
-    lines += list(plan.filters)
-    if plan.order_by:
-        lines.append(
-            "ORDER BY "
-            + ", ".join(f"{query} {'ASC' if ascending else 'DESC'}" for query, ascending in plan.order_by)
-        )
+    lines = [f"{title} (limit={limit}, offset={offset}, distinct)", f"TABLE (\n{columns}\n)"]
+    lines += [f.query for f in query.filters]
+    if query.order_by_columns:
+        lines.append("ORDER BY " + ", ".join(
+            f"{o.query} {'ASC' if o.ascending else 'DESC'}" for o in query.order_by_columns
+        ))
     logger.debug("\n".join(lines))
-
-
-def _native(plan: ReadPlan) -> pql.PQL:
-    return pql.PQL(
-        columns=[pql.PQLColumn(name=alias, query=query) for alias, query in plan.columns],
-        filters=[pql.PQLFilter(query=query) for query in plan.filters],
-        order_by_columns=[
-            pql.OrderByColumn(query=query, ascending=ascending)
-            for query, ascending in plan.order_by
-        ],
-    )
 
 
 class KnowledgeModelClient:
@@ -229,7 +210,7 @@ class KnowledgeModelClient:
         *,
         variables: Mapping[str, str] | None = None,
     ) -> None:
-        connection._validate_model(model.info)
+        connection._validate_model(model)
         self._connection = connection
         self._model = model
         self._variables = validate_variables(variables)
@@ -258,20 +239,18 @@ class KnowledgeModelClient:
         offset: int,
     ) -> list[O]:
         # Relations render into this one query; every read is a single export.
-        plan = plan_read(object_type.fields, predicates, order, variables=self._variables)
-        _log_plan(
+        query = plan_read(object_type, predicates, order, variables=self._variables)
+        names = [field.name for field in object_type.fields]
+        _log_query(
             f"Read {object_type.fields.object_type} objects ({object_type.__name__})",
-            plan,
-            limit=limit,
-            offset=offset,
-            names=[field.name for field in object_type.fields],
+            query, limit=limit, offset=offset, names=names,
         )
         # Distinct rows collapse repeated identical objects; conflicts remain
         # visible to hydration, which rejects them.
-        frame = self._connection._export(_native(plan), limit=limit, offset=offset, distinct=True)
-        rows = _rows(frame, [alias for alias, _ in plan.columns])
+        frame = self._connection._export(query, limit=limit, offset=offset, distinct=True)
+        rows = _rows(frame, [column.name for column in query.columns])
         # Columns after the loaded fields exist only for sorting.
-        return hydrate(object_type, (row[: plan.loaded] for row in rows), context=self)
+        return hydrate(object_type, (row[: len(names)] for row in rows), context=self)
 
     @property
     def mode(self) -> ResourceMode:

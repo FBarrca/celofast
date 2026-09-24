@@ -307,7 +307,7 @@ def test_nested_relations_bind_one_hop_at_a_time(offline):
 def test_lookup_links_join_by_value(offline):
     sdk, transport = offline.sdk, Transport()
     Schedule, Plant = sdk.PurchaseScheduleLine, sdk.Plant
-    assert Schedule.fields.links["plant"].join == "lookup"  # No Data Model foreign key.
+    assert Schedule.relations.plant.join == "lookup"  # No Data Model foreign key.
     real_client(sdk, transport).objects(Schedule).where(
         Schedule.relations.plant.has(Plant.fields.country.eq("DE"))
     ).fetch_page()

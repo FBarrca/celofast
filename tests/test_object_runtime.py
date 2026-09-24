@@ -80,7 +80,6 @@ def test_get_retrieves_a_typed_object_with_plain_values(sdk, client, transport):
     assert plant.country == "DE"
     assert plant.plantnumber is None
     assert plant.opened == date(2020, 1, 1) and type(plant.opened) is date
-    assert plant.ref.key == "P1" and plant.ref.object_type == "O_PLANT"
 
     request = transport.requests[0]
     assert (request.limit, request.offset, request.distinct) == (2, 0, True)
@@ -92,7 +91,7 @@ def test_get_retrieves_a_typed_object_with_plain_values(sdk, client, transport):
     assert [f.query for f in request.query.filters] == [eq_filter('"o_Plant"."ID"', "'P1'")]
     assert [o.query for o in request.query.order_by_columns] == [wrapped('"o_Plant"."ID"')]
     # Reading loaded values never performs another request.
-    _ = (plant.country, plant.key, plant.ref, plant.links)
+    _ = (plant.country, plant.key, plant.links)
     assert len(transport.requests) == 1
 
 
@@ -345,12 +344,9 @@ def test_membership_range_and_pattern_predicates(sdk, client, transport):
 
 
 def test_relations_without_a_join_are_not_predicates(sdk):
-    from celofast.sdk.objects import ToManyRelation
-
     # Plant.stock has no Data Model foreign key; it supports traversal only.
-    relation = ToManyRelation("stock", sdk.Plant, sdk.StockLine)
     with pytest.raises(QueryValidationError, match="no Data Model foreign key or lookup path"):
-        relation.any()
+        sdk.Plant.relations.stock.any()
 
 
 def test_relation_aggregates_render_pull_up_functions(sdk, client, transport):
@@ -419,11 +415,9 @@ def test_aggregate_validation(sdk):
         materials.count().gt(2.5)
     with pytest.raises(QueryValidationError, match="same type"):
         materials.count().gt(Stock.fields.qty)
-    from celofast.sdk.objects import ToManyRelation
-
     # Plant.stock has no foreign key: no Pull-Up path to aggregate over.
     with pytest.raises(QueryValidationError, match="Pull-Up aggregates need one"):
-        ToManyRelation("stock", Plant, Stock).count()
+        Plant.relations.stock.count()
 
 
 def test_datetime_fields_accept_date_filters_as_midnight(sdk):

@@ -36,7 +36,6 @@ Every read returns complete, validated, immutable objects.
 | `Plant.fields.country.eq("DE")` | A predicate for a `Plant` collection |
 | `plant.country` | A loaded Python value, `str \| None` |
 | `plant.key` | This instance's business key (a tuple for composite keys) |
-| `plant.ref` | `ObjectRef(source, object_type, key)` |
 | `plant.links.materials` | A typed relationship collection, `ObjectCollection[MaterialMasterPlant]` |
 | `material.links.plant` | A typed to-one relationship, `ToOne[Plant]` |
 
@@ -180,9 +179,7 @@ The generated package contains:
 | File | Content |
 | --- | --- |
 | `__init__.py` | Exports every value class and `km`, the object registry, plus the `__celofast__` generation stamp. |
-| `definitions.py` | The KM source, then `PlantDefinition` classes with `Field[...]` members, expressions, keys, and link declarations. |
-| `objects.py` | `Plant` value classes and the `km` registry. |
-| `links.py` | `PlantLinks` (instance traversal) and `PlantRelations` (relationship predicates) classes. |
+| `objects.py` | Per object type: `PlantDefinition` (typed fields and their expressions), `Plant` (the value class), and `PlantLinks` (its relationships); then the `km` registry. |
 | `py.typed` | Marks the package as typed. |
 
 The package is plain Python with no data files. Everything the runtime needs is
@@ -191,32 +188,49 @@ metadata. The captured KM definition is only the input to generation, so parts
 of the KM that no generated type uses (KPIs, filters, excluded records and
 fields) are not in the package.
 
-A generated value class and its definition look like this:
+A generated object type looks like this:
 
 ```python
-@dataclass(frozen=True, kw_only=True)
 class PlantDefinition(_d.ObjectDefinition):
     'Plant'
-    id: _d.Field[str]
-    country: _d.Field[str | None]
+
+    _object_type = 'O_CELONIS_PLANT'
+    _table = 'o_celonis_Plant'
+    _key = ('id',)
+    _metadata = {'displayName': 'Plant', 'description': None}
+
+    id: _d.Field[str] = _d.Field('ID', '"o_celonis_Plant"."ID"', 'str')
+    country: _d.Field[str | None] = _d.Field('COUNTRY', '"o_celonis_Plant"."Country"', 'str')
     ...
 
 
 @dataclass(frozen=True, kw_only=True)
 class Plant(_o.Object):
     'Plant'
+
     key: str
     id: str
     country: str | None
     ...
 
-    fields: ClassVar[_defs.PlantDefinition] = _defs._Plant
-    relations: ClassVar[_links.PlantRelations] = _links.PlantRelations()
+    fields: ClassVar[PlantDefinition] = PlantDefinition()
+    relations: ClassVar[type[PlantLinks]]
 
     @property
-    def links(self) -> _links.PlantLinks:
-        return _links.PlantLinks(self)
+    def links(self) -> PlantLinks:
+        return PlantLinks(self)
+
+
+class PlantLinks(_o.Links, source=Plant):
+    'Relationships of Plant.'
+
+    materials = _o.ToManyRelation(MaterialMasterPlant, on=(('id', 'plant_id'),), join='fk')
 ```
+
+Each relationship is declared once. Read from the class
+(`Plant.relations.materials`) it builds predicates and aggregates; read from a
+loaded object (`plant.links.materials`) it fetches that object's related
+objects.
 
 Importing is offline: it does not authenticate, contact Celonis, or import
 PyCelonis or pandas. Imports verify the runtime version.
@@ -229,7 +243,7 @@ its exact captured attribute ID:
 ```python
 Plant.fields.object_type               # "O_CELONIS_PLANT"
 Plant.fields.key_fields                # (Plant.fields.id,)
-Plant.fields.links["materials"]        # LinkDefinition(target=..., cardinality="many", ...)
+Plant.relations.materials.join        # "fk", "lookup", or None (traversal only)
 Plant.fields["COUNTRY"] is Plant.fields.country
 Plant.fields.country.value_type        # "str"
 Plant.fields.country.expression        # '"o_celonis_Plant"."Country"'
@@ -243,7 +257,7 @@ Field names come from the attribute's data-model column name when it spells
 the same identifier (`ISDISCONTINUED` with column `IsDiscontinued` becomes
 `is_discontinued`), and otherwise from the attribute ID. Only `key`, `ref`,
 `links`, `relations`, `fields`, `model`, `object_type`, `metadata`, and
-`key_fields` are reserved. An attribute with a reserved or colliding Python
+`key_fields` are reserved (some for backward compatibility). An attribute with a reserved or colliding Python
 name receives a readable suffix, such as `key_attribute`; each generated field
 keeps its attribute ID (`Plant.fields["KEY"]`).
 
@@ -363,9 +377,9 @@ predicates compile into the same filter:
 `km pull` reads the Data Model's foreign keys and classifies every link. A link
 that matches a foreign key in the direction its cardinality implies uses joins
 and Pull-Up functions. A single-column to-one link without one uses `LOOKUP`.
-Any other link, such as a to-many link with no foreign key, still generates
-`links` for traversal, but no `Type.relations` accessor; `definitions.py` lists
-it under "Not generated". A null reference never matches, so
+Any other link, such as a to-many link with no foreign key, supports
+traversal only: `Type.relations.x.any(...)` raises `QueryValidationError`, and
+`objects.py` lists the link under "Not generated". A null reference never matches, so
 `~relations.x.any(...)` includes objects without related objects.
 
 [tests/inventory_rules.py](../tests/inventory_rules.py) contains three complete
@@ -386,7 +400,7 @@ and, when enabled, against Celonis.
   a string where a number is declared raises `ObjectValueError`.
 - **Failures are failures.** A failed export raises the native PyCelonis error
   with its cause chain; it never becomes an empty page.
-- **No hidden requests.** Reading `plant.country`, `plant.key`, `plant.ref`, or
+- **No hidden requests.** Reading `plant.country` or `plant.key`, or
   building `plant.links.materials` never contacts Celonis. Only `get`,
   `fetch_page`, `next_page`, and `ToOne.fetch` do.
 

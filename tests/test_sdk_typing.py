@@ -6,7 +6,7 @@ from objects_fixture import write
 PREFIX = """from datetime import date, datetime
 from typing_extensions import assert_type
 from celofast import CeloFast, KnowledgeModelClient
-from celofast.sdk import Field, ObjectCollection, ObjectModel, ObjectPage, ObjectRef, ToOne
+from celofast.sdk import Field, ObjectCollection, ObjectModel, ObjectPage, ToOne
 from inventory import Material, Plant, StockLine, km as inventory
 
 assert_type(inventory, ObjectModel)
@@ -21,7 +21,6 @@ assert_type(plant, Plant)
 assert_type(plant.country, str | None)
 assert_type(plant.opened, date | None)
 assert_type(plant.key, str)
-assert_type(plant.ref, ObjectRef)
 page = plants.where(Plant.fields.country.eq("DE")).fetch_page(page_size=100)
 assert_type(page, ObjectPage[Plant])
 assert_type(page.items[0], Plant)

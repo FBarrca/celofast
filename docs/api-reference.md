@@ -34,7 +34,7 @@ Source: [core.py](../celofast/core.py), [client.py](../celofast/client.py).
 | `inventory` (`km` in the package) | `ObjectModel`: `iter()`, `len()`, `inventory["RECORD_ID"]` returns the class, `.source`, `.data_model_id`, `.variables` (`${name}` inputs used by generated fields). |
 | `Plant` | Frozen dataclass: `key` plus one plain-valued attribute per loaded field. |
 | `Plant.fields` | `PlantDefinition`: one `Field` per loaded field; iteration in generated order; `["ATTRIBUTE_ID"]` exact lookup. |
-| `Plant.fields.object_type`, `.key_fields`, `.links`, `.metadata`, `.model` | Captured record ID, key fields, `LinkDefinition`s by name, the record's `displayName` and `description`, and the package's `ModelInfo`. |
+| `Plant.fields.object_type`, `.key_fields`, `.metadata` | Captured record ID, key fields, and the record's `displayName` and `description`. |
 | `Field.name`, `.id`, `.expression`, `.value_type`, `.nullable`, `.display_name`, `.description` | Generated name, attribute ID, captured expression, declared type, nullability (false for keys), and captured metadata. |
 | `Field.eq(x)`, `.ne(x)` | `Predicate`. `x` is a value of the field's type or another field of the same object type; `None` is a value. |
 | `Field.lt(x)`, `.lte(x)`, `.gt(x)`, `.gte(x)` | `Predicate`; false when either side is null. Not available for `bool`. |
@@ -46,12 +46,13 @@ Source: [core.py](../celofast/core.py), [client.py](../celofast/client.py).
 | `Plant.relations.<to_many>.count(p=None)`, `.count_distinct(f, p=None)` | `Aggregate[int]` (`PU_COUNT`, `PU_COUNT_DISTINCT`); 0 without related values. |
 | `Plant.relations.<to_many>.sum(f, p=None)`, `.avg(...)`, `.min(...)`, `.max(...)`, `.median(...)` | `Aggregate` (`PU_SUM`, `PU_AVG`, `PU_MIN`, `PU_MAX`, `PU_MEDIAN` with the upper middle value); NULL without related values. Compares (`eq` … `between`) and sorts like a field. Foreign-key links only. |
 | `plant.key` | Business key; a tuple for composite keys. |
-| `plant.ref` | `ObjectRef(source, object_type, key)`. |
 | `plant.links.<name>` | `ObjectCollection[Target]` (to-many) or `ToOne[Target]` (to-one), derived from a Data Model foreign key or declared as an override. |
 
-Relations exist only for links verified at pull against a Data Model foreign key
+`Plant.relations.<name>` and `plant.links.<name>` are the same declared
+relationship; its `.target`, `.on`, and `.join` describe it. Predicates and
+aggregates need a link verified at pull against a Data Model foreign key
 (joins, `BIND`, `PU_COUNT`) or, for single-column to-one links, joinable with
-`LOOKUP`. Every read, including nested relations, is one PQL query.
+`LOOKUP` (`.join` is `"fk"` or `"lookup"`); other links are traversal only. Every read, including nested relations, is one PQL query.
 
 Value types are `str`, `int`, `float`, `bool`, `date`, and `datetime`. Keys are
 `str`, `int`, `date`, or `datetime`. Celonis `DATE` columns are `datetime`

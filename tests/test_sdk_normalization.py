@@ -32,7 +32,7 @@ def test_case_variants_share_one_field_without_skip_diagnostics(name, reverse):
     assert field.attribute_id == name
     assert field.name == {"City": "city", "Country": "country",
                           "CurrentValuatedStockQuantity": "current_valuated_stock_quantity"}[name]
-    assert "same expression as" not in generate(cap)["definitions.py"].decode()
+    assert "same expression as" not in generate(cap)["objects.py"].decode()
 
 
 def test_uppercase_id_uses_column_spelling_without_column_name_metadata():

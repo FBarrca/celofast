@@ -44,7 +44,7 @@ from celofast.sdk.capture import Capture, record_table
 from celofast.sdk.definitions import ObjectDefinition
 from celofast.sdk.expressions import Expressions
 from celofast.sdk.hydration import KEY_TYPES, ValueType
-from celofast.sdk.objects import Links, Object, Relations
+from celofast.sdk.objects import Links, Object
 
 _COLLECTIONS = {
     "attributes": "attribute",
@@ -76,10 +76,8 @@ RESERVED_FIELDS = frozenset(
     # Builtin annotation names used by generated fields.
     | {"str", "int", "float", "bool", "tuple"}
 )
-_RESERVED_CLASSES = frozenset({"ClassVar", "Path", "Any"})
-_RESERVED_LINKS = frozenset(
-    name for name in {*dir(Links), *dir(Relations)} if not name.startswith("__")
-)
+_RESERVED_CLASSES = frozenset({"ClassVar"})
+_RESERVED_LINKS = frozenset(name for name in dir(Links) if not name.startswith("__"))
 
 
 class _Strict(BaseModel):
@@ -511,7 +509,7 @@ class _Normalizer:
         )
         name = None
         for candidate in candidates:
-            generated = {candidate, f"{candidate}Definition", f"{candidate}Links", f"{candidate}Relations"}
+            generated = {candidate, f"{candidate}Definition", f"{candidate}Links"}
             valid = (
                 candidate.isidentifier() and not keyword.iskeyword(candidate)
                 and candidate[0].isupper() and candidate not in _RESERVED_CLASSES

@@ -11,7 +11,7 @@ Pull (``celofast km pull``), in order:
 Runtime (imported by generated packages):
 
 * ``definitions``: fields, predicates, and object type definitions.
-* ``objects``: loaded objects, collections, pages, and relationships.
+* ``objects``: loaded objects, relationships, collections, and pages.
 * ``planning``: predicates to PQL; ``hydration``: rows to typed objects.
 * ``loading``: the runtime version check generated code runs at import.
 """
@@ -21,8 +21,6 @@ from celofast.sdk.definitions import (
     Aggregate,
     DateTimeField,
     Field,
-    LinkDefinition,
-    ModelInfo,
     ObjectDefinition,
     Predicate,
     Sort,
@@ -33,8 +31,7 @@ from celofast.sdk.objects import (
     ObjectCollection,
     ObjectModel,
     ObjectPage,
-    ObjectRef,
-    Relations,
+    Relation,
     ToManyRelation,
     ToOne,
     ToOneRelation,
@@ -46,17 +43,14 @@ __all__ = [
     "CaptureError",
     "DateTimeField",
     "Field",
-    "LinkDefinition",
     "Links",
-    "ModelInfo",
     "Object",
     "ObjectCollection",
     "ObjectDefinition",
     "ObjectModel",
     "ObjectPage",
-    "ObjectRef",
     "Predicate",
-    "Relations",
+    "Relation",
     "Sort",
     "Source",
     "ToManyRelation",

@@ -47,14 +47,13 @@ def filter_value(field: Operand[Any], value: object) -> object:
     """Check a filter value against a field; a date on a datetime field means midnight."""
     if value is None:
         if not field.nullable:
-            raise ObjectValueError(f"{field.owner}.{field.name} is never null.")
+            raise ObjectValueError(f"{field} is never null.")
         return None
     if field.value_type == "datetime" and isinstance(value, date) and not isinstance(value, datetime):
         value = datetime.combine(value, time())
     if not _accepts(field.value_type, value):
         raise ObjectValueError(
-            f"{field.owner}.{field.name} expects {field.value_type}, "
-            f"not {type(value).__name__}."
+            f"{field} expects {field.value_type}, not {type(value).__name__}."
         )
     if isinstance(value, datetime) and value.microsecond % 1000:
         raise ObjectValueError("Datetime filters require millisecond precision.")
@@ -83,12 +82,12 @@ def decode(field: Field[Any], raw: object) -> object:
     """Convert one transport value to the field's declared Python type."""
     if raw is None:
         if not field.nullable:
-            raise ObjectIdentityError(f"{field.owner}.{field.name} key value is null.")
+            raise ObjectIdentityError(f"{field} key value is null.")
         return None
     try:
         return convert(field.value_type, raw)
     except ValueError as exc:
-        raise ObjectValueError(f"{field.owner}.{field.name} {exc}") from None
+        raise ObjectValueError(f"{field} {exc}") from None
 
 
 def hydrate(

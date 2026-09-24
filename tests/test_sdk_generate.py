@@ -66,7 +66,7 @@ def test_value_classes_and_definitions_are_separate(tmp_path):
     assert definition["Description"] is definition.description
     assert [f.name for f in definition.key_fields] == ["id"]
     assert [f.name for f in definition] == ["id", "country", "plantnumber", "opened", "description"]
-    assert definition.links["materials"].target == "O_MATERIAL"
+    assert Plant.relations.materials.target is Material
     assert definition.id.nullable is False and definition.country.nullable is True
 
     # Plant describes one loaded object: plain values plus key.
@@ -76,8 +76,6 @@ def test_value_classes_and_definitions_are_separate(tmp_path):
     assert plant.country == "DE" and plant.plantnumber is None
     with pytest.raises(dataclasses.FrozenInstanceError):
         plant.country = "FR"
-    assert plant.ref.object_type == "O_PLANT" and plant.ref.key == "P1"
-    assert plant.ref.source == module.km.source
     assert plant == Plant(key="P1", id="P1", country="DE", plantnumber=None, opened=date(2020, 1, 1), description="x")
     assert dataclasses.asdict(plant) == {
         "key": "P1", "id": "P1", "country": "DE", "plantnumber": None,
@@ -103,15 +101,13 @@ def test_generated_source_declares_explicit_types(tmp_path):
     assert annotations["day"] == "_dt.datetime"
     assert annotations["plant_id"] == "str"
     assert annotations["qty"] == "int | None"
-    assert annotations["fields"] == "ClassVar[_defs.StockLineDefinition]"
-    definitions = files["definitions.py"].decode()
-    assert "country: _d.Field[str | None]" in definitions
-    assert "id: _d.Field[str]" in definitions
-    assert "day: _d.DateTimeField[_dt.datetime]" in definitions
-    assert "opened: _d.Field[_dt.date | None]" in definitions  # types override
-    links = files["links.py"].decode()
-    assert "def plant(self) -> _o.ToOne[_objects.Plant]:" in links
-    assert "def materials(self) -> _o.ObjectCollection[_objects.Material]:" in links
+    assert annotations["fields"] == "ClassVar[StockLineDefinition]"
+    assert "country: _d.Field[str | None] = _d.Field(" in objects
+    assert "id: _d.Field[str] = _d.Field(" in objects
+    assert "day: _d.DateTimeField[_dt.datetime] = _d.DateTimeField(" in objects
+    assert "opened: _d.Field[_dt.date | None] = _d.Field(" in objects  # types override
+    assert "plant = _o.ToOneRelation(Plant, on=(('plant_id', 'id'),), join='fk')" in objects
+    assert "materials = _o.ToManyRelation(Material, on=(('id', 'plant_id'),), join='fk')" in objects
 
 
 def test_package_is_self_contained_python(tmp_path):
@@ -120,16 +116,15 @@ def test_package_is_self_contained_python(tmp_path):
     module = load(write(tmp_path / "inventory"))
 
     # Everything the runtime needs is written as literals in the code.
-    info = module.km.info
-    assert info.source == capture().source
-    assert info.data_model_id == "dm"
+    assert module.km.source == capture().source
+    assert module.km.data_model_id == "dm"
     assert module.km.variables == ("factor",)  # Used by Material.stock's expression.
     country = module.Plant.fields.country
     assert (country.id, country.expression, country.value_type) == (
         "COUNTRY", '"o_Plant"."Country"', "str",
     )
     assert module.Plant.fields.metadata == {"displayName": "Plant", "description": None}
-    assert module.Plant.fields.model is info is module.Material.fields.model
+    assert module.Plant.fields.country.owner is type(module.Plant.fields)
 
     # The stamp identifies generated output and its source; nothing else.
     assert module.__celofast__ == {
@@ -331,15 +326,12 @@ def test_an_id_in_several_collections_loads_the_first():
 def test_links_are_classified_against_data_model_joins(tmp_path):
     module = load(write(tmp_path / "joined"))
     Plant, Material = module.Plant, module.Material
-    links = Plant.fields.links
     # Plant -> Material follows the captured foreign key in both directions.
-    assert links["materials"].join == "fk"
-    assert Material.fields.links["plant"].join == "fk"
+    assert Plant.relations.materials.join == "fk"
+    assert Material.relations.plant.join == "fk"
     # Stock lines have no foreign key and the link is to-many: traversal only.
-    assert links["stock"].join is None
-    assert not hasattr(Plant.relations, "stock")
-    assert hasattr(Plant.relations, "materials")
-    definitions = generate(capture(), MAPPING)["definitions.py"].decode()
+    assert Plant.relations.stock.join is None
+    definitions = generate(capture(), MAPPING)["objects.py"].decode()
     assert "O_PLANT.links.stock: no Data Model foreign key or lookup path" in definitions
     assert Plant.fields._table == "o_Plant"
 
@@ -352,7 +344,5 @@ def test_to_one_links_without_foreign_keys_use_lookup(tmp_path):
     mapping["objects"]["O_MATERIAL"]["links"] = {
         "plant": {"target": "O_PLANT", "cardinality": "one", "on": {"PLANT_ID": "ID"}}}
     module = load(write(tmp_path / "unjoined", no_joins, mapping))
-    assert module.Material.fields.links["plant"].join == "lookup"
-    assert module.Plant.fields.links["materials"].join is None
-    assert hasattr(module.Material.relations, "plant")
-    assert not hasattr(module.Plant.relations, "materials")
+    assert module.Material.relations.plant.join == "lookup"
+    assert module.Plant.relations.materials.join is None

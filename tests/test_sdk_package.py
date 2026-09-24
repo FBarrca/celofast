@@ -11,7 +11,7 @@ SOURCE = Source(
     key="inventory-km",
     mode="draft",
 )
-PACKAGE = ["__init__.py", "definitions.py", "links.py", "objects.py", "py.typed"]
+PACKAGE = ["__init__.py", "objects.py", "py.typed"]
 
 
 def capture(pql='"Plant"."Number"', **extra):
@@ -48,11 +48,11 @@ def test_check_never_writes_and_pull_is_repeatable(tmp_path):
     assert not write_package(capture(), target)
     assert not write_package(capture(), target, check=True)
     changes = write_package(capture('"Plant"."Name"'), target, check=True)
-    assert [str(change) for change in changes] == ["~ files/definitions.py"]
+    assert [str(change) for change in changes] == ["~ files/objects.py"]
     # Drift is a readable diff of the generated code.
-    (definitions,) = changes
-    assert "-        expression='\"Plant\".\"Number\"'," in definitions.diff
-    assert "+        expression='\"Plant\".\"Name\"'," in definitions.diff
+    (objects,) = changes
+    assert "-    number: _d.Field[str] = _d.Field('Number', '\"Plant\".\"Number\"', 'str')" in objects.diff
+    assert "+    number: _d.Field[str] = _d.Field('Number', '\"Plant\".\"Name\"', 'str')" in objects.diff
     assert files(target) == before
     assert write_package(capture('"Plant"."Name"'), target)
     assert files(target) != before
@@ -95,7 +95,7 @@ def test_reload_after_pull_uses_new_definitions(tmp_path, monkeypatch):
         new = fresh_import().Plant.fields.number
         assert old.expression == '"Plant"."Number"'
         assert new.expression == '"Plant"."Name"'
-        assert old.model is not new.model
+        assert old.owner is not new.owner
     finally:
         for name in [n for n in sys.modules if n.split(".")[0] == "snapshot"]:
             del sys.modules[name]
@@ -145,10 +145,10 @@ def test_output_of_another_source_is_protected(tmp_path):
 def test_manual_generated_edit_is_detected_and_repaired(tmp_path):
     target = tmp_path / "inventory"
     write_package(capture(), target)
-    definitions = target / "definitions.py"
+    definitions = target / "objects.py"
     definitions.write_text(definitions.read_text() + "\n# local edit\n")
     changes = write_package(capture(), target, check=True)
-    assert [str(change) for change in changes] == ["~ files/definitions.py"]
+    assert [str(change) for change in changes] == ["~ files/objects.py"]
     assert "-# local edit" in changes[0].diff
     write_package(capture(), target)
     assert not write_package(capture(), target, check=True)
@@ -157,7 +157,7 @@ def test_manual_generated_edit_is_detected_and_repaired(tmp_path):
 def test_directory_disguised_as_generated_file_is_protected(tmp_path):
     target = tmp_path / "inventory"
     write_package(capture(), target)
-    path = target / "definitions.py"
+    path = target / "objects.py"
     path.unlink()
     path.mkdir()
     kept = path / "handwritten.py"
@@ -186,3 +186,15 @@ def test_foreign_files_block_replacement(tmp_path):
     with pytest.raises(CaptureError, match="unrelated files.*capture.json"):
         write_package(capture("changed"), target)
     assert (target / "capture.json").read_text() == "{}"
+
+
+def test_modules_of_an_earlier_layout_are_replaced(tmp_path):
+    from celofast.sdk.generate import HEADER, stamp
+
+    target = tmp_path / "inventory"
+    target.mkdir()
+    (target / "__init__.py").write_text(HEADER + f"__celofast__ = {stamp(capture())!r}\n")
+    (target / "links.py").write_text(HEADER + "old = True\n")
+    changes = write_package(capture(), target)
+    assert "- files/links.py" in [str(change) for change in changes]
+    assert sorted(files(target)) == PACKAGE

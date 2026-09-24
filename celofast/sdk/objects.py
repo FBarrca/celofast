@@ -1,30 +1,36 @@
-"""Loaded business objects, typed collections, and explicit relationship reads.
+"""Loaded business objects, typed collections, and relationships.
 
 Instances are immutable snapshots: reading ``plant.country`` never performs a
 request. Only collection and relationship fetches contact Celonis, through the
 client that loaded the instance.
+
+Each relationship is declared once, on a generated ``Links`` class::
+
+    class PlantLinks(Links, source=Plant):
+        materials = ToManyRelation(Material, on=(("id", "plant_id"),), join="fk")
+
+Read from the class (``Plant.relations.materials``) it builds predicates and
+aggregates; read from an instance (``plant.links.materials``) it fetches the
+related objects of that one object.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any, ClassVar, Generic, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, TypeVar, overload
 
 from celofast.exceptions import (
-    ObjectValueError,
     ObjectIdentityError,
     ObjectNotFoundError,
+    ObjectValueError,
     QueryValidationError,
 )
 from celofast.sdk.capture import Source
-from celofast.sdk.hydration import ValueType
 from celofast.sdk.definitions import (
     Aggregate,
     AggregateFunction,
     Field,
-    LinkDefinition,
-    ModelInfo,
     ObjectDefinition,
     Operand,
     Predicate,
@@ -33,6 +39,8 @@ from celofast.sdk.definitions import (
 )
 
 if TYPE_CHECKING:
+    from typing_extensions import Self
+
     from celofast.resources.knowledge_model import KnowledgeModelClient
 
 O = TypeVar("O", bound="Object")
@@ -40,64 +48,149 @@ T = TypeVar("T")
 MAX_PAGE_SIZE = 10_000
 
 
-@dataclass(frozen=True)
-class ObjectRef:
-    """A stable reference: KM source, object type ID, and business key."""
+@dataclass(frozen=True, kw_only=True)
+class Object:
+    """Base for generated value classes; each instance is one loaded object."""
 
-    source: Source
-    object_type: str
-    key: Any
+    fields: ClassVar[ObjectDefinition]
+    relations: ClassVar[type[Links]]
+    """Relationship predicates of this type; see ``Links``."""
+    # The loading client is attached per instance but is not a dataclass
+    # field, so equality, repr, and dataclasses.asdict() see only values.
+    _context: ClassVar[KnowledgeModelClient | None] = None
+
+    def _attach(self: O, context: KnowledgeModelClient) -> O:
+        object.__setattr__(self, "_context", context)
+        return self
+
+    @property
+    def links(self) -> Links:
+        """Relationships of this object; generated classes narrow this type."""
+        return type(self).relations(self)
 
 
-@dataclass(frozen=True)
-class _Relation(Generic[O]):
+class Links:
+    """Declares the relationships of one object type; bound to an object for traversal."""
+
+    _source: ClassVar[type[Object]]
+
+    def __init__(self, owner: Object) -> None:
+        self._owner = owner
+
+    def __init_subclass__(cls, *, source: type[Object], **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        cls._source = source
+        source.relations = cls
+        for value in vars(cls).values():
+            if isinstance(value, Relation):
+                value.source = source
+
+
+Object.relations = Links
+
+
+class Relation(Generic[O]):
+    """A declared relationship from ``source`` objects to ``target`` objects.
+
+    ``on`` pairs (source field name, target field name). ``join`` says how
+    predicates reach the target in PQL: a Data Model foreign key, a ``LOOKUP``
+    by value, or None when the link only supports traversal.
+    """
+
+    cardinality: ClassVar[Literal["one", "many"]]
     name: str
     source: type[Object]
-    target: type[O]
+
+    def __init__(
+        self,
+        target: type[O],
+        *,
+        on: tuple[tuple[str, str], ...],
+        join: Literal["fk", "lookup"] | None = None,
+    ) -> None:
+        self.target, self.on, self.join = target, on, join
+
+    def __set_name__(self, owner: type[Links], name: str) -> None:
+        self.name = name
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self.name!r} -> {self.target.fields.object_type})"
 
     def _related(self, predicate: Predicate | None) -> Predicate:
-        link = self.source.fields.links[self.name]
-        if link.join is None:
+        if self.join is None:
             raise QueryValidationError(
                 f"Relation {self.name!r} has no Data Model foreign key or lookup path; "
                 "use links for traversal instead."
             )
+        self._check_target(predicate)
+        return Related(self, predicate)
+
+    def _check_target(self, predicate: Predicate | None) -> None:
         target = self.target.fields
-        if predicate is not None and (
-            predicate.owner != target.object_type or predicate.model is not target.model
-        ):
+        if predicate is not None and predicate.owner is not type(target):
             raise QueryValidationError(
                 f"{self.name} relates to {target.object_type}; the predicate describes "
-                f"{predicate.owner}."
+                f"{predicate.owner._object_type}."
             )
-        return Related(link=link, source=self.source.fields, target=target, predicate=predicate)
+
+    def _collection(self, links: Links) -> ObjectCollection[O]:
+        """The related objects of one loaded object."""
+        session = links._owner._context
+        if session is None:
+            raise QueryValidationError(
+                "This object was not loaded by a client; relationships cannot be fetched."
+            )
+        collection = session.objects(self.target)
+        values = [(getattr(self.target.fields, right), getattr(links._owner, left)) for left, right in self.on]
+        if any(value is None for _, value in values):
+            # A null reference identifies no related objects; skip the request.
+            return replace(collection, _empty=True)
+        return collection.where(*(target_field.eq(value) for target_field, value in values))
 
 
-class ToOneRelation(_Relation[O]):
-    """A to-one relationship used in predicates on the source type."""
+class ToOneRelation(Relation[O]):
+    """A to-one relationship."""
+
+    cardinality = "one"
+
+    @overload
+    def __get__(self, links: None, owner: Any) -> Self: ...
+    @overload
+    def __get__(self, links: Links, owner: Any) -> ToOne[O]: ...
+    def __get__(self, links: Links | None, owner: Any) -> Self | ToOne[O]:
+        return self if links is None else ToOne(self._collection(links))
 
     def has(self, predicate: Predicate | None = None) -> Predicate:
         """The related object exists and, if given, matches ``predicate``."""
         return self._related(predicate)
 
 
-class ToManyRelation(_Relation[O]):
-    """A to-many relationship used in predicates on the source type."""
+class ToManyRelation(Relation[O]):
+    """A to-many relationship.
+
+    Aggregates compile to Pull-Up functions (PU_COUNT, PU_SUM, ...) on the
+    source table; ``predicate`` limits which related objects count. Results
+    are NULL when no related value exists, except the two counts (0).
+    """
+
+    cardinality = "many"
+
+    @overload
+    def __get__(self, links: None, owner: Any) -> Self: ...
+    @overload
+    def __get__(self, links: Links, owner: Any) -> ObjectCollection[O]: ...
+    def __get__(self, links: Links | None, owner: Any) -> Self | ObjectCollection[O]:
+        return self if links is None else self._collection(links)
 
     def any(self, predicate: Predicate | None = None) -> Predicate:
         """At least one related object exists and, if given, matches ``predicate``."""
         return self._related(predicate)
 
-    # Aggregates compile to Pull-Up functions (PU_COUNT, PU_SUM, ...) on the
-    # source table. ``predicate`` limits which related objects count. Results
-    # are NULL when no related value exists, except the two counts (0).
     def count(self, predicate: Predicate | None = None) -> Aggregate[int]:
         """Number of related objects (PU_COUNT)."""
         return self._aggregate("count", None, predicate)
 
-    def count_distinct(
-        self, field: Field[Any], predicate: Predicate | None = None
-    ) -> Aggregate[int]:
+    def count_distinct(self, field: Field[Any], predicate: Predicate | None = None) -> Aggregate[int]:
         """Number of distinct non-null values of a related field (PU_COUNT_DISTINCT)."""
         return self._aggregate("count_distinct", field, predicate)
 
@@ -124,129 +217,28 @@ class ToManyRelation(_Relation[O]):
     def _aggregate(
         self, function: AggregateFunction, field: Field[Any] | None, predicate: Predicate | None
     ) -> Aggregate[Any]:
-        link = self.source.fields.links[self.name]
-        if link.join != "fk":
+        if self.join != "fk":
             raise QueryValidationError(
-                f"Relation {self.name!r} has no Data Model foreign key; Pull-Up "
-                "aggregates need one."
+                f"Relation {self.name!r} has no Data Model foreign key; Pull-Up aggregates need one."
             )
-        self._related(predicate)  # Validates the predicate's type.
+        self._check_target(predicate)
         target = self.target.fields
         if field is None:
             field = target.key_fields[0]
-        elif field.owner != target.object_type or field.model is not target.model:
+        elif field.owner is not type(target):
             raise QueryValidationError(
-                f"{function}() aggregates fields of {target.object_type}, not {field.owner}."
+                f"{function}() aggregates fields of {target.object_type}, not {field.owner._object_type}."
             )
-        numeric = field.value_type in ("int", "float")
-        if function in ("sum", "avg", "median") and not numeric:
+        if function in ("sum", "avg", "median") and field.value_type not in ("int", "float"):
             raise ObjectValueError(f"{function}() needs a numeric field; {field.name} is {field.value_type}.")
         if function in ("min", "max") and field.value_type == "bool":
             raise ObjectValueError(f"{function}() needs an ordered field; {field.name} is boolean.")
-        value_type: ValueType = (
-            "int" if function in ("count", "count_distinct")
-            else "float" if function == "avg"
-            else field.value_type
-        )
-        return Aggregate(
-            model=self.source.fields.model,
-            owner=self.source.fields.object_type,
-            name=f"{self.name}.{function}({'' if function == 'count' else field.name})",
-            value_type=value_type,
-            nullable=function not in ("count", "count_distinct"),
-            function=function,
-            link=link,
-            source=self.source.fields,
-            target=target,
-            field=field,
-            predicate=predicate,
-        )
-
-
-class Relations:
-    """Class-level relationship predicates; generated classes add typed accessors."""
-
-    __slots__ = ()
-
-    def _one(self, name: str, source: type[Object], target: type[O]) -> ToOneRelation[O]:
-        return ToOneRelation(name, source, target)
-
-    def _many(self, name: str, source: type[Object], target: type[O]) -> ToManyRelation[O]:
-        return ToManyRelation(name, source, target)
-
-
-@dataclass(frozen=True, kw_only=True)
-class Object:
-    """Base for generated value classes; each instance is one loaded object."""
-
-    fields: ClassVar[ObjectDefinition]
-    relations: ClassVar[Relations] = Relations()
-    # The loading client is attached per instance but is not a dataclass
-    # field, so equality, repr, and dataclasses.asdict() see only values.
-    _context: ClassVar[KnowledgeModelClient | None] = None
-
-    def _attach(self: O, context: KnowledgeModelClient) -> O:
-        object.__setattr__(self, "_context", context)
-        return self
-
-    @property
-    def ref(self) -> ObjectRef:
-        definition = type(self).fields
-        return ObjectRef(
-            source=definition.model.source,
-            object_type=definition.object_type,
-            key=getattr(self, "key"),
-        )
-
-    @property
-    def links(self) -> Links:
-        """Typed relationship accessors; generated classes narrow this type."""
-        return Links(self)
-
-
-class Links:
-    """Explicit relationship operations for one loaded object."""
-
-    __slots__ = ("_owner",)
-
-    def __init__(self, owner: Object) -> None:
-        self._owner = owner
-
-    def _definition(self, name: str) -> LinkDefinition:
-        return type(self._owner).fields.links[name]
-
-    def _session(self) -> KnowledgeModelClient:
-        session = self._owner._context
-        if session is None:
-            raise QueryValidationError(
-                "This object was not loaded by a client; relationships cannot be fetched."
-            )
-        return session
-
-    def _collection(self, name: str, target: type[O]) -> ObjectCollection[O]:
-        link = self._definition(name)
-        if target.fields.object_type != link.target:
-            raise QueryValidationError(f"Link {name!r} targets {link.target!r}.")
-        collection = self._session().objects(target)
-        values = [
-            (getattr(target.fields, right), getattr(self._owner, left))
-            for left, right in link.on
-        ]
-        if any(value is None for _, value in values):
-            # A null reference identifies no related objects; skip the request.
-            return replace(collection, _empty=True)
-        return collection.where(*(field_.eq(value) for field_, value in values))
-
-    def _many(self, name: str, target: type[O]) -> ObjectCollection[O]:
-        return self._collection(name, target)
-
-    def _one(self, name: str, target: type[O]) -> ToOne[O]:
-        return ToOne(self._collection(name, target))
+        return Aggregate(self, function, field, predicate)
 
 
 @dataclass(frozen=True)
 class ToOne(Generic[O]):
-    """A to-one relationship; ``fetch()`` requests the related object."""
+    """A to-one relationship of one object; ``fetch()`` requests the related object."""
 
     _collection: ObjectCollection[O]
 
@@ -277,9 +269,7 @@ class ObjectPage(Generic[O]):
         """Fetch the following page, or return None when this is the last."""
         if not self.has_more:
             return None
-        return self._collection.fetch_page(
-            page_size=self.page_size, offset=self.offset + len(self.items)
-        )
+        return self._collection.fetch_page(page_size=self.page_size, offset=self.offset + len(self.items))
 
 
 @dataclass(frozen=True)
@@ -304,12 +294,9 @@ class ObjectCollection(Generic[O]):
                 raise QueryValidationError(
                     "where() accepts field predicates such as Plant.fields.country.eq(...)."
                 )
-            if (
-                predicate.owner != definition.object_type
-                or predicate.model is not definition.model
-            ):
+            if predicate.owner is not type(definition):
                 raise QueryValidationError(
-                    f"A predicate on {predicate.owner} cannot filter "
+                    f"A predicate on {predicate.owner._object_type} cannot filter "
                     f"{definition.object_type} objects."
                 )
         return replace(self, _predicates=(*self._predicates, *predicates))
@@ -321,9 +308,7 @@ class ObjectCollection(Generic[O]):
         order = []
         for sort in sorts:
             sort = sort.asc() if isinstance(sort, Operand) else sort
-            if not isinstance(sort, Sort) or sort.field.owner != definition.object_type or (
-                sort.field.model is not definition.model
-            ):
+            if not isinstance(sort, Sort) or sort.field.owner is not type(definition):
                 raise QueryValidationError(
                     f"order_by() accepts fields of {definition.object_type}, such as "
                     "Type.fields.name.asc()."
@@ -343,8 +328,7 @@ class ObjectCollection(Generic[O]):
             )
         if any(part is None for part in parts):
             raise QueryValidationError("Business keys cannot contain None.")
-        matching = self.where(*(f.eq(part) for f, part in zip(key_fields, parts)))
-        items = matching._fetch(limit=2, offset=0)
+        items = self.where(*(f.eq(part) for f, part in zip(key_fields, parts)))._fetch(limit=2, offset=0)
         if not items:
             raise ObjectNotFoundError(f"No {definition.object_type} object has key {key!r}.")
         if len(items) > 1:
@@ -353,53 +337,29 @@ class ObjectCollection(Generic[O]):
 
     def fetch_page(self, page_size: int = 100, *, offset: int = 0) -> ObjectPage[O]:
         """Fetch objects ordered by key. Offsets move with live data changes."""
-        if (
-            isinstance(page_size, bool)
-            or not isinstance(page_size, int)
-            or not 1 <= page_size <= MAX_PAGE_SIZE
-        ):
+        if isinstance(page_size, bool) or not isinstance(page_size, int) or not 1 <= page_size <= MAX_PAGE_SIZE:
             raise QueryValidationError(f"page_size must be an integer from 1 to {MAX_PAGE_SIZE}.")
         if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
             raise QueryValidationError("offset must be a non-negative integer.")
         items = self._fetch(limit=page_size + 1, offset=offset)
-        return ObjectPage(
-            items=tuple(items[:page_size]),
-            offset=offset,
-            page_size=page_size,
-            has_more=len(items) > page_size,
-            _collection=self,
-        )
+        return ObjectPage(tuple(items[:page_size]), offset, page_size, len(items) > page_size, self)
 
     def _fetch(self, *, limit: int, offset: int) -> list[O]:
         if self._empty:
             return []
-        return self._session._read(
-            self._type, self._predicates, self._order, limit=limit, offset=offset
-        )
+        return self._session._read(self._type, self._predicates, self._order, limit=limit, offset=offset)
 
 
 @dataclass(frozen=True)
 class ObjectModel:
     """Generated registry of object types captured from one Knowledge Model."""
 
-    info: ModelInfo
+    source: Source
+    data_model_id: str | None
+    variables: tuple[str, ...]
+    """KM input variables (``${name}``) used by field expressions; bind them
+    with ``cf.km(model, variables={...})``."""
     objects: tuple[type[Object], ...]
-
-    @property
-    def source(self) -> Source:
-        return self.info.source
-
-    @property
-    def data_model_id(self) -> str | None:
-        return self.info.data_model_id
-
-    @property
-    def variables(self) -> tuple[str, ...]:
-        """KM input variables (``${name}``) used by generated field expressions.
-
-        Bind them with ``cf.km(model, variables={...})``.
-        """
-        return self.info.variables
 
     def __iter__(self) -> Iterator[type[Object]]:
         return iter(self.objects)

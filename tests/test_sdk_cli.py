@@ -85,10 +85,10 @@ output = "generated/inventory"
     out = capsys.readouterr().out
     assert "up to date" in out
     assert "1 object types, 0 links; 1 items skipped" in out
-    definitions = (tmp_path / "generated" / "inventory" / "definitions.py").read_text()
+    definitions = (tmp_path / "generated" / "inventory" / "objects.py").read_text()
     # The failing calculated attribute was isolated at pull and reported.
     assert "Plant.BROKEN: fails in Celonis: KPI missing does not exist; not generated." in definitions
-    assert "label: _d.Field[str | None]" in definitions
+    assert "label: _d.Field[str | None] = _d.Field(" in definitions
 
     # An explicit mapping file supplies overrides; invalid ones fail clearly.
     (tmp_path / "broken.toml").write_text('[objects.Plant]\nkey = ["MISSING"]\n')

@@ -64,15 +64,15 @@ def matches(predicate: Predicate, obj: Object, population: Population) -> bool:
     raise TypeError(type(predicate))
 
 
-def _related(relation, obj, population) -> list:
-    """Related objects on a link (Related or Aggregate) that match its predicate."""
-    keys = [(getattr(obj, left), right) for left, right in relation.link.on]
+def _related(node, obj, population) -> list:
+    """Related objects on a relation (Related or Aggregate) that match its predicate."""
+    keys = [(getattr(obj, left), right) for left, right in node.relation.on]
     if any(key is None for key, _ in keys):
         return []
     return [
-        related for related in population[relation.target.object_type]
+        related for related in population[node.relation.target.fields.object_type]
         if all(getattr(related, right) == key for key, right in keys)
-        and (relation.predicate is None or matches(relation.predicate, related, population))
+        and (node.predicate is None or matches(node.predicate, related, population))
     ]
 
 

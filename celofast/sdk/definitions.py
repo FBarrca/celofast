@@ -1,9 +1,10 @@
-"""Offline object definitions: what an object type is and which fields it has.
+"""Offline object definitions: fields, predicates, and what an object type is.
 
-Definitions never hold values or connections. Generated value classes expose
-them as ``Plant.fields``; ``plant.country`` is always a loaded Python value.
-Generated packages write every definition as Python literals; nothing is read
-from data files at import.
+Definitions never hold values or connections. A generated ``PlantDefinition``
+declares one ``Field`` per property; ``Plant.fields.country`` is that field,
+while ``plant.country`` is always a loaded Python value. A field is scoped to
+the definition class that declares it, so fields and predicates of different
+types, packages, or reloads never mix.
 """
 
 from __future__ import annotations
@@ -11,27 +12,17 @@ from __future__ import annotations
 import datetime as _dt
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
-from typing import Any, ClassVar, Generic, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, TypeVar
 
 from celofast.exceptions import ObjectValueError, QueryValidationError
-from celofast.sdk.capture import Source
 from celofast.sdk.hydration import ValueType, filter_value
 
+if TYPE_CHECKING:
+    from celofast.sdk.objects import Relation, ToManyRelation
+
 T = TypeVar("T")
-
-
-@dataclass(frozen=True, eq=False)
-class ModelInfo:
-    """The Knowledge Model one generated package was pulled from.
-
-    One instance exists per generated package; definitions compare it by
-    identity, so types from different packages (or reloads) never mix.
-    """
-
-    source: Source
-    data_model_id: str | None
-    variables: tuple[str, ...] = ()
-    """``${name}`` placeholders used by generated field expressions."""
+Operator = Literal["eq", "ne", "lt", "lte", "gt", "gte", "in", "between", "like"]
+AggregateFunction = Literal["count", "count_distinct", "sum", "avg", "min", "max", "median"]
 
 
 class Operand(Generic[T]):
@@ -42,9 +33,8 @@ class Operand(Generic[T]):
     ``~x.eq(v)`` equals ``x.ne(v)``.
     """
 
-    # Provided by subclasses.
-    model: ModelInfo
-    owner: str
+    owner: type[ObjectDefinition]
+    """The definition class of the object type this operand describes."""
     name: str
     value_type: ValueType
     nullable: bool
@@ -74,23 +64,21 @@ class Operand(Generic[T]):
         options = tuple(values)
         if not options:
             raise QueryValidationError("is_in() needs at least one value.")
-        for value in options:
-            if value is None:
-                raise ObjectValueError("is_in() values cannot be None; combine with eq(None).")
+        if any(value is None for value in options):
+            raise ObjectValueError("is_in() values cannot be None; combine with eq(None).")
         return Comparison(self, "in", tuple(filter_value(self, value) for value in options))
 
     def between(self, low: T, high: T) -> Predicate:
         """Within ``low`` and ``high``, both inclusive (PQL ``BETWEEN``)."""
         if low is None or high is None:
             raise ObjectValueError("between() needs two values.")
-        if self.value_type == "bool":
-            raise ObjectValueError(f"{self.owner}.{self.name} is boolean and has no ordering.")
+        self._require_ordering()
         return Comparison(self, "between", (filter_value(self, low), filter_value(self, high)))
 
     def like(self, pattern: str) -> Predicate:
         """Matches a PQL ``LIKE`` pattern: ``%`` any text, ``_`` one character."""
         if self.value_type != "str":
-            raise ObjectValueError(f"{self.owner}.{self.name} is not a string value.")
+            raise ObjectValueError(f"{self} is not a string value.")
         if not isinstance(pattern, str):
             raise ObjectValueError("like() needs a string pattern.")
         return Comparison(self, "like", pattern)
@@ -101,77 +89,77 @@ class Operand(Generic[T]):
     def desc(self) -> Sort:
         return Sort(self, ascending=False)
 
+    def __str__(self) -> str:
+        return f"{self.owner._object_type}.{self.name}"
+
+    def _require_ordering(self) -> None:
+        if self.value_type == "bool":
+            raise ObjectValueError(f"{self} is boolean and has no ordering.")
+
     def _compare(self, op: Operator, other: object) -> Predicate:
         ordering = op not in ("eq", "ne")
         if isinstance(other, Operand):
-            if other.owner != self.owner or other.model is not self.model:
-                raise QueryValidationError(
-                    f"{self.owner}.{self.name} can only be compared with values of the same type."
-                )
+            if other.owner is not self.owner:
+                raise QueryValidationError(f"{self} can only be compared with values of the same type.")
             types = {self.value_type, other.value_type}
             if len(types) > 1 and not types <= {"int", "float"}:
                 raise ObjectValueError(
-                    f"Cannot compare {self.value_type} {self.name} with "
-                    f"{other.value_type} {other.name}."
+                    f"Cannot compare {self.value_type} {self.name} with {other.value_type} {other.name}."
                 )
         elif other is None and ordering:
             raise ObjectValueError(f"{op}() needs a value; nulls only support eq() and ne().")
         else:
             other = filter_value(self, other)
-        if ordering and self.value_type == "bool":
-            raise ObjectValueError(f"{self.owner}.{self.name} is boolean and has no ordering.")
+        if ordering:
+            self._require_ordering()
         return Comparison(self, op, other)
 
 
-@dataclass(frozen=True, kw_only=True)
 class Field(Operand[T]):
-    """A typed, queryable object property. Values live on loaded objects."""
+    """A typed, queryable object property, declared on a generated definition.
 
-    model: ModelInfo
-    owner: str
-    name: str
-    id: str
-    """The captured attribute ID."""
-    expression: str
-    value_type: ValueType
-    nullable: bool = True
-    display_name: str | None = None
-    description: str | None = None
+    The field learns its name and owner from the class body that declares it;
+    whether it is nullable follows from the owner's key.
+    """
+
+    def __init__(
+        self,
+        id: str,
+        expression: str,
+        value_type: ValueType,
+        *,
+        display_name: str | None = None,
+        description: str | None = None,
+    ) -> None:
+        self.id = id
+        """The captured attribute ID."""
+        self.expression = expression
+        self.value_type = value_type
+        self.display_name = display_name
+        self.description = description
+        self.nullable = True
+
+    def __set_name__(self, owner: type[ObjectDefinition], name: str) -> None:
+        self.owner, self.name = owner, name
+
+    def __repr__(self) -> str:
+        return f"{type(self).__name__}({self}, {self.value_type})"
 
 
-@dataclass(frozen=True, kw_only=True)
 class DateTimeField(Field[T]):
     """A datetime field; filters also accept a ``date``, meaning its midnight."""
 
-    def eq(self, other: T | _dt.date | Operand[Any]) -> Predicate:
-        return self._compare("eq", other)
-
-    def ne(self, other: T | _dt.date | Operand[Any]) -> Predicate:
-        return self._compare("ne", other)
-
-    def lt(self, other: T | _dt.date | Operand[Any]) -> Predicate:
-        return self._compare("lt", other)
-
-    def lte(self, other: T | _dt.date | Operand[Any]) -> Predicate:
-        return self._compare("lte", other)
-
-    def gt(self, other: T | _dt.date | Operand[Any]) -> Predicate:
-        return self._compare("gt", other)
-
-    def gte(self, other: T | _dt.date | Operand[Any]) -> Predicate:
-        return self._compare("gte", other)
-
-    def is_in(self, values: Iterable[T | _dt.date]) -> Predicate:
-        return super().is_in(values)  # type: ignore[arg-type]
-
-    def between(self, low: T | _dt.date, high: T | _dt.date) -> Predicate:
-        return super().between(low, high)  # type: ignore[arg-type]
+    if TYPE_CHECKING:  # Only the accepted argument types differ.
+        def eq(self, other: T | _dt.date | Operand[Any]) -> Predicate: ...
+        def ne(self, other: T | _dt.date | Operand[Any]) -> Predicate: ...
+        def lt(self, other: T | _dt.date | Operand[Any]) -> Predicate: ...
+        def lte(self, other: T | _dt.date | Operand[Any]) -> Predicate: ...
+        def gt(self, other: T | _dt.date | Operand[Any]) -> Predicate: ...
+        def gte(self, other: T | _dt.date | Operand[Any]) -> Predicate: ...
+        def is_in(self, values: Iterable[T | _dt.date]) -> Predicate: ...
+        def between(self, low: T | _dt.date, high: T | _dt.date) -> Predicate: ...
 
 
-AggregateFunction = Literal["count", "count_distinct", "sum", "avg", "min", "max", "median"]
-
-
-@dataclass(frozen=True, kw_only=True, eq=False)
 class Aggregate(Operand[T]):
     """One value per source object, aggregated over its related objects.
 
@@ -180,21 +168,20 @@ class Aggregate(Operand[T]):
     ``count`` and ``count_distinct``, which are 0.
     """
 
-    model: ModelInfo
-    owner: str
-    name: str
-    value_type: ValueType
-    nullable: bool
-    function: AggregateFunction
-    link: LinkDefinition
-    source: ObjectDefinition
-    target: ObjectDefinition
-    field: Field[Any]
-    """The aggregated field of the related type (its key for ``count``)."""
-    predicate: Predicate | None
-
-
-Operator = Literal["eq", "ne", "lt", "lte", "gt", "gte", "in", "between", "like"]
+    def __init__(
+        self,
+        relation: ToManyRelation[Any],
+        function: AggregateFunction,
+        field: Field[Any],
+        predicate: Predicate | None,
+    ) -> None:
+        # ``field`` is the aggregated field of the related type (its key for ``count``).
+        self.relation, self.function, self.field, self.predicate = relation, function, field, predicate
+        counts = function in ("count", "count_distinct")
+        self.owner = type(relation.source.fields)
+        self.name = f"{relation.name}.{function}({'' if function == 'count' else field.name})"
+        self.value_type = "int" if counts else "float" if function == "avg" else field.value_type
+        self.nullable = not counts
 
 
 @dataclass(frozen=True)
@@ -209,11 +196,8 @@ class Predicate:
     """A condition on one object type, composable with ``&``, ``|``, and ``~``."""
 
     @property
-    def owner(self) -> str:
-        raise NotImplementedError
-
-    @property
-    def model(self) -> ModelInfo:
+    def owner(self) -> type[ObjectDefinition]:
+        """The definition class of the object type this predicate filters."""
         raise NotImplementedError
 
     def __and__(self, other: Predicate) -> Predicate:
@@ -238,12 +222,8 @@ class Comparison(Predicate):
     operand: object
 
     @property
-    def owner(self) -> str:
+    def owner(self) -> type[ObjectDefinition]:
         return self.field.owner
-
-    @property
-    def model(self) -> ModelInfo:
-        return self.field.model
 
 
 @dataclass(frozen=True, eq=False)
@@ -257,7 +237,7 @@ class _Group(Predicate):
             if not isinstance(part, Predicate):
                 raise QueryValidationError("Predicates combine only with other predicates.")
             flat.extend(part.parts if type(part) is cls else (part,))
-        if len({(p.owner, id(p.model)) for p in flat}) != 1:
+        if len({p.owner for p in flat}) != 1:
             raise QueryValidationError(
                 "Combined predicates must describe the same object type; "
                 "use a relation (has/any) to reach related objects."
@@ -265,12 +245,8 @@ class _Group(Predicate):
         return cls(tuple(flat))
 
     @property
-    def owner(self) -> str:
+    def owner(self) -> type[ObjectDefinition]:
         return self.parts[0].owner
-
-    @property
-    def model(self) -> ModelInfo:
-        return self.parts[0].model
 
 
 class And(_Group):
@@ -288,93 +264,45 @@ class Not(Predicate):
     part: Predicate
 
     @property
-    def owner(self) -> str:
+    def owner(self) -> type[ObjectDefinition]:
         return self.part.owner
-
-    @property
-    def model(self) -> ModelInfo:
-        return self.part.model
 
 
 @dataclass(frozen=True, eq=False)
 class Related(Predicate):
     """Some related object matches: ``relations.x.has(...)`` or ``.any(...)``.
 
-    ``source`` and ``target`` are the two type definitions, ``link`` declares
-    how they join, and ``predicate`` is a condition on the target type, or None
-    for "a related object exists".
+    ``predicate`` is a condition on the related type, or None for "a related
+    object exists".
     """
 
-    link: LinkDefinition
-    source: ObjectDefinition
-    target: ObjectDefinition
+    relation: Relation[Any]
     predicate: Predicate | None
 
     @property
-    def owner(self) -> str:
-        return self.source.object_type
-
-    @property
-    def model(self) -> ModelInfo:
-        return self.source.model
+    def owner(self) -> type[ObjectDefinition]:
+        return type(self.relation.source.fields)
 
 
-@dataclass(frozen=True, kw_only=True)
-class LinkDefinition:
-    """A declared relationship: target type, cardinality, and field mapping."""
-
-    name: str
-    target: str
-    cardinality: Literal["one", "many"]
-    on: tuple[tuple[str, str], ...]
-    """Pairs of (source field name, target field name)."""
-    join: Literal["fk", "lookup"] | None = None
-    """How predicates reach the target: a Data Model foreign key, a PQL LOOKUP,
-    or None when the link only supports traversal."""
-
-
-@dataclass(frozen=True, kw_only=True)
 class ObjectDefinition:
-    """Describes one object type: its population, key, fields, and links.
+    """Describes one object type: its population, key, and fields.
 
-    Only ``model``, ``object_type``, ``metadata``, ``key_fields``, and
-    ``links`` are reserved, so business attributes keep natural names. The
-    record's display name and description are in ``metadata``.
+    Generated subclasses declare ``Field`` members and the class-level facts
+    below. Only ``object_type``, ``metadata``, and ``key_fields`` are public
+    names, so business attributes keep natural names.
     """
 
-    # Generated subclasses declare Field members and set these class-level facts.
-    _model: ClassVar[ModelInfo]
     _object_type: ClassVar[str]
     _table: ClassVar[str | None] = None
+    _key: ClassVar[tuple[str, ...]] = ()
     _metadata: ClassVar[Mapping[str, str | None]] = {}
     _members: ClassVar[tuple[str, ...]] = ()
-    _key: ClassVar[tuple[str, ...]] = ()
-    _links: ClassVar[tuple[LinkDefinition, ...]] = ()
 
-    @property
-    def model(self) -> ModelInfo:
-        """The Knowledge Model this type was generated from."""
-        return self._model
-
-    @property
-    def metadata(self) -> Mapping[str, str | None]:
-        """The record's captured ``displayName`` and ``description``."""
-        return self._metadata
-
-    def __iter__(self) -> Iterator[Field[Any]]:
-        """Iterate all loaded fields in generated order."""
-        for name in self._members:
-            yield getattr(self, name)
-
-    def __len__(self) -> int:
-        return len(self._members)
-
-    def __getitem__(self, attribute_id: str) -> Field[Any]:
-        """Look up a field by its exact captured attribute ID."""
-        matches = [field for field in self if field.id == attribute_id]
-        if len(matches) != 1:
-            raise KeyError(attribute_id)
-        return matches[0]
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        cls._members = tuple(name for name, value in vars(cls).items() if isinstance(value, Field))
+        for name in cls._members:
+            getattr(cls, name).nullable = name not in cls._key
 
     @property
     def object_type(self) -> str:
@@ -382,11 +310,25 @@ class ObjectDefinition:
         return self._object_type
 
     @property
+    def metadata(self) -> Mapping[str, str | None]:
+        """The record's captured ``displayName`` and ``description``."""
+        return self._metadata
+
+    @property
     def key_fields(self) -> tuple[Field[Any], ...]:
         """Fields whose values together form each instance's business key."""
         return tuple(getattr(self, name) for name in self._key)
 
-    @property
-    def links(self) -> Mapping[str, LinkDefinition]:
-        """Declared relationships by generated accessor name."""
-        return {link.name: link for link in self._links}
+    def __iter__(self) -> Iterator[Field[Any]]:
+        """Iterate all loaded fields in generated order."""
+        return (getattr(self, name) for name in self._members)
+
+    def __len__(self) -> int:
+        return len(self._members)
+
+    def __getitem__(self, attribute_id: str) -> Field[Any]:
+        """Look up a field by its exact captured attribute ID."""
+        for field in self:
+            if field.id == attribute_id:
+                return field
+        raise KeyError(attribute_id)
