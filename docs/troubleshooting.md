@@ -23,13 +23,12 @@ generated packages, object retrieval, Views, or output writes.
 
 | Symptom | Check / next step |
 | --- | --- |
-| `ObjectMappingError` during pull | An override is invalid: it names an unknown record or attribute, sets an unusable key, repeats a class name, or declares a broken link. Fix the listed [overrides](knowledge-model-sdk.md#overrides). |
+| `ObjectMappingError` during pull | An override is invalid: it names an unknown record or attribute, sets an unusable key, repeats a class name, or declares a broken link. Fix the listed [overrides](knowledge-model-sdk.md#9-customize-what-is-generated). |
 | A record or field you need is missing | Look under `# Not generated:` at the top of the generated `objects.py` for the reason. A record without a primary key needs `key = ["ID"]`; an untyped attribute needs `types`; an attribute that fails in Celonis must be fixed in the KM, then pulled again. |
 | Pull refuses the output directory | Keep application code outside the managed directory. Use a separate output for a different KM source. |
 | `ModuleNotFoundError` for `generated.inventory` | Run the configured pull and make its output importable from the application's working directory or package. |
 | `SDKCompatibilityError` on import | The package was generated for another runtime (for example the 0.4 query API). Rerun `celofast km pull` and restart Python; keep all generated files together. |
-| A field has an unexpected name | Reserved or colliding names get suffixes, such as `key_attribute`; `definitions.py` lists each field with its attribute ID. Look fields up by attribute ID with `Plant.fields["ID"]`. |
-| Missing `km.select`, `km.execute`, or `inventory.records` | The query API was removed. See the [0.5 migration guide](migration-0.5.md). |
+| A field has an unexpected name | Reserved or colliding names get suffixes, such as `key_attribute`; the generated `objects.py` lists each field with its attribute ID. Look fields up by attribute ID with `Plant.fields["ID"]`. |
 | `TypeError` from `cf.km("key")` | Pass the generated model: `cf.km(inventory)`. Use `cf.augmentation_tables("key")` for output tables. |
 | `QueryValidationError` about source or Data Model | Connect to the matching Space, Package, lifecycle, and Data Model. |
 | Cloud edits are missing after pull | Restart Python so every generated module reloads with the new capture. |
@@ -45,8 +44,8 @@ generated packages, object retrieval, Views, or output writes.
 | `QueryValidationError` from `where()` | Use predicates from the collection's own class, such as `Plant.fields.country.eq(...)`. Raw PQL is not accepted. |
 | Native export error, such as an error in another record's calculated attribute | A loaded field depends on a definition that fails in Celonis. Inspect the exception chain and exclude the affected fields until the KM is fixed. |
 | Python `and`/`or` on predicates raises an error | Pass several predicates to `where()` or chain calls; they combine with AND. |
-| `Plant.relations` has no attribute for a declared link | The link matches no Data Model foreign key, and is not a single-column to-one link that `LOOKUP` can join. `definitions.py` lists it under "Not generated". Use `plant.links.<name>` for traversal, or align the mapping with a foreign key. |
-| Results differ from what you expect | Enable DEBUG on the `celofast.km` logger to see the exact PQL of every request. See [Inspect the PQL that runs](knowledge-model-sdk.md#inspect-the-pql-that-runs). |
+| `QueryValidationError` saying a relation has no Data Model foreign key or lookup path | The link matches no Data Model foreign key, and is not a single-column to-one link. It can be followed with `plant.links.<name>`, but not used in conditions or aggregates. The generated `objects.py` lists it under "Not generated". |
+| Results differ from what you expect | Enable DEBUG on the `celofast.km` logger to see the exact PQL of every request. See [See the PQL that runs](knowledge-model-sdk.md#10-see-the-pql-that-runs). |
 
 Printed metadata can contain business information; review the content before
 sharing a diagnostic.
@@ -55,7 +54,7 @@ sharing a diagnostic.
 
 | Symptom | Check / next step |
 | --- | --- |
-| Missing or ambiguous table/control | Iterate `view.tables` or `view.controls` and select the exact ID. Names are case-sensitive and must be unique. |
+| Missing or ambiguous View element | Iterate `view.elements` and select the exact ID. Names are case-sensitive and must be unique. |
 | `ComponentVariableError` | Check `onChange.update.variables` in the native component configuration and the KM input definitions. |
 | A range picker rejects `variable_key` or `details()` | Use `get()` for `DateRange`, plus `start_variable_key` and `end_variable_key`. |
 | Dropdown selection differs from `options()` | `get()` reads current selection; `options()` queries the configured data-source attribute. |

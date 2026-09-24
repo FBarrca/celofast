@@ -20,7 +20,6 @@ to augmentation tables.
 | TAA/V2, legacy RAA/V1, Annotation Builder, and migration | [Detailed augmentation reference](Augmentated_tables%20copy.md) |
 | Method signatures and return values | [API reference](api-reference.md) |
 | Common failures and their next steps | [Troubleshooting](troubleshooting.md) |
-| Upgrade KM applications from the 0.4 query API | [Migration guide](migration-0.5.md) |
 | Local tests, code layout, and documentation maintenance | [Development](development.md) |
 
 ## The objects you work with
@@ -34,7 +33,7 @@ to augmentation tables.
 | `Plant` instance | One loaded, immutable business object | `plant = client.objects(Plant).get("P1")` |
 | `ObjectCollection` / `ObjectPage` | A filterable set of objects / one fetched page | `client.objects(Plant).fetch_page()` |
 | Relationship | A declared link to related objects | `plant.links.materials.fetch_page()` |
-| View table handle | A table component whose query comes from View configuration | `cf.view("operations-view").table("Orders")` |
+| View table handle | A table component whose query comes from View configuration | `cf.view("operations-view")["Orders"]` |
 | Augmentation table handle | A destination for rows in the resolved Data Model | `cf.augmentation_tables("inventory-km").table("PREDICTIONS")` |
 
 The names in these examples are illustrative. Resource selectors use your exact

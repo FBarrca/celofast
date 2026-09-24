@@ -87,21 +87,18 @@ Source: [objects.py](../celofast/sdk/objects.py),
 
 | Signature / member | Returns |
 | --- | --- |
-| `view.tables` | Tuple of table handles, root components followed by tab components. |
-| `view.table(name_or_id)` | Table matched by exact ID or unique display name. |
+| `view.elements` | Tuple of supported input and table handles, root components followed by tab components. |
+| `view[name_or_id]` | Element matched by exact ID or unique display name across input and table types. |
 | `table.to_query(*, inherit_filters_from=(), extra_filters=())` | Symbolic dictionary including configured, inherited, and extra filters. |
-| `table.execute(*, inherit_filters_from=(), extra_filters=(), variables=None, limit=None, offset=None, distinct=False)` | pandas DataFrame. |
-| `view.input_box(name_or_id)` | `InputBoxHandle`. |
-| `view.dropdown(name_or_id)` / `.selector(name_or_id)` | `DropdownHandle` / `SelectorHandle`. |
-| `view.date_picker(name_or_id)` / `.checkbox(name_or_id)` | `DatePickerHandle` / `CheckboxHandle`. |
-| `control.get()` | Current decoded effective value. |
-| `control.details()` | `InputVariableValue` for single-variable controls. |
+| `table.rows(*, inherit_filters_from=(), extra_filters=(), variables=None, limit=None, offset=None, distinct=False)` | Fresh pandas DataFrame. |
+| `input.value` | Fresh decoded effective value for this input only. |
+| `input.details()` | Current `InputVariableValue`, or `DateRangeDetails(start, end)` for a range date picker. |
 | `dropdown.options(*, limit=None, offset=None)` | Tuple of `DropdownOption(value, label)` from a distinct query. |
 
 All components expose `id`, `name`, `tab_name`, and `component`. Controls also
 expose `settings`, `variable_keys`, and binding metadata. Range date pickers
-use `get()` to return `DateRange(start, end)`; inspect `start_variable_key` and
-`end_variable_key` instead of the single-variable interface.
+use `.value` to return `DateRange(start, end)`; inspect `start_variable_key` and
+`end_variable_key` for the two bindings.
 
 Source: [view.py](../celofast/resources/view.py),
 [view_input.py](../celofast/resources/view_input.py). More examples:
@@ -153,7 +150,7 @@ Exit codes: **0** means success/up to date; **1** means `--check` detected drift
 Run `uv run celofast km pull --help` for the installed command's help.
 
 Source: [cli.py](../celofast/cli.py). See
-[reviewing generated changes](knowledge-model-sdk.md#review-changes-and-check-ci).
+[reviewing generated changes](knowledge-model-sdk.md#8-keep-the-package-up-to-date).
 
 ## Exceptions
 

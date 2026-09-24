@@ -1,294 +1,243 @@
-# Knowledge Models: typed business objects
+# Knowledge Models
 
-[Documentation](index.md) · [Getting started](getting-started.md) · [API reference](api-reference.md) · [Migrating to 0.5](migration-0.5.md)
+[Documentation](index.md) · [Getting started](getting-started.md) · [API reference](api-reference.md)
 
-Celofast turns a Knowledge Model into a typed object SDK:
-
-> **Definitions describe objects. Generated value classes represent loaded
-> objects. The runtime retrieves objects and traverses relationships.**
+Celofast turns a Celonis Knowledge Model (KM) into a Python package of typed
+classes, one per business object, and lets you query them:
 
 ```python
-from generated.inventory import Plant, km as inventory
+from celofast import CeloFast
+from generated.inventory import MaterialMasterPlant, Plant, km as inventory
 
-client = cf.km(inventory)
+client = CeloFast("SPACE_ID", "PACKAGE_ID").km(inventory)
 
 plant = client.objects(Plant).get("SAP_ECC::100::1000")
-print(plant.country)                   # str | None, already loaded
+print(plant.plant_name, plant.country)
 
-page = (
-    client.objects(Plant)
-    .where(Plant.fields.country.eq("DE"))
-    .fetch_page(page_size=100)
-)
-for plant in page.items:
-    print(plant.key, plant.country)
-
-materials = plant.links.materials.fetch_page(page_size=50)   # ObjectPage[MaterialMasterPlant]
-home = materials.items[0].links.plant.fetch()                # Plant | None
+german_plants = client.objects(Plant).where(Plant.fields.country.eq("DE")).fetch_page()
+materials = plant.links.materials.fetch_page()          # this plant's MaterialMasterPlants
 ```
 
-There is no column selection, PQL, query dictionary, or DataFrame in this API.
-Every read returns complete, validated, immutable objects.
+Your editor autocompletes every class, field, and relationship, and a type
+checker verifies them. The examples on this page use the Inventory Management
+KM; your names come from your own KM.
 
-| Expression | Meaning |
-| --- | --- |
-| `Plant.fields.country` | A typed field definition, `Field[str \| None]` |
-| `Plant.fields.country.eq("DE")` | A predicate for a `Plant` collection |
-| `plant.country` | A loaded Python value, `str \| None` |
-| `plant.key` | This instance's business key (a tuple for composite keys) |
-| `plant.links.materials` | A typed relationship collection, `ObjectCollection[MaterialMasterPlant]` |
-| `material.links.plant` | A typed to-one relationship, `ToOne[Plant]` |
+## Contents
 
-Class, field, and link names derive from your KM and its Data Model; the
-examples use the Inventory Management KM.
+1. [Generate the package](#1-generate-the-package)
+2. [Load objects](#2-load-objects)
+3. [Filter](#3-filter)
+4. [Sort](#4-sort)
+5. [Follow relationships](#5-follow-relationships)
+6. [Filter and sort by related objects](#6-filter-and-sort-by-related-objects)
+7. [KM input variables](#7-km-input-variables)
+8. [Keep the package up to date](#8-keep-the-package-up-to-date)
+9. [Customize what is generated](#9-customize-what-is-generated)
+10. [See the PQL that runs](#10-see-the-pql-that-runs)
 
-## 1. Register your KM
+## 1. Generate the package
 
-Register the KM in your application's `pyproject.toml`. No object mapping is
-needed:
+Register the KM in your application's `pyproject.toml`. Use its exact key, not
+its display name:
 
 ```toml
 [tool.celofast.knowledge-models.inventory]
 space-id = "SPACE_ID"
 package-id = "PACKAGE_ID"
 key = "inventory-km"
-mode = "draft"
+mode = "draft"                 # or "published"
 output = "generated/inventory"
 ```
 
-### What pull derives from Celonis
-
-| Generated | Derived from |
-| --- | --- |
-| Object types | Every KM record that reads one Data Model table with a primary key. Event logs and tables without a primary key are skipped. |
-| Class names | The table name without its lowercase namespace prefix: `o_celonis_PurchaseDocumentLine` becomes `PurchaseDocumentLine`. |
-| Keys | The table's primary key columns (a tuple for composite keys); otherwise the record's declared KM identifier. |
-| Field types | Data Model column types for plain columns; the Celonis result schema, then the KM `columnType`, for calculated attributes. |
-| Fields | Every attribute with an expression and a known type. Attributes projecting the same expression load once. |
-| Links | Each Data Model foreign key between two generated types gives a to-one link on the many side, named after the key column (`Header_ID` becomes `header`), and a to-many link on the one side, named after the plural target class (`purchase_document_lines`). A clashing to-many name gets the column as suffix: `materials_by_origin`. |
-
-Celonis `DATE` columns hold timestamps, so they load as `datetime`. Their
-filters also accept a `date`, meaning its midnight:
-`PlannedSupply.fields.order_finish_date.gte(date(2026, 9, 23))`.
-
-Pull also test-runs every calculated attribute against a sample of rows
-(plain Data Model columns are not probed). Attributes that fail in Celonis, or
-return values that do not match their type, are skipped. A failing attribute is
-isolated by splitting the query, so one broken formula never hides the others.
-
-Nothing automatic stops a pull. Everything that is not generated is listed with
-its reason at the top of the generated `definitions.py`, under
-`# Not generated:`, and the command prints a one-line summary.
-
-### Overrides
-
-`mapping` holds optional overrides, inline or as a path to a TOML file relative
-to `pyproject.toml`. Record IDs and attribute IDs are the captured KM IDs:
-
-```toml
-[tool.celofast.knowledge-models.inventory]
-# ...
-mapping = "inventory-objects.toml"
-```
-
-```toml
-# inventory-objects.toml
-exclude = ["O_CELONIS_CURRENCYCONVERSION"]   # records not to generate
-
-[objects.O_CELONIS_PLANT]
-class = "Site"                               # instead of the derived class name
-key = ["ID"]                                 # instead of the primary key
-exclude-fields = ["NumberNameConcat"]        # attributes not to load
-types = { OpenedOn = "date" }                # force a type, e.g. a strict date
-
-# Rename an automatic link (same target, cardinality, and columns) ...
-[objects.O_CELONIS_PLANT.links.materials]
-target = "O_CELONIS_MATERIALMASTERPLANT"
-cardinality = "many"
-on = { ID = "PLANT_ID" }                     # source attribute ID -> target attribute ID
-
-# ... or add one no foreign key declares (a to-one link joins with LOOKUP).
-[objects.O_CELONIS_PURCHASESCHEDULELINE.links.plant]
-target = "O_CELONIS_PLANT"
-cardinality = "one"
-on = { PLANT_ID = "ID" }
-```
-
-Only overrides are checked strictly. An override that names an unknown record or
-attribute, sets a key that is not a loaded `str`, `int`, `date`, or `datetime`
-field, repeats a class name, or declares a to-one link that does not map exactly
-the target key raises `ObjectMappingError`, and nothing is written.
-
-Every field is `T | None` except key fields, which are never null. Celofast
-never infers a key from a field *name*, and a record's ID is never an instance's
-key.
-
-Calculated field types are resolved from the Celonis result schema during pull,
-including empty or all-null results when a schema is returned. This schema takes
-precedence over missing or incorrect KM `columnType` metadata; explicit `types`
-overrides and Data Model column types retain priority. Discovered types are saved
-separately from the source definition; offline generation uses that snapshot.
-
-Attributes that use KM input variables (`${name}`) are generated like any
-other, keeping their placeholders; reads bind them with the KM's current
-values (see [KM input variables](#km-input-variables)). Pull test-runs them
-with the values at pull only to check them and learn their result type; an
-input without a value keeps the attribute's declared type. References to other
-calculated attributes and KPIs stay references, so Celonis resolves any inputs
-inside them with the KM's current values. An attribute whose placeholder names
-an input the KM does not define is reported and not generated.
-
-A `PU_COUNT` of a source table's single-column primary key can be normalized
-through a unique shared child table using `BIND` and `PU_COUNT_DISTINCT`. This
-counts each related source object once. Ambiguous paths, filtered counts, and
-counts of non-key columns are left unchanged.
-
-## 2. Pull and import
+Then pull it:
 
 ```bash
 uv run celofast km pull inventory
 ```
 
-Or explicitly, with a mapping file:
+Pull reads the KM and its Data Model and writes a plain Python package to
+`output`:
 
-```bash
-uv run celofast km pull --space-id SPACE_ID --package-id PACKAGE_ID --km inventory-km --mode draft --output generated/inventory --mapping inventory-objects.toml
-```
+- **One class per object.** Every KM record that reads a Data Model table with
+  a primary key becomes a class, named after the table:
+  `o_celonis_MaterialMasterPlant` becomes `MaterialMasterPlant`.
+- **One field per attribute.** Names are snake_case (`IsDiscontinued` becomes
+  `is_discontinued`). Types come from the Data Model, or, for calculated
+  attributes, from running them in Celonis.
+- **Relationships from foreign keys.** Each Data Model foreign key gives both
+  directions: a purchase document line's `header` (to-one, named after the
+  `Header_ID` column) and a purchase document's `purchase_document_lines`
+  (to-many).
 
-The generated package contains:
+Pull also test-runs every calculated attribute. Anything it can't generate,
+such as an event log, a record without a primary key, or a formula that fails
+in Celonis, is skipped rather than failing the pull. Each skipped item is
+listed with its reason at the top of the generated `objects.py`, under
+`# Not generated:`.
 
-| File | Content |
-| --- | --- |
-| `__init__.py` | Exports every value class and `km`, the object registry, plus the `__celofast__` generation stamp. |
-| `objects.py` | Per object type: `PlantDefinition` (typed fields and their expressions), `Plant` (the value class), and `PlantLinks` (its relationships); then the `km` registry. |
-| `py.typed` | Marks the package as typed. |
-
-The package is plain Python with no data files. Everything the runtime needs is
-written as literals: the KM source, Data Model, and each field's expression and
-metadata. The captured KM definition is only the input to generation, so parts
-of the KM that no generated type uses (KPIs, filters, excluded records and
-fields) are not in the package.
-
-A generated object type looks like this:
-
-```python
-class PlantDefinition(_d.ObjectDefinition):
-    'Plant'
-
-    _object_type = 'O_CELONIS_PLANT'
-    _table = 'o_celonis_Plant'
-    _key = ('id',)
-    _metadata = {'displayName': 'Plant', 'description': None}
-
-    id: _d.Field[str] = _d.Field('ID', '"o_celonis_Plant"."ID"', 'str')
-    country: _d.Field[str | None] = _d.Field('COUNTRY', '"o_celonis_Plant"."Country"', 'str')
-    ...
-
-
-@dataclass(frozen=True, kw_only=True)
-class Plant(_o.Object):
-    'Plant'
-
-    key: str
-    id: str
-    country: str | None
-    ...
-
-    fields: ClassVar[PlantDefinition] = PlantDefinition()
-    relations: ClassVar[type[PlantLinks]]
-
-    @property
-    def links(self) -> PlantLinks:
-        return PlantLinks(self)
-
-
-class PlantLinks(_o.Links, source=Plant):
-    'Relationships of Plant.'
-
-    materials = _o.ToManyRelation(MaterialMasterPlant, on=(('id', 'plant_id'),), join='fk')
-```
-
-Each relationship is declared once. Read from the class
-(`Plant.relations.materials`) it builds predicates and aggregates; read from a
-loaded object (`plant.links.materials`) it fetches that object's related
-objects.
-
-Importing is offline: it does not authenticate, contact Celonis, or import
-PyCelonis or pandas. Imports verify the runtime version.
-
-### Definitions
-
-`Plant.fields` describes the type. Iterate it for all fields, or look one up by
-its exact captured attribute ID:
+Import the package like any module. Importing is offline: it doesn't connect
+to Celonis.
 
 ```python
-Plant.fields.object_type               # "O_CELONIS_PLANT"
-Plant.fields.key_fields                # (Plant.fields.id,)
-Plant.relations.materials.join        # "fk", "lookup", or None (traversal only)
-Plant.fields["COUNTRY"] is Plant.fields.country
-Plant.fields.country.value_type        # "str"
-Plant.fields.country.expression        # '"o_celonis_Plant"."Country"'
-Plant.fields.country.description       # captured display name and description
-Plant.fields.metadata                  # {"displayName": "Plant", "description": None}
-inventory.source                       # tenant, Space, Package, KM key, lifecycle
-inventory.variables                    # ${name} KM inputs used by generated fields
+from generated.inventory import Plant, km as inventory
 ```
 
-Field names come from the attribute's data-model column name when it spells
-the same identifier (`ISDISCONTINUED` with column `IsDiscontinued` becomes
-`is_discontinued`), and otherwise from the attribute ID. Only `key`, `ref`,
-`links`, `relations`, `fields`, `model`, `object_type`, `metadata`, and
-`key_fields` are reserved (some for backward compatibility). An attribute with a reserved or colliding Python
-name receives a readable suffix, such as `key_attribute`; each generated field
-keeps its attribute ID (`Plant.fields["KEY"]`).
+`km` (imported here as `inventory`) is the package's registry. Pass it to
+`cf.km()` to get a client:
 
-## 3. Retrieve objects
+```python
+from celofast import CeloFast
 
-`cf.km(inventory)` validates the Space, Package, lifecycle, KM key, and Data
-Model, then returns a `KnowledgeModelClient`. `client.objects(Plant)`
-returns an immutable `ObjectCollection[Plant]`.
+cf = CeloFast("SPACE_ID", "PACKAGE_ID")
+client = cf.km(inventory)
+```
 
-| Operation | Behavior |
+`cf.km()` checks that the package was pulled from the same Space, Package,
+lifecycle, and Data Model you are connected to.
+
+## 2. Load objects
+
+`client.objects(Plant)` is the collection of all plants. Nothing is fetched
+until you ask for objects:
+
+```python
+plants = client.objects(Plant)
+
+plant = plants.get("SAP_ECC::100::1000")      # one object by key
+page = plants.fetch_page(page_size=100)       # the first 100, in key order
+```
+
+Iterate a page, and fetch the next one while `has_more` is true:
+
+```python
+page = plants.fetch_page(page_size=100)
+while page is not None:
+    for plant in page:
+        print(plant.key, plant.country)
+    page = page.next_page()                  # None after the last page
+```
+
+`page_size` is 1 to 10,000. Pages are offsets over live data, so a change in
+Celonis between two fetches can move an object between pages.
+
+**Keys.** `plant.key` is the object's business key. Types with a composite key
+take a tuple, in the order of `Plant.fields.key_fields`:
+
+```python
+# A type keyed by plant and day:
+line = client.objects(StockLine).get(("PLANT-1", datetime(2024, 1, 31)))
+```
+
+`get()` raises `ObjectNotFoundError` when no object has that key.
+
+**Loaded objects.** Every object is a frozen dataclass holding every field, as
+plain Python values (`str`, `int`, `float`, `bool`, `date`, `datetime`). Every
+field can be `None` except key fields. Reading a value never contacts Celonis;
+only `get()`, `fetch_page()`, `next_page()`, and `fetch()` on a to-one
+relationship do.
+
+## 3. Filter
+
+Build conditions from the class's `fields` and pass them to `where()`:
+
+```python
+german = client.objects(Plant).where(Plant.fields.country.eq("DE"))
+```
+
+`Plant.fields.country` is the field's definition, used in conditions;
+`plant.country` is a loaded value.
+
+| Condition | Matches |
 | --- | --- |
-| `collection.get(key)` | One object; raises `ObjectNotFoundError` if absent. Composite keys are tuples. |
-| `collection.where(*predicates)` | A narrower collection; predicates combine with AND. |
-| `collection.order_by(*sorts)` | A reordered collection by fields or relation aggregates: `.asc()`/`.desc()`, or ascending when given plainly. The key breaks ties. |
-| `collection.fetch_page(page_size=100, *, offset=0)` | `ObjectPage` in the requested order, then key order. `page_size` is 1–10,000. |
-| `page.items`, `iter(page)`, `len(page)` | The loaded objects. |
-| `page.has_more`, `page.next_page()` | Whether more objects exist; fetch the following page or `None`. |
+| `f.eq(x)`, `f.ne(x)` | Equal / not equal. `f.eq(None)` finds nulls. |
+| `f.lt(x)`, `f.lte(x)`, `f.gt(x)`, `f.gte(x)` | Less / greater than. Never matches a null. |
+| `f.is_in(["DE", "FR"])` | One of the values. |
+| `f.between(low, high)` | Between two values, both included. |
+| `f.like("Berlin%")` | Text pattern: `%` is any text, `_` one character. |
+| `f.lt(other_field)` | A comparison with another field of the same object. |
 
-Offsets page over live data, so concurrent changes can move objects between pages.
+Values are checked against the field's type when you build the condition, so
+`Plant.fields.country.eq(1)` fails immediately. Date fields also accept a
+`date`, which means that day's midnight.
 
-### Predicates
-
-Predicates are built from definitions and combine with `&`, `|`, and `~`:
+Combine conditions with `&` (and), `|` (or), and `~` (not). Several arguments
+to `where()`, or chained `where()` calls, also combine with and:
 
 ```python
 stock = MaterialMasterPlant.fields
 
-below_safety_stock = (
+at_risk = client.objects(MaterialMasterPlant).where(
     stock.is_discontinued.eq(0)
     & stock.current_valuated_stock_quantity.lt(stock.safety_stock_quantity)
+    & ~stock.abc_classification.eq("C")
 )
 ```
 
-| Expression | Meaning |
-| --- | --- |
-| `f.eq(x)`, `f.ne(x)` | Equal / not equal. `None` is a value: `eq(None)` matches nulls, `ne(None)` non-nulls, and a null differs from every value. |
-| `f.lt(x)`, `f.lte(x)`, `f.gt(x)`, `f.gte(x)` | Ordering. False when either side is null; `None` is rejected. Booleans have no ordering. |
-| `f.lt(other_field)` | Field-to-field comparison on the same type; `int` and `float` compare with each other. |
-| `f.is_in([x, y])` | PQL `IN`: equal to one of the values; a null never matches. |
-| `f.between(low, high)` | PQL `BETWEEN`, both ends inclusive; a null never matches. |
-| `f.like("Berlin%")` | PQL `LIKE` on string fields: `%` any text, `_` one character. |
-| `a & b`, `a \| b`, `~a` | And, or, and exact complement: `~f.eq(x)` is `f.ne(x)`, including nulls. |
-| `Type.relations.one.has(p)` | The related object of a to-one link exists (and matches `p`, if given). |
-| `Type.relations.many.any(p)` | At least one related object of a to-many link exists (and matches `p`, if given). |
-| `Type.relations.many.count(p)`, `.sum(f, p)`, `.avg(f, p)`, … | An aggregate over related objects that compares and sorts like a field; see below. |
+Use `&`, `|`, and `~`, not Python's `and`, `or`, and `not`, which raise an
+error. `~` is an exact opposite: `~f.eq(x)` also matches objects where `f` is
+null.
 
-Values are validated against the field's type when the predicate is created.
-Combining predicates of different types is rejected. Reach related objects
-through `relations` instead. Predicates are plain values, so business rules can
-be named, reused, and nested:
+Conditions are plain values, so you can name and reuse business rules:
+
+```python
+active = stock.is_discontinued.eq(0)
+below_safety_stock = stock.current_valuated_stock_quantity.lt(stock.safety_stock_quantity)
+
+client.objects(MaterialMasterPlant).where(active & below_safety_stock).fetch_page()
+```
+
+## 4. Sort
+
+```python
+client.objects(PurchaseScheduleLine).order_by(
+    PurchaseScheduleLine.fields.expected_delivery_date.asc(),
+    PurchaseScheduleLine.fields.expected_quantity.desc(),
+).fetch_page()
+```
+
+A field given without `.asc()` or `.desc()` sorts ascending. Ties are always
+broken by the key, so paging is stable. Without `order_by()`, objects come in
+key order.
+
+## 5. Follow relationships
+
+`links` on a loaded object reaches its related objects:
+
+```python
+plant = client.objects(Plant).get("SAP_ECC::100::1000")
+
+materials = plant.links.materials                 # a collection of MaterialMasterPlant
+purchased = materials.where(MaterialMasterPlant.fields.procurement_type.eq("F"))
+page = purchased.fetch_page(page_size=50)
+
+home = page.items[0].links.plant.fetch()          # to-one: Plant or None
+```
+
+A to-many relationship is an ordinary collection: filter, sort, `get()`, and
+page it as above. A to-one relationship has `fetch()`, which returns the
+related object or `None`. If the object's reference is null, you get an empty
+result without a request.
+
+## 6. Filter and sort by related objects
+
+`relations` on the class builds conditions on related objects. The whole
+condition runs as one query in Celonis.
+
+**A related object matches**: `has()` for to-one, `any()` for to-many:
+
+```python
+supply = PlannedSupply.fields
+
+client.objects(MaterialMasterPlant).where(
+    MaterialMasterPlant.relations.plant.has(Plant.fields.country.eq("DE"))
+    & ~MaterialMasterPlant.relations.planned_supplies.any(
+        supply.is_firm_order.eq(1) & supply.order_quantity.gt(0)
+    )
+)
+```
+
+Without an argument, `has()` and `any()` mean "a related object exists".
+Conditions nest, so a rule on one type can reuse a rule on another:
 
 ```python
 external_purchase = PurchaseDocument.fields.is_canceled.eq(0) & (
@@ -297,130 +246,133 @@ external_purchase = PurchaseDocument.fields.is_canceled.eq(0) & (
 active_external_line = PurchaseDocumentLine.fields.is_canceled.eq(0) & (
     PurchaseDocumentLine.relations.header.has(external_purchase)
 )
-overdue = (
-    client.objects(PurchaseScheduleLine)
-    .where(
-        schedule.expected_delivery_date.lt(as_of)
-        & schedule.received_quantity.lt(schedule.expected_quantity)
-        & PurchaseScheduleLine.relations.purchase_document_line.has(active_external_line)
-    )
-    .order_by(schedule.expected_delivery_date.asc())
-    .fetch_page(page_size=100)
-)
 ```
 
-### Aggregates over relations
-
-A to-many relation that follows a Data Model foreign key also yields one
-aggregate value per object. It compiles to a Pull-Up function on the object's
-table, so it can be compared with values, fields of the same type, or other
-aggregates, and used in `order_by`:
+**Aggregates over a to-many relationship** give one value per object. Compare
+and sort them like fields:
 
 ```python
 supplies = MaterialMasterPlant.relations.planned_supplies
 firm = PlannedSupply.fields.is_firm_order.eq(1)
 
-short = (
+(
     client.objects(MaterialMasterPlant)
     .where(
         supplies.sum(PlannedSupply.fields.order_quantity, firm)
         .lt(MaterialMasterPlant.fields.safety_stock_quantity)
     )
     .order_by(supplies.count().desc())
-    .fetch_page(page_size=50)
+    .fetch_page()
 )
 ```
 
-| Aggregate | PQL | Result |
-| --- | --- | --- |
-| `count(p=None)` | `PU_COUNT` | `int`, 0 without related objects |
-| `count_distinct(f, p=None)` | `PU_COUNT_DISTINCT` | `int`, 0 without values |
-| `sum(f, p=None)` | `PU_SUM` | the field's numeric type |
-| `avg(f, p=None)` | `PU_AVG` | `float` |
-| `min(f, p=None)`, `max(f, p=None)` | `PU_MIN`, `PU_MAX` | the field's type |
-| `median(f, p=None)` | `PU_MEDIAN` | the field's numeric type; for an even count, the upper middle value |
-
-`p` restricts which related objects count, and may itself use relations.
-Aggregates other than the counts are NULL when no related value exists: an
-ordering comparison is then false, and `.eq(None)` finds those objects. Null
-field values are ignored, as in PQL. Pull-Up functions ignore global filters
-and are evaluated per object.
-
-Every read is **one** PQL query, however many relations it nests. Relationship
-predicates compile into the same filter:
-
-| Link | PQL |
+| Aggregate | Value |
 | --- | --- |
-| To-one, following a Data Model foreign key | `BIND(<this table>, <related column>)`, one `BIND` per hop |
-| To-one on a plain column without a foreign key | `LOOKUP(<this table>, <related column>, (<this key column>, <related key column>))` |
-| To-many, following a foreign key | `PU_COUNT(<this table>, <related key>, <related condition>) > 0` |
+| `count(condition=None)` | Number of related objects; 0 if there are none. |
+| `count_distinct(field, condition=None)` | Number of distinct values; 0 if there are none. |
+| `sum(field, ...)`, `avg(field, ...)`, `median(field, ...)` | Of a numeric field. |
+| `min(field, ...)`, `max(field, ...)` | Smallest / largest value. |
 
-`km pull` reads the Data Model's foreign keys and classifies every link. A link
-that matches a foreign key in the direction its cardinality implies uses joins
-and Pull-Up functions. A single-column to-one link without one uses `LOOKUP`.
-Any other link, such as a to-many link with no foreign key, supports
-traversal only: `Type.relations.x.any(...)` raises `QueryValidationError`, and
-`objects.py` lists the link under "Not generated". A null reference never matches, so
-`~relations.x.any(...)` includes objects without related objects.
+The optional condition limits which related objects count. Every aggregate
+except the two counts is `None` when there is no related value, and
+`.eq(None)` finds those objects.
 
-[tests/inventory_rules.py](../tests/inventory_rules.py) contains three complete
-inventory rules (safety stock without firm supply, overdue external schedules,
-and alternative source plants). They are verified in
-[tests/test_inventory_rules.py](../tests/test_inventory_rules.py), both offline
-and, when enabled, against Celonis.
+Relationships are filterable when they follow a Data Model foreign key, or are
+to-one links on a single column (joined by value). Other relationships, such
+as a declared to-many link without a foreign key, can be followed with `links`
+but not used in conditions; their `relations` raise `QueryValidationError`.
 
-### What a read guarantees
+## 7. KM input variables
 
-- **Complete snapshots.** Every read loads the key and every generated field.
-  There is no partial loading, so an unloaded value can never look like `None`.
-- **Identity.** Keys must be non-null. Rows with the same key but different
-  values raise `ObjectIdentityError`; each property must resolve to one value
-  per key.
-- **Decoded values.** Values are checked against the declared type and returned
-  as plain Python values. A date with a time component, a non-integral `int`, or
-  a string where a number is declared raises `ObjectValueError`.
-- **Failures are failures.** A failed export raises the native PyCelonis error
-  with its cause chain; it never becomes an empty page.
-- **No hidden requests.** Reading `plant.country` or `plant.key`, or
-  building `plant.links.materials` never contacts Celonis. Only `get`,
-  `fetch_page`, `next_page`, and `ToOne.fetch` do.
+Attributes that use KM input variables (`${name}`) are generated like any
+other. Each read uses the input's current value in the KM (the assigned value,
+otherwise its default), so a change in Studio takes effect on the next read,
+without a pull.
 
-Objects are frozen dataclasses: they compare by value and work with
-`dataclasses.asdict`. The client that loaded an object is attached privately so
-its relationships can be fetched; it is not a field.
+`inventory.variables` lists the inputs the package uses. If an input has
+neither a value nor a default, reading a field that uses it raises
+`UnresolvedVariableError`: set a value in Studio, or
+[exclude the field](#9-customize-what-is-generated).
 
-### Relationships
+## 8. Keep the package up to date
 
-Generated accessors exist only for declared links:
+Pull again after the KM or its Data Model changes, then restart Python:
 
-```python
-materials = plant.links.materials                  # ObjectCollection[MaterialMasterPlant]
-external = materials.where(MaterialMasterPlant.fields.procurement_type.eq("F"))
-plant = material.links.plant.fetch()               # Plant | None
+```bash
+uv run celofast km pull inventory
 ```
 
-A to-many link is an ordinary collection filtered by the link mapping, so it
-supports `where`, `get`, and paging. A to-one link maps exactly the target key,
-so it resolves to at most one object. A null source value returns an empty page
-or `None` without a request.
+In CI, check that the package matches the KM without writing anything:
 
-### KM input variables
+```bash
+uv run celofast km pull inventory --check
+```
 
-Generated fields keep the KM's input variables as `${name}` placeholders, and
-`inventory.variables` maps each one to its data type. A read that needs an
-input asks the KM for its current value (the assigned value, otherwise the
-default), so a change in Studio applies to the next read without a pull.
+`--check` prints a diff of every generated file that would change. It exits
+**0** when up to date, **1** when the package is out of date, and **2** on an
+error. Changes to parts of the KM the package doesn't use, such as KPIs or
+filters, don't count.
 
-Values are substituted as the KM does: `TEXT` values become string literals
-(numeric text stays a number), `BOOLEAN` values become 1 or 0, and `NUMBER`
-and `PQL` values are inserted as written. Inside a string literal a value is
-only escaped. An input without a value or default raises
-`UnresolvedVariableError` before any export.
+Don't edit generated files; pull replaces them. Keep your own code outside the
+output directory: pull refuses to write into a directory with files it didn't
+generate.
 
-### Inspect the PQL that runs
+## 9. Customize what is generated
 
-PQL is not part of the object API, but every export is logged at DEBUG level on
-the `celofast.km` logger:
+Pull needs no configuration beyond section 1. To change its choices, add a
+`mapping`: inline, or as a TOML file next to `pyproject.toml`:
+
+```toml
+[tool.celofast.knowledge-models.inventory]
+# ...
+mapping = "inventory-objects.toml"
+```
+
+Records and attributes are named by their KM IDs, as shown in Studio:
+
+```toml
+# inventory-objects.toml
+
+# Don't generate these records.
+exclude = ["O_CELONIS_CURRENCYCONVERSION"]
+
+[objects.O_CELONIS_PLANT]
+class = "Site"                          # rename the class
+key = ["ID"]                            # choose the key (default: the primary key)
+exclude-fields = ["NumberNameConcat"]   # don't load these attributes
+types = { OpenedOn = "date" }           # force a type
+```
+
+`types` accepts `str`, `int`, `float`, `bool`, `date`, and `datetime`. Celonis
+dates load as `datetime`; use `"date"` for a plain date.
+
+**Relationships.** Declaring a link with the same target and columns as an
+automatic one renames it. Declaring any other link adds it:
+
+```toml
+# Rename Plant.material_master_plants to Plant.materials.
+[objects.O_CELONIS_PLANT.links.materials]
+target = "O_CELONIS_MATERIALMASTERPLANT"
+cardinality = "many"
+on = { ID = "PLANT_ID" }                # this record's attribute -> target attribute
+
+# Add a link that no foreign key declares.
+[objects.O_CELONIS_PURCHASESCHEDULELINE.links.plant]
+target = "O_CELONIS_PLANT"
+cardinality = "one"                     # a to-one link must map the target's key
+on = { PLANT_ID = "ID" }
+```
+
+A mistake in the mapping, such as an unknown record or attribute, or a key or
+link that doesn't fit, raises `ObjectMappingError` and nothing is written.
+
+Pass a different mapping file for one pull with `--mapping`. See the
+[command reference](api-reference.md#km-command-line) for all options.
+
+## 10. See the PQL that runs
+
+Each read is one query. To see it exactly as sent, enable DEBUG logging for
+`celofast.km`:
 
 ```python
 import logging
@@ -429,40 +381,13 @@ logging.basicConfig()
 logging.getLogger("celofast.km").setLevel(logging.DEBUG)
 ```
 
-Each read logs one entry (`Read O_CELONIS_MATERIALMASTERPLANT objects ...`)
-with the limit, offset, columns (annotated with field names), filter, and
-ordering exactly as sent, including any `BIND`, `LOOKUP`, and `PU_COUNT` a
-relationship predicate compiled to. Logs can contain business data such as
-keys and filter values; review them before sharing.
+Logs contain filter values and keys, which can be business data.
 
-## 4. Review changes and check CI
+## What this is not for
 
-```bash
-uv run celofast km pull inventory --check
-```
+The KM API loads whole business objects. It has no column selection, grouping,
+KPIs, raw PQL, DataFrames, or writes. For anything
+else, `client.native` and `client.data_model` are the underlying PyCelonis
+objects.
 
-Check reads the cloud definition, regenerates the package in memory, and prints
-a unified diff of every generated file that would change, without writing.
-Drift is exactly what changes the generated code: expressions, types, names,
-keys, links, metadata, or the mapping. Edits to parts of the KM that no
-generated type uses are not drift. A new record the mapping doesn't cover still
-fails the check. Exit **0** means up to date, **1** means drift, and **2** means
-failure, including an incomplete mapping.
-
-Changing the mapping requires a pull: generation always starts from the current
-cloud definition.
-
-Keep application code outside the generated directory. Celofast refuses to
-replace unrelated files or a package pulled from another KM, and verifies the
-new package imports before writing it. Restart Python after
-pulling so every generated module is reloaded together.
-
-## What this SDK does not do
-
-- No aggregation, grouping, KPI selection, arbitrary PQL filters, or DataFrames.
-  Tables configured in a View remain available through
-  [Views and inputs](views-and-inputs.md).
-- No writes. Future write support will expose explicit supported actions, not a
-  generic `save()`.
-- No projections or partial objects. Predicates select objects; every read
-  still returns complete, typed instances.
+Something not working? See [Troubleshooting](troubleshooting.md#generating-object-packages).

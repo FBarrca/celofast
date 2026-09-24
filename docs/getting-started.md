@@ -110,8 +110,8 @@ uv run celofast km pull inventory
 The command shows progress while it reads Data Model columns and test-runs
 calculated attributes, then prints how many object types and links it
 generated. Anything it skipped is listed under `# Not generated:` in the
-generated `definitions.py`. To rename links or change other derived choices, see
-[Overrides](knowledge-model-sdk.md#overrides).
+generated `objects.py`. To rename classes or links, or change other choices, see
+[Customize what is generated](knowledge-model-sdk.md#9-customize-what-is-generated).
 
 ## 5. Retrieve your first objects
 
@@ -133,8 +133,8 @@ page of immutable `Plant` objects with plain Python values.
 This confirms the authentication, resource selection, Data Model access, and
 read path. See [Troubleshooting](troubleshooting.md) if one of those steps fails.
 
-Continue with the [KM guide](knowledge-model-sdk.md) for filters, relationships,
-composite keys, input variables, and refreshing captures.
+Continue with the [KM guide](knowledge-model-sdk.md) for filters, sorting,
+relationships, input variables, and keeping the package up to date.
 
 ## Next steps
 

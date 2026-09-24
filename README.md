@@ -1,43 +1,78 @@
 # Celofast
 
-**Work with Celonis Knowledge Models as typed Python objects. Write application
-results through augmentation tables.**
+**Typed Python objects for Celonis Knowledge Models.**
 
-Celofast is a Python library for the inputs and outputs of Machine Learning
-Workbench (MLWB) apps. Retrieve business objects from Knowledge Models (KMs) and
-follow their relationships, read configured View tables and controls, and write
-results back through augmentation tables. Execution uses PyCelonis.
-
-## Choose your starting point
+Celofast generates a Python package from a Celonis Knowledge Model (KM): one
+class per business object, with typed fields and relationships your editor
+autocompletes. Query them in plain Python, without writing PQL. Built for
+Machine Learning Workbench (MLWB) apps, it also reads View tables and writes
+results back to augmentation tables.
 
 | I want to… | Start here |
 | --- | --- |
 | Install Celofast and connect to a tenant | [Getting started](docs/getting-started.md) |
-| Retrieve typed business objects and relationships | [Knowledge Model guide](docs/knowledge-model-sdk.md) |
+| Retrieve typed business objects and relationships | [Knowledge Models](docs/knowledge-model-sdk.md) |
 | Read a configured table or input control | [Views and inputs](docs/views-and-inputs.md) |
 | Store predictions, scores, or other app output | [Augmentation tables](docs/augmentation-tables.md) |
 | Look up a method or diagnose an error | [API reference](docs/api-reference.md) · [Troubleshooting](docs/troubleshooting.md) |
 
-See the [documentation index](docs/index.md) for the concepts and full reading
-path. All documentation is Markdown in this repository.
+The [documentation index](docs/index.md) lists every guide.
+
+```python
+from celofast import CeloFast
+from generated.inventory import MaterialMasterPlant, Plant, km as inventory
+
+client = CeloFast("SPACE_ID", "PACKAGE_ID").km(inventory)
+
+stock = MaterialMasterPlant.fields
+below_safety_stock_in_germany = (
+    client.objects(MaterialMasterPlant)
+    .where(
+        stock.current_valuated_stock_quantity.lt(stock.safety_stock_quantity)
+        & MaterialMasterPlant.relations.plant.has(Plant.fields.country.eq("DE"))
+    )
+    .fetch_page()
+)
+for material in below_safety_stock_in_germany:
+    print(material.key, material.current_valuated_stock_quantity)
+```
+
+## Features
+
+- **Generated from your KM.** Object types, keys, field types, and
+  relationships come from the KM and its Data Model; no configuration needed.
+- **Type-checked.** Fields, filters, and relationships are checked by your
+  editor and type checker, and filter values are validated before any request.
+- **One query per read.** Filters on related objects and aggregates such as
+  `count()` or `sum()` run as a single PQL query in Celonis.
+- **Live KM input variables.** Each read uses the KM's current input values.
+- **Drift checks.** `celofast km pull --check` fails CI when the KM changes.
+- **Views and output.** Read tables configured in Studio as DataFrames, and
+  write predictions to augmentation tables.
 
 ## Install
 
-Python 3.10 or newer is required. In your application's project:
+Celofast requires Python 3.10 or newer:
 
 ```bash
 uv add "celofast @ git+https://github.com/FBarrca/celofast.git"
 ```
 
-Configure `CELONIS_URL`, `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, and
-`OAUTH_SCOPES` in your environment or `.env`. You can also supply an authenticated
-PyCelonis client. Follow [Getting started](docs/getting-started.md) for both paths.
+## Quick start
 
-## Work with Knowledge Model objects
+**1. Configure authentication.** Put your OAuth client in `.env` (or the
+environment), or pass an authenticated PyCelonis client to `CeloFast`
+([details](docs/getting-started.md#2-configure-authentication)):
 
-After [configuring authentication](docs/getting-started.md#2-configure-authentication),
-register your KM in your application's `pyproject.toml`, replacing the IDs and
-key with your own:
+```dotenv
+CELONIS_URL=https://YOUR_TENANT.celonis.cloud
+OAUTH_CLIENT_ID=YOUR_CLIENT_ID
+OAUTH_CLIENT_SECRET=YOUR_CLIENT_SECRET
+OAUTH_SCOPES=YOUR_GRANTED_SCOPES
+```
+
+**2. Register your KM** in your application's `pyproject.toml`, using the KM's
+exact key:
 
 ```toml
 [tool.celofast.knowledge-models.inventory]
@@ -48,82 +83,65 @@ mode = "draft"
 output = "generated/inventory"
 ```
 
-Pull derives object types, keys, field types, and links from the KM and its Data
-Model. Calculated attributes are test-run, and anything that cannot be generated
-is skipped and listed in the generated `definitions.py`. An optional `mapping`
-holds overrides such as link names:
+**3. Generate the package:**
 
 ```bash
 uv run celofast km pull inventory
-uv run celofast km pull inventory --check   # report drift in CI
 ```
 
-Then retrieve typed objects:
+Anything that can't be generated, such as a formula that fails in Celonis, is
+skipped and listed at the top of the generated `objects.py`.
+
+**4. Query:**
 
 ```python
 from celofast import CeloFast
 from generated.inventory import Plant, km as inventory
 
-cf = CeloFast(space_id="SPACE_ID", package_id="PACKAGE_ID")
-client = cf.km(inventory)
+client = CeloFast("SPACE_ID", "PACKAGE_ID").km(inventory)
 
 plant = client.objects(Plant).get("PLANT-1000")
-print(plant.country)                               # str | None
+print(plant.country)                                      # a loaded value
 
-page = (
-    client.objects(Plant)
-    .where(Plant.fields.country.eq("DE"))
-    .fetch_page(page_size=100)
-)
-materials = plant.links.materials.fetch_page(page_size=50)
+german = client.objects(Plant).where(Plant.fields.country.eq("DE")).fetch_page()
+materials = plant.links.materials.fetch_page()            # related objects
 ```
 
-`Plant.fields.country` is a definition used for filtering; `plant.country` is a
-loaded value. Objects are immutable, fully loaded snapshots: reading a value
-never performs a request, while `get`, `fetch_page`, and relationship fetches
-do. Keys are validated, values are decoded to their declared types, and a
-failed request is an error, never an empty page. See the
-[KM guide](docs/knowledge-model-sdk.md). Upgrading from the query API? Follow
-the [0.5 migration guide](docs/migration-0.5.md).
+Continue with the [Knowledge Model guide](docs/knowledge-model-sdk.md) for
+filters, sorting, relationships, aggregates, and keeping the package in sync.
 
-## Reuse a View table
+## Read a View table
 
 For tabular inputs already configured in Studio, select a View by its exact key
 and a table by its component ID or unique display name. View tables return
 pandas DataFrames:
 
 ```python
-table = cf.view("operations-view").table("Orders")
-orders = table.execute(limit=100)
+cf = CeloFast("SPACE_ID", "PACKAGE_ID")
+
+table = cf.view("operations-view")["Orders"]
+orders = table.rows(limit=100)
 ```
 
-The query includes the table's configured columns, filters, and sorting. See
-[Views and inputs](docs/views-and-inputs.md) for discovery and control values.
+See [Views and inputs](docs/views-and-inputs.md).
 
 ## Write application output
 
-For an existing augmentation table and a pandas DataFrame `prediction_frame`:
-
 ```python
-tables = cf.augmentation_tables("orders-km")   # the KM locates its Data Model
+tables = cf.augmentation_tables("orders-km")          # the KM locates its Data Model
 output = tables.table("ML_ORDER_PREDICTIONS", key="ORDER_ID")
-output.upsert(prediction_frame)
+output.upsert(prediction_frame)                       # a pandas DataFrame
 ```
 
-Writes affect the underlying Data Model, including other consumers of that
-table. See [Augmentation tables](docs/augmentation-tables.md) for a complete
-DataFrame example, table creation, keys, batching, and failure behavior.
+Writes change the underlying Data Model, which other KMs and Views may also
+use. See [Augmentation tables](docs/augmentation-tables.md).
 
-## Contribute
+## Development
 
 ```bash
 uv sync
 uv run pytest
 ```
 
-Read [Development](docs/development.md) for repository structure, documentation
-checks, and the opt-in live tests.
-
-The repository's Inventory KM (configured in `pyproject.toml`, with four link
-names overridden in `inventory-objects.toml`) backs the live tests. Its generated
-package is ignored by Git and must be pulled in each checkout.
+The tests run offline. Live tests against the repository's Inventory KM are
+opt-in; see [Development](docs/development.md).

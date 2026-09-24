@@ -28,7 +28,7 @@ uv run pytest tests/test_sdk_generate.py tests/test_object_runtime.py tests/test
 | --- | --- |
 | [client.py](../celofast/client.py) | OAuth client creation and caching. |
 | [core.py](../celofast/core.py), [resolution.py](../celofast/resolution.py) | Package scope, lifecycle selection, lookup and caches. |
-| [sdk/capture.py](../celofast/sdk/capture.py) | Lossless KM captures and retrieval. |
+| [sdk/capture.py](../celofast/sdk/capture.py) | KM and Data Model captures and retrieval. |
 | [sdk/mapping.py](../celofast/sdk/mapping.py) | Normalization: object mappings, keys, value types, and links. |
 | [sdk/definitions.py](../celofast/sdk/definitions.py), [sdk/objects.py](../celofast/sdk/objects.py) | Offline definitions (`Field`, `ObjectDefinition`); loaded objects, collections, pages, and links. |
 | [sdk/planning.py](../celofast/sdk/planning.py), [sdk/hydration.py](../celofast/sdk/hydration.py) | Private read planning; identity and value validation. |
@@ -112,17 +112,17 @@ without removing the original findings.
 
 ## Generated application packages
 
-Application-generated KM packages contain `__init__.py`, `definitions.py`,
-`objects.py`, `links.py`, and `py.typed`: plain Python with no data files. Keep
-them together. Change definitions in the source KM or the object mapping, pull
-again, and review the diff rather than editing generated files.
+Application-generated KM packages contain `__init__.py`, `objects.py`, and
+`py.typed`: plain Python with no data files. Change definitions in the source
+KM or the object mapping, pull again, and review the diff rather than editing
+generated files.
 
-For each object type the generator emits a frozen definition dataclass of
-`Field`s (`definitions.py`), a frozen value dataclass (`objects.py`), and, for
-declared links, `Links` and `Relations` classes (`links.py`). `objects.py` and
-`links.py` import each other and resolve names only at call time.
+For each object type, `objects.py` holds a definition class of `Field`s
+(`PlantDefinition`), a frozen value dataclass (`Plant`), and, when the type has
+relationships, a `Links` class (`PlantLinks`) that declares each relationship
+once.
 
-Compatibility has one checkpoint: `definitions.py` calls
+Compatibility has one checkpoint: `objects.py` calls
 `require_runtime(RUNTIME_API_VERSION)`, so a package generated for another
 runtime fails at import with a regeneration message. Bump
 `RUNTIME_API_VERSION` in `celofast/sdk/loading.py` whenever generated code

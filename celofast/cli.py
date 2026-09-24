@@ -217,7 +217,7 @@ def main(argv: list[str] | None = None) -> int:
         links = sum(len(spec.links) for spec in model.objects)
         print(
             f"{len(model.objects)} object types, {links} links; "
-            f"{len(model.diagnostics)} items skipped (listed in definitions.py)."
+            f"{len(model.diagnostics)} items skipped (listed in objects.py)."
         )
         return 0
     except (Exception, KeyboardInterrupt) as exc:  # noqa: BLE001 -- CLI error boundary
