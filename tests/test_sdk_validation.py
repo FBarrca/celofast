@@ -65,12 +65,13 @@ def test_values_that_do_not_decode_are_rejected():
     assert reason.startswith("returned values that are not str")
 
 
-def test_records_without_calculated_attributes_need_no_query():
-    export = Export({})
+def test_only_calculated_attributes_are_queried_with_input_defaults_bound():
+    stock = '"o_Material"."Stock" * 1'
+    export = Export({stock: 2.0})
     assert validate(capture(), export, mapping=MAPPING).validation == {}
-    # Only the Material record's ${factor} attribute is calculated, and
-    # attributes with input variables are not probed.
-    assert export.queries == []
+    # Material.stock is the only calculated attribute; it runs with the
+    # captured default of ${factor}. Records of plain columns need no query.
+    assert export.queries == [['("o_Material"."ID"\n)', f"({stock}\n)"]]
 
 
 def test_celofast_errors_are_not_mistaken_for_bad_attributes():

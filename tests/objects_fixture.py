@@ -71,8 +71,11 @@ def capture(**changes):
     }
     # The Data Model joins plants to materials; stock lines have no foreign key,
     # so Plant.links.stock is traversal-only.
-    return Capture(source=SOURCE, definition=layer, joins=JOINS, tables=TABLES)
+    return Capture(source=SOURCE, definition=layer, input_variables=INPUTS, joins=JOINS, tables=TABLES)
 
+
+# Material.stock multiplies by this KM input; reads bind its value at query time.
+INPUTS = {"factor": {"dataType": "NUMBER", "value": "1"}}
 
 JOINS = [{"one": "o_Plant", "many": "o_Material", "columns": [["ID", "Plant_ID"]]}]
 
@@ -107,7 +110,7 @@ MAPPING = {
                 },
             },
         },
-        "O_MATERIAL": {"include-fields": ["STOCK"]},
+        "O_MATERIAL": {},
         "O_STOCK": {"class": "StockLine"},
     },
 }

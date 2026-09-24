@@ -19,7 +19,6 @@ An optional mapping overrides the derived model (TOML, under
     class = "Site"                        # class name instead of the table's
     key = ["ID"]                          # key instead of the primary key
     exclude-fields = ["LEGACY"]           # attributes not loaded
-    include-fields = ["LEAD_TIME"]        # load attributes using ${...} inputs
     types = { PLANTNUMBER = "str" }       # value types instead of declared ones
 
     [objects.O_CELONIS_PLANT.links.materials]  # rename an automatic link,
@@ -42,7 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from celofast.exceptions import ObjectMappingError
 from celofast.sdk.capture import Capture, record_table
 from celofast.sdk.definitions import ObjectDefinition
-from celofast.sdk.expressions import Expressions
+from celofast.sdk.expressions import Expressions, placeholders
 from celofast.sdk.hydration import KEY_TYPES, ValueType
 from celofast.sdk.objects import Links, Object
 
@@ -67,8 +66,6 @@ _DM_TYPES: dict[str, ValueType] = {
     "BOOLEAN": "bool",
     "DATE": "datetime",
 }
-_COMMENTS = re.compile(r"--.*?$|/\*[\s\S]*?\*/", re.MULTILINE)
-_VARIABLE = re.compile(r"\$\{\w+\}")
 _COLUMN = re.compile(r'^\s*"([^"]+)"\."([^"]+)"\s*$')
 RESERVED_FIELDS = frozenset(
     {name for name in {*dir(Object), *dir(ObjectDefinition)} if not name.startswith("__")}
@@ -95,7 +92,6 @@ class ObjectConfig(_Strict):
     key: list[str] | None = Field(None, min_length=1)
     types: dict[str, ValueType] = {}
     exclude_fields: list[str] = Field([], alias="exclude-fields")
-    include_fields: list[str] = Field([], alias="include-fields")
     links: dict[str, LinkConfig] = {}
 
 
@@ -252,10 +248,6 @@ def column(expression: str) -> tuple[str, str] | None:
     return (match.group(1), match.group(2)) if match else None
 
 
-def _uses_variables(expression: str) -> bool:
-    return _VARIABLE.search(_COMMENTS.sub("", expression)) is not None
-
-
 def _text(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
@@ -387,23 +379,18 @@ class _Normalizer:
         self, rid: str, attribute: _Attribute, settings: ObjectConfig, dm_table: Any
     ) -> _Field | None:
         """Resolve one attribute's expression and type, or report why it is skipped."""
-        included = attribute.id in settings.include_fields
         where = f"{rid}.{attribute.id}"
-        if _uses_variables(attribute.pql) and not included:
-            self.diagnostics.append(
-                f"{where}: uses KM input variables; add it to include-fields to load it."
-            )
-            return None
         try:
-            expression = self.expressions.resolve(attribute.pql, bind_defaults=not included)
+            expression = self.expressions.resolve(attribute.pql)
         except ValueError as exc:
             self.diagnostics.append(f"{where}: {exc}; not generated.")
             return None
-        if _uses_variables(expression) and not included:
-            self.diagnostics.append(
-                f"{where}: calculated dependency needs KM input values; "
-                "set input defaults or add it to include-fields."
-            )
+        # Input placeholders are bound at query time; each must name a KM input.
+        inputs = self.capture.input_variables
+        undefined = sorted(placeholders(expression) - set(inputs)) if inputs is not None else []
+        if undefined:
+            names = ", ".join(f"${{{name}}}" for name in undefined)
+            self.diagnostics.append(f"{where}: uses {names}, which the KM does not define; not generated.")
             return None
         reason = self.capture.validation.get(rid, {}).get(attribute.id)
         if reason is not None and attribute.id not in settings.types:
@@ -422,7 +409,7 @@ class _Normalizer:
             or self.capture.types.get(expression)
             or (declared_type if own and dm_table is None else None)
         )
-        if value_type is None and self.describe is not None and not _uses_variables(expression):
+        if value_type is None and self.describe is not None:
             value_type = self.describe(rid, attribute.id, expression)
         value_type = value_type or declared_type
         if value_type is None:
@@ -480,7 +467,7 @@ class _Normalizer:
             self.diagnostics.append(f"{rid}: event log; not an object type.")
             return None
         attributes = self.attributes(rid, record, table)
-        referenced = {*settings.exclude_fields, *settings.types, *settings.include_fields}
+        referenced = {*settings.exclude_fields, *settings.types}
         for name in sorted(referenced - {a.id for a in attributes}):
             self.errors.append(f"{rid}: mapping refers to unknown attribute {name!r}.")
         attributes = self.distinct(rid, attributes, settings)

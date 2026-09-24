@@ -13,6 +13,7 @@ The same questions run end to end against Celonis, after a real
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
@@ -255,7 +256,14 @@ class Transport:
 
 
 def real_client(sdk, transport):
-    connection = KnowledgeModelConnection(MagicMock(), SimpleNamespace(id="fixture-dm"))
+    # The KM's current input values are those captured at pull.
+    inputs = json.loads(FIXTURE.read_text(encoding="utf-8")).get("input_variables") or {}
+    native = MagicMock()
+    native.get_variables.return_value = [
+        SimpleNamespace(key=key, data_type=variable.get("dataType"), value_or_default=variable.get("value"))
+        for key, variable in inputs.items()
+    ]
+    connection = KnowledgeModelConnection(native, SimpleNamespace(id="fixture-dm"))
     connection._export = transport
     return KnowledgeModelClient(connection, sdk.km)
 

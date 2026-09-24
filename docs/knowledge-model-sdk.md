@@ -99,7 +99,6 @@ exclude = ["O_CELONIS_CURRENCYCONVERSION"]   # records not to generate
 class = "Site"                               # instead of the derived class name
 key = ["ID"]                                 # instead of the primary key
 exclude-fields = ["NumberNameConcat"]        # attributes not to load
-include-fields = ["NetAmountConverted"]      # keep ${input} placeholders; bind at runtime
 types = { OpenedOn = "date" }                # force a type, e.g. a strict date
 
 # Rename an automatic link (same target, cardinality, and columns) ...
@@ -130,32 +129,14 @@ precedence over missing or incorrect KM `columnType` metadata; explicit `types`
 overrides and Data Model column types retain priority. Discovered types are saved
 separately from the source definition; offline generation uses that snapshot.
 
-During pull, references to calculated attributes and parameterless KPIs that
-depend on KM inputs are expanded locally and their captured defaults are bound
-as PQL values. Text
-defaults are quoted, including when the source formula omitted quotes. The
-generated field uses the same expression that pull validated; the live KM is
-never edited. Repull after changing those defaults. Missing defaults are
-reported, and `include-fields` retains placeholders for explicit runtime bindings.
-
-A `PU_COUNT` of a source table's single-column primary key can be normalized
-through a unique shared child table using `BIND` and `PU_COUNT_DISTINCT`. This
-counts each related source object once. Ambiguous paths, filtered counts, and
-counts of non-key columns are left unchanged.
-
-Calculated field types are resolved from the Celonis result schema during pull,
-including empty or all-null results when a schema is returned. This schema takes
-precedence over missing or incorrect KM `columnType` metadata; explicit `types`
-overrides and Data Model column types retain priority. Discovered types are saved
-separately from the source definition; offline generation uses that snapshot.
-
-During pull, references to calculated attributes and parameterless KPIs that
-depend on KM inputs are expanded locally and their captured defaults are bound
-as PQL values. Text
-defaults are quoted, including when the source formula omitted quotes. The
-generated field uses the same expression that pull validated; the live KM is
-never edited. Repull after changing those defaults. Missing defaults are
-reported, and `include-fields` retains placeholders for explicit runtime bindings.
+Attributes that use KM input variables (`${name}`) are generated like any
+other, keeping their placeholders; reads bind them with the KM's current
+values (see [KM input variables](#km-input-variables)). Pull test-runs them
+with the values at pull only to check them and learn their result type; an
+input without a value keeps the attribute's declared type. References to other
+calculated attributes and KPIs stay references, so Celonis resolves any inputs
+inside them with the KM's current values. An attribute whose placeholder names
+an input the KM does not define is reported and not generated.
 
 A `PU_COUNT` of a source table's single-column primary key can be normalized
 through a unique shared child table using `BIND` and `PU_COUNT_DISTINCT`. This
@@ -425,20 +406,16 @@ or `None` without a request.
 
 ### KM input variables
 
-Captured expressions can contain `${name}` placeholders for KM input variables.
-`inventory.variables` lists the ones generated fields use. Bind them
-explicitly per client:
+Generated fields keep the KM's input variables as `${name}` placeholders, and
+`inventory.variables` maps each one to its data type. A read that needs an
+input asks the KM for its current value (the assigned value, otherwise the
+default), so a change in Studio applies to the next read without a pull.
 
-```python
-client = cf.km(inventory, variables={"im_consideredpastmonths": "12"})
-```
-
-Bindings are exact PQL text. Quote text yourself where the expression expects a
-literal (for example `"'Average'"`). A read that needs an unbound placeholder
-raises `UnresolvedVariableError` before any request. Bindings apply to captured
-field expressions only; cloud dependencies such as another record's calculated
-attribute resolve with the KM's own values in Celonis. If a dependency fails
-there, exclude the affected fields.
+Values are substituted as the KM does: `TEXT` values become string literals
+(numeric text stays a number), `BOOLEAN` values become 1 or 0, and `NUMBER`
+and `PQL` values are inserted as written. Inside a string literal a value is
+only escaped. An input without a value or default raises
+`UnresolvedVariableError` before any export.
 
 ### Inspect the PQL that runs
 

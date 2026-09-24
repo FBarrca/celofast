@@ -154,19 +154,15 @@ class CeloFast:
         """
         return self._resolver.package
 
-    def km(
-        self,
-        model: ObjectModel,
-        *,
-        variables: Mapping[str, str] | None = None,
-    ) -> KnowledgeModelClient:
+    def km(self, model: ObjectModel) -> KnowledgeModelClient:
         """Return an object client for a generated Knowledge Model package.
+
+        KM input variables used by generated fields are read from the KM on
+        each read that needs them.
 
         Args:
             model: The ``km`` registry exported by a package generated with
                 ``celofast km pull``. It stays offline and is never mutated.
-            variables: Exact string bindings for ``${name}`` placeholders in
-                captured field expressions, such as KM input variables.
 
         Returns:
             A :class:`KnowledgeModelClient` retrieving generated objects.
@@ -192,9 +188,7 @@ class CeloFast:
             raise QueryValidationError(
                 "Generated model targets a different Space, Package, or lifecycle."
             )
-        return KnowledgeModelClient(
-            self._km_connection(expected.key), model, variables=variables
-        )
+        return KnowledgeModelClient(self._km_connection(expected.key), model)
 
     def augmentation_tables(self, km_key: str) -> AugmentationTableCollection:
         """Return augmentation-table operations for the Data Model behind a KM.

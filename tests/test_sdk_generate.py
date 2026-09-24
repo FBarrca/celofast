@@ -14,7 +14,7 @@ from celofast.sdk.mapping import _names, normalize
 
 from celofast.sdk import Capture
 
-from objects_fixture import JOINS, MAPPING, TABLES, attribute, capture, load, write
+from objects_fixture import INPUTS, JOINS, MAPPING, TABLES, attribute, capture, load, write
 
 
 def record(layer, record_id):
@@ -23,7 +23,7 @@ def record(layer, record_id):
 
 def rebuild(layer, *, joins=JOINS, tables=TABLES):
     """A capture of a changed layer with the fixture's Data Model metadata."""
-    return Capture(source=capture().source, definition=layer, joins=joins, tables=tables)
+    return Capture(source=capture().source, definition=layer, input_variables=INPUTS, joins=joins, tables=tables)
 
 
 def spec(model, record_id):
@@ -118,7 +118,7 @@ def test_package_is_self_contained_python(tmp_path):
     # Everything the runtime needs is written as literals in the code.
     assert module.km.source == capture().source
     assert module.km.data_model_id == "dm"
-    assert module.km.variables == ("factor",)  # Used by Material.stock's expression.
+    assert module.km.variables == {"factor": "NUMBER"}  # Used by Material.stock's expression.
     country = module.Plant.fields.country
     assert (country.id, country.expression, country.value_type) == (
         "COUNTRY", '"o_Plant"."Country"', "str",
@@ -133,11 +133,19 @@ def test_package_is_self_contained_python(tmp_path):
     }
 
 
+def test_inputs_the_km_does_not_define_are_reported():
+    layer = capture().definition
+    record(layer, "O_PLANT")["attributes"][1]["pql"] = '"o_Plant"."Country" || ${missing}'
+    model = normalize(rebuild(layer), MAPPING)
+    assert "COUNTRY" not in {f.attribute_id for f in spec(model, "O_PLANT").fields}
+    assert "O_PLANT.COUNTRY: uses ${missing}, which the KM does not define; not generated." in model.diagnostics
+
+
 def test_variables_in_comments_are_not_reported(tmp_path):
     layer = capture().definition
     record(layer, "O_PLANT")["attributes"][1]["pql"] = '"o_Plant"."Country" -- was ${old}'
     module = load(write(tmp_path / "commented", rebuild(layer)))
-    assert module.km.variables == ("factor",)
+    assert module.km.variables == {"factor": "NUMBER"}
 
 
 def test_generation_is_deterministic():
@@ -155,12 +163,11 @@ def test_records_keys_and_types_are_derived_from_the_data_model():
     # Data Model column types win over the KM's declared (or missing) types.
     assert types == {
         "ID": "str", "PLANT_ID": "str", "ACTIVE": "bool", "UPDATED": "datetime",
-        "COUNT": "int", "UNTYPED": "str",
+        "COUNT": "int", "UNTYPED": "str", "STOCK": "float",
     }
     assert {f.attribute_id: f.value_type for f in spec(model, "O_PLANT").fields}["OPENED"] == "datetime"
     diagnostics = "\n".join(model.diagnostics)
     assert "EL_LOG: no primary key or declared identifier; not an object type." in diagnostics
-    assert "O_MATERIAL.STOCK: uses KM input variables; add it to include-fields" in diagnostics
 
 
 def test_records_without_primary_key_or_that_are_event_logs_are_skipped():

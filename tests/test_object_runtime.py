@@ -62,9 +62,11 @@ def transport():
 
 @pytest.fixture
 def client(sdk, transport):
-    connection = KnowledgeModelConnection(MagicMock(), SimpleNamespace(id="dm"))
+    native = MagicMock()
+    native.get_variables.return_value = [SimpleNamespace(key="factor", data_type="NUMBER", value_or_default="2")]
+    connection = KnowledgeModelConnection(native, SimpleNamespace(id="dm"))
     connection._export = transport
-    return KnowledgeModelClient(connection, sdk.km, variables={"factor": "2"})
+    return KnowledgeModelClient(connection, sdk.km)
 
 
 def plant_row(id_="P1", country="DE"):
@@ -238,10 +240,27 @@ def test_literal_values_are_never_variables(sdk, client, transport):
     assert "= '${factor}\\'' THEN" in transport.requests[0].query.filters[0].query
 
 
-def test_unbound_variables_fail_before_any_request(sdk, client, transport):
-    unbound = KnowledgeModelClient(client._connection, sdk.km)
+def test_input_values_are_read_from_the_km_on_each_read(sdk, client, transport):
+    native = client._connection.native
+    transport.reply(columns=MATERIAL_COLUMNS)
+    client.objects(sdk.Material).fetch_page()
+    assert transport.requests[0].query.columns[2].query == wrapped('"o_Material"."Stock" * 2')
+    # A value changed in the KM applies to the next read.
+    native.get_variables.return_value = [SimpleNamespace(key="factor", data_type="NUMBER", value_or_default="5")]
+    transport.reply(columns=MATERIAL_COLUMNS)
+    client.objects(sdk.Material).fetch_page()
+    assert transport.requests[1].query.columns[2].query == wrapped('"o_Material"."Stock" * 5')
+    # Reads without input placeholders do not ask the KM.
+    calls = native.get_variables.call_count
+    transport.reply(columns=PLANT_COLUMNS)
+    client.objects(sdk.Plant).fetch_page()
+    assert native.get_variables.call_count == calls
+
+
+def test_inputs_without_a_value_fail_before_any_request(sdk, client, transport):
+    client._connection.native.get_variables.return_value = []
     with pytest.raises(UnresolvedVariableError, match="factor"):
-        unbound.objects(sdk.Material).fetch_page()
+        client.objects(sdk.Material).fetch_page()
     assert transport.requests == []
 
 

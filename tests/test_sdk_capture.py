@@ -24,7 +24,7 @@ def test_capture_round_trips_through_json_exactly():
             "unknown": {"explicitNull": None, "sequence": [2, 1]},
             "records": [{"id": "Plant", "attributes": [{"id": "Z", "pql": pql}, {"id": "A", "pql": "2"}]}],
         },
-        input_variables={"months": {"defaultValue": "3", "dataType": "TEXT"}},
+        input_variables={"months": {"dataType": "TEXT", "value": "3"}},
         joins=[{"one": "a", "many": "b", "columns": [["ID", "A_ID"]]}],
         tables={"a": {"primary_key": ["ID"], "columns": {"ID": "STRING"}}},
         validation={"Plant": {"Z": "fails in Celonis: boom"}},
@@ -50,28 +50,8 @@ def test_retrieval_preserves_unknown_fields_and_explicit_lifecycle(mode):
 
     def request(**kwargs):
         calls.append(kwargs)
-        if kwargs["method"] == "GET":
-            revision = kwargs.get("params", {}).get("draftId", "draft")
-            return {
-                "id": "node",
-                "key": "inventory-km",
-                "draftId": revision,
-                "workingDraftId": "draft",
-                "activatedDraftId": "published",
-                "inputVariableDefinitions": [
-                    {
-                        "key": "months",
-                        "defaultValue": revision,
-                        "futureMetadata": [2, 1],
-                    }
-                ],
-            }
         return {
-            "layer": {
-                "tenantId": "tenant",
-                "nodeEntityId": "node",
-                "futureCategory": [{"id": "future", "new": 42}],
-            },
+            "layer": {"tenantId": "tenant", "futureCategory": [{"id": "future", "new": 42}]},
             "unrelatedEnvelope": "not captured",
         }
 
@@ -79,28 +59,18 @@ def test_retrieval_preserves_unknown_fields_and_explicit_lifecycle(mode):
         root_with_key="package.inventory-km",
         key="inventory-km",
         client=SimpleNamespace(request=request),
+        get_variables=lambda: [
+            SimpleNamespace(key="months", data_type=SimpleNamespace(value="NUMBER"), value_or_default="12"),
+            SimpleNamespace(key="plant", data_type="TEXT", value_or_default=None),
+        ],
     )
     capture = retrieve(native, space_id="space", package_id="package", mode=mode)
-    assert len(calls) == (2 if mode == "draft" else 3)
-    assert capture.input_variables["months"]["defaultValue"] == mode
-    assert capture.input_variables["months"]["futureMetadata"] == [2, 1]
+    assert len(calls) == 1
+    assert capture.input_variables == {
+        "months": {"dataType": "NUMBER", "value": "12"},
+        "plant": {"dataType": "TEXT", "value": None},
+    }
     assert calls[0]["params"] == {"isDraft": mode == "draft"}
     assert calls[0]["json"]["withVariableReplacement"] is False
-    assert "type_" not in calls[0]
     assert capture.definition["futureCategory"] == [{"id": "future", "new": 42}]
     assert "unrelatedEnvelope" not in capture.definition
-
-
-def test_missing_published_input_revision_does_not_fall_back():
-    def request(**kwargs):
-        if kwargs["method"] == "POST":
-            return {"layer": {"tenantId": "tenant", "nodeEntityId": "node"}}
-        return {"workingDraftId": "draft", "activatedDraftId": None}
-
-    native = SimpleNamespace(
-        root_with_key="package.inventory-km",
-        key="inventory-km",
-        client=SimpleNamespace(request=request),
-    )
-    with pytest.raises(CaptureError, match="no published revision"):
-        retrieve(native, space_id="space", package_id="package", mode="published")

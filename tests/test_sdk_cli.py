@@ -16,7 +16,6 @@ output = "generated/inventory"
     payload = {
         "layer": {
             "tenantId": "tenant",
-            "nodeEntityId": "node",
             "records": [{"id": "Plant", "pql": '"Plant"', "attributes": [
                 {"id": "ID", "pql": '"Plant"."ID"', "columnType": "STRING"},
                 {"id": "LABEL", "pql": 'UPPER("Plant"."Name")', "columnType": "STRING"},
@@ -27,20 +26,13 @@ output = "generated/inventory"
 
     def request(**kwargs):
         calls.append(kwargs)
-        if kwargs["method"] == "GET":
-            return {
-                "id": "node",
-                "key": "inventory-km",
-                "draftId": "published",
-                "activatedDraftId": "published",
-                "inputVariableDefinitions": [],
-            }
         return payload
 
     native = SimpleNamespace(
         root_with_key="root.inventory-km",
         key="inventory-km",
         client=SimpleNamespace(request=request),
+        get_variables=lambda: [],
     )
 
     # Zero-config: keys and column types come from the Data Model.

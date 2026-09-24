@@ -16,7 +16,7 @@ related objects of that one object.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, ClassVar, Generic, Literal, TypeVar, overload
 
@@ -356,9 +356,9 @@ class ObjectModel:
 
     source: Source
     data_model_id: str | None
-    variables: tuple[str, ...]
-    """KM input variables (``${name}``) used by field expressions; bind them
-    with ``cf.km(model, variables={...})``."""
+    variables: Mapping[str, str | None]
+    """KM input variables (``${name}``) used by field expressions, with their
+    data types. Every read binds the KM's current values."""
     objects: tuple[type[Object], ...]
 
     def __iter__(self) -> Iterator[type[Object]]:

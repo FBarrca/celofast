@@ -13,9 +13,11 @@ import pycelonis.pql as pql
 from pycelonis.pql.saola_connector import KnowledgeModelSaolaConnector
 
 from celofast.exceptions import ObjectValueError, QueryValidationError
-from celofast.query import query_to_pql, validate_variables
+from celofast.query import query_to_pql
 from celofast.resources.augmentation_table import AugmentationTableCollection
+from celofast.sdk.capture import input_variables
 from celofast.sdk.definitions import Predicate, Sort
+from celofast.sdk.expressions import bind_inputs
 from celofast.sdk.hydration import ValueType, hydrate
 from celofast.sdk.objects import Object, ObjectCollection, ObjectModel
 from celofast.sdk.planning import plan_read
@@ -203,17 +205,10 @@ class KnowledgeModelClient:
         >>> plant = client.objects(Plant).get("PLANT-1000")
     """
 
-    def __init__(
-        self,
-        connection: KnowledgeModelConnection,
-        model: ObjectModel,
-        *,
-        variables: Mapping[str, str] | None = None,
-    ) -> None:
+    def __init__(self, connection: KnowledgeModelConnection, model: ObjectModel) -> None:
         connection._validate_model(model)
         self._connection = connection
         self._model = model
-        self._variables = validate_variables(variables)
 
     @property
     def model(self) -> ObjectModel:
@@ -238,8 +233,20 @@ class KnowledgeModelClient:
         limit: int,
         offset: int,
     ) -> list[O]:
+        # KM input variables are read when the query needs them, once per read.
+        current: dict[str, dict[str, str | None]] | None = None
+
+        def value(name: str) -> str | None:
+            nonlocal current
+            if current is None:
+                current = input_variables(self._connection.native)
+            return current.get(name, {}).get("value")
+
+        def bind(expression: str) -> str:
+            return bind_inputs(expression, value, self._model.variables)
+
         # Relations render into this one query; every read is a single export.
-        query = plan_read(object_type, predicates, order, variables=self._variables)
+        query = plan_read(object_type, predicates, order, bind=bind)
         names = [field.name for field in object_type.fields]
         _log_query(
             f"Read {object_type.fields.object_type} objects ({object_type.__name__})",

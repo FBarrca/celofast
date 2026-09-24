@@ -21,14 +21,13 @@ Relationship predicates are rendered in the same query:
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from datetime import date, datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import pycelonis.pql as pql
 
 from celofast.exceptions import QueryValidationError
-from celofast.query import bind_variables
 from celofast.sdk.definitions import (
     Aggregate,
     And,
@@ -92,8 +91,8 @@ def _case(test: str) -> str:
 
 
 class _Renderer:
-    def __init__(self, variables: Mapping[str, str]) -> None:
-        self.variables = variables
+    def __init__(self, bind: Callable[[str], str]) -> None:
+        self.bind = bind
 
     def expression(self, operand: Operand[Any], pull: Pull = _identity) -> str:
         if isinstance(operand, Aggregate):
@@ -104,7 +103,7 @@ class _Renderer:
             return pull(f"PU_{operand.function.upper()}({source}, {self.expression(operand.field)}{condition})")
         assert isinstance(operand, Field)
         # A newline keeps a trailing line comment from consuming what follows.
-        return pull(f"({bind_variables(operand.expression, self.variables)}\n)")
+        return pull(f"({self.bind(operand.expression)}\n)")
 
     def condition(self, predicate: Predicate, pull: Pull = _identity, negate: bool = False) -> str:
         if isinstance(predicate, (And, Or)):
@@ -175,16 +174,17 @@ def plan_read(
     predicates: tuple[Predicate, ...],
     order: tuple[Sort, ...] = (),
     *,
-    variables: Mapping[str, str],
+    bind: Callable[[str], str],
 ) -> pql.PQL:
     """Query every field of ``object_type`` as columns ``f0``, ``f1``, ...
 
-    Unbound ``${name}`` placeholders fail here. With DISTINCT, Celonis ignores
+    ``bind`` replaces the ``${name}`` input placeholders of each field
+    expression. With DISTINCT, Celonis ignores
     ORDER BY expressions that are not selected (verified live), so sort-only
     expressions such as aggregates are selected too, as columns ``s0``, ...
     after the fields.
     """
-    renderer = _Renderer(variables)
+    renderer = _Renderer(bind)
     definition = object_type.fields
     columns = [(f"f{i}", renderer.expression(field)) for i, field in enumerate(definition)]
     ordering = [(renderer.expression(sort.field), sort.ascending) for sort in order]

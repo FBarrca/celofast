@@ -55,8 +55,9 @@ SDK.
    page = client.objects(Plant).where(Plant.fields.country.eq("DE")).fetch_page(page_size=100)
    ```
 
-5. Replace joins you performed on DataFrames with declared `links`, and move
-   `variables=` from each `execute()` call to `cf.km(inventory, variables=...)`.
+5. Replace joins you performed on DataFrames with declared `links`, and drop
+   `variables=` from each `execute()` call: object reads bind KM input
+   variables with the KM's current values.
 
 ## Workloads without an object equivalent
 

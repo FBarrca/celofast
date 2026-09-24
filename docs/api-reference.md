@@ -17,7 +17,7 @@ from celofast import CeloFast, KnowledgeModelClient, get_celonis
 | --- | --- |
 | `get_celonis(base_url=None)` | Cached OAuth-authenticated PyCelonis client. Uses environment/`.env` when no URL is supplied. |
 | `CeloFast(space_id, package_id, *, mode="draft", client=None)` | A package-scoped connection. Mode is `draft` or `published`. |
-| `cf.km(inventory, *, variables=None)` | `KnowledgeModelClient` for a generated object model. Validates Space, Package, lifecycle, KM, and Data Model. KM keys raise `TypeError`. |
+| `cf.km(inventory)` | `KnowledgeModelClient` for a generated object model. Validates Space, Package, lifecycle, KM, and Data Model. KM keys raise `TypeError`. Reads bind KM input variables with the KM's current values. |
 | `cf.augmentation_tables("exact-km-key")` | Augmentation tables of the Data Model behind a KM; no generated package needed. |
 | `cf.view("exact-key", *, variables=None)` | A View handle, cached for that key and set of bindings. |
 
@@ -31,7 +31,7 @@ Source: [core.py](../celofast/core.py), [client.py](../celofast/client.py).
 
 | Member | Behavior |
 | --- | --- |
-| `inventory` (`km` in the package) | `ObjectModel`: `iter()`, `len()`, `inventory["RECORD_ID"]` returns the class, `.source`, `.data_model_id`, `.variables` (`${name}` inputs used by generated fields). |
+| `inventory` (`km` in the package) | `ObjectModel`: `iter()`, `len()`, `inventory["RECORD_ID"]` returns the class, `.source`, `.data_model_id`, `.variables` (the `${name}` KM inputs generated fields use, with their data types). |
 | `Plant` | Frozen dataclass: `key` plus one plain-valued attribute per loaded field. |
 | `Plant.fields` | `PlantDefinition`: one `Field` per loaded field; iteration in generated order; `["ATTRIBUTE_ID"]` exact lookup. |
 | `Plant.fields.object_type`, `.key_fields`, `.metadata` | Captured record ID, key fields, and the record's `displayName` and `description`. |

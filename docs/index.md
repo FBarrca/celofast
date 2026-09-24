@@ -72,10 +72,10 @@ data. Pull and restart Python when you want new definitions.
 `mode="published"` selects published Apps resources. The modes do not fall back
 to each other. Use matching Space and Package IDs for the selected context.
 
-**Defaults and current user input.** Captured KM defaults, View template
-bindings, and a user's current control values are separate sources. KM input
-variables require explicit `variables=` bindings on `cf.km(...)`; captured
-defaults are metadata only. Reading a control does not automatically filter
+**Defaults and current user input.** KM input variables, View template
+bindings, and a user's current control values are separate sources. Object
+reads bind KM input variables with the KM's current values on each read.
+Reading a control does not automatically filter
 objects. See [View values and object filters](views-and-inputs.md#values-and-object-filters).
 
 ## Objects or View tables?

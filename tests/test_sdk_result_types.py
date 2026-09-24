@@ -25,7 +25,7 @@ def capture():
             attribute("Total", '"o_Plant"."Planned" + "o_Plant"."Purchased"', None),
             attribute("Planned", "COALESCE(PU_SUM(\"o_Plant\", \"o_Order\".\"Quantity\", DAYS_BETWEEN(TODAY(), \"o_Order\".\"Due\") < ${months}), 0.0)", None),
         ],
-    }]}, input_variables={"months": {"dataType": "NUMBER", "defaultValue": 3}}, tables={"o_Plant": {"primary_key": ["ID"], "columns": {"ID": "STRING"}}})
+    }]}, input_variables={"months": {"dataType": "NUMBER", "value": "3"}}, tables={"o_Plant": {"primary_key": ["ID"], "columns": {"ID": "STRING"}}})
 
 
 @pytest.mark.parametrize("expression", [
@@ -56,38 +56,40 @@ def test_incorrect_declared_type_is_corrected_before_validation_and_generation(t
     assert overridden.objects[0].fields[1].value_type == "date"
 
 
-def test_runtime_inputs_keep_declared_types_without_schema_queries():
+def test_inputs_without_a_default_keep_declared_types_without_schema_queries():
     original = Capture(source=SOURCE, definition={"records": [{
         "id": "O_LINE", "pql": "o_Line", "attributes": [
             attribute("ID", '"o_Line"."ID"'),
             attribute("Value", "${choice}", "STRING"),
         ],
-    }]}, tables={"o_Line": {"primary_key": ["ID"], "columns": {"ID": "STRING"}}})
-    mapping = {"objects": {"O_LINE": {"include-fields": ["Value"]}}}
-    cap = resolve_types(original, lambda expression: pytest.fail("Unbound input must not be probed"), mapping=mapping)
-    field = normalize(cap, mapping).objects[0].fields[1]
+    }]}, input_variables={"choice": {"dataType": "TEXT"}},
+        tables={"o_Line": {"primary_key": ["ID"], "columns": {"ID": "STRING"}}})
+    cap = resolve_types(original, lambda expression: pytest.fail("Without a default there is nothing to run"))
+    field = normalize(cap).objects[0].fields[1]
     assert (field.value_type, field.expression) == ("str", "${choice}")
 
 
-def test_missing_type_is_resolved_then_validated_and_generated(tmp_path):
+def test_input_attributes_are_typed_with_pull_values_but_keep_their_placeholders(tmp_path):
     original = capture()
     described = []
 
     def describe(expression):
         described.append(expression)
         assert "${months}" not in expression
-        assert "COALESCE" in expression
         return "float"
 
     cap = resolve_types(original, describe)
-    assert len(described) == 1  # Direct input attributes still follow include-fields.
+    # Total references Planned and stays a reference; Celonis resolves it with
+    # the KM's own values. Planned uses ${months} directly: bound for the run.
+    assert described == ['"o_Plant"."Planned" + "o_Plant"."Purchased"', described[1]]
+    assert "< 3)" in described[1]
     assert cap.definition == original.definition
     assert original.types == {}
     cap = Capture.model_validate_json(cap.model_dump_json())
 
     def execute(expressions, limit):
-        assert expressions[-1] == f"({described[0]}\n)"
-        return [("P1", 1.25), ("P2", None)]
+        assert [e[1:-2] for e in expressions[1:]] == described
+        return [("P1", 1.25, 1.0), ("P2", None, None)]
 
     assert validate(cap, execute).validation == {}
     for name, content in generate(cap).items():
@@ -95,6 +97,8 @@ def test_missing_type_is_resolved_then_validated_and_generated(tmp_path):
     sdk = load(tmp_path, "result_type_sdk")
     assert sdk.Plant.fields.total.value_type == "float"
     assert sdk.Plant.fields.total.expression == described[0]
+    assert "${months}" in sdk.Plant.fields.planned.expression
+    assert sdk.km.variables == {"months": "NUMBER"}
 
 
 @pytest.mark.parametrize("catalog", [True, False])
@@ -102,7 +106,10 @@ def test_explicit_types_and_exclusions_do_not_query_the_schema(catalog):
     def unexpected(expression):
         pytest.fail("No type lookup needed")
 
-    for settings in ({"types": {"Total": "int"}}, {"exclude-fields": ["Total"]}):
+    for settings in (
+        {"types": {"Total": "int", "Planned": "float"}},
+        {"exclude-fields": ["Total", "Planned"]},
+    ):
         original = capture()
         if not catalog:
             original = original.model_copy(update={"tables": None})

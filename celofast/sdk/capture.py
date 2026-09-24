@@ -50,7 +50,7 @@ class Capture(BaseModel):
     definition: dict[str, Any]
     """The KM's effective (final-layer) definition, as Celonis returns it."""
     input_variables: dict[str, Any] | None = None
-    """Studio input definitions by key, including their default values."""
+    """KM input variables by key: ``{"dataType", "value"}``, value as of the pull."""
     joins: list[dict[str, Any]] | None = None
     """Data Model foreign keys: ``{"one", "many", "columns": [[one, many]]}``."""
     tables: dict[str, Any] | None = None
@@ -121,30 +121,19 @@ def data_model_joins(data_model: Any) -> list[dict[str, Any]]:
     return joins
 
 
-def _input_variables(native: Any, node_id: str, key: str, mode: str) -> dict[str, Any]:
-    """Studio input definitions of the KM revision that matches ``mode``."""
-    from urllib.parse import quote
+def input_variables(native: Any) -> dict[str, dict[str, str | None]]:
+    """The KM's input variables: ``{key: {"dataType", "value"}}``.
 
-    url = f"/package-manager/api/nodes/{quote(node_id, safe='')}"
-    node = native.client.request(method="GET", url=url, parse_json=True)
-    if not isinstance(node, dict):
-        raise CaptureError("Studio response has no KM node metadata.")
-    revision = node.get("workingDraftId" if mode == "draft" else "activatedDraftId")
-    if not isinstance(revision, str) or not revision:
-        raise CaptureError(f"KM node has no {mode} revision for input-variable capture.")
-    if node.get("draftId") != revision:
-        node = native.client.request(
-            method="GET", url=url, params={"draftId": revision}, parse_json=True
-        )
-    if not isinstance(node, dict) or (node.get("draftId"), node.get("key")) != (revision, key):
-        raise CaptureError("Studio input-variable source does not match the selected KM revision.")
-    inputs: dict[str, Any] = {}
-    for item in node.get("inputVariableDefinitions") or ():
-        name = item.get("key") if isinstance(item, dict) else None
-        if not isinstance(name, str) or not name or name in inputs:
-            raise CaptureError("Studio input variables have missing or duplicate keys.")
-        inputs[name] = item
-    return inputs
+    ``value`` is the current value (assigned, otherwise the default), as
+    reads bind it at query time.
+    """
+    return {
+        variable.key: {
+            "dataType": getattr(variable.data_type, "value", variable.data_type),
+            "value": variable.value_or_default,
+        }
+        for variable in native.get_variables()
+    }
 
 
 def retrieve(
@@ -156,7 +145,7 @@ def retrieve(
     data_model: Any = None,
     progress: Progress | None = None,
 ) -> Capture:
-    """Read the KM's final layer, input defaults, and (optionally) Data Model.
+    """Read the KM's final layer, input variables, and (optionally) Data Model.
 
     The endpoint and options mirror PyCelonis 2.15.1's ``get_content``; reading
     the raw JSON avoids lossy transport models and selects the lifecycle
@@ -182,18 +171,16 @@ def retrieve(
     layer = response.get("layer") if isinstance(response, dict) else None
     if not isinstance(layer, dict):
         raise CaptureError("Effective KM response has no definition layer.")
-    tenant_id, node_id = layer.get("tenantId"), layer.get("nodeEntityId")
+    tenant_id = layer.get("tenantId")
     if not isinstance(tenant_id, str) or not tenant_id:
         raise CaptureError("Effective KM response has no tenantId.")
-    if not isinstance(node_id, str) or not node_id:
-        raise CaptureError("Effective KM has no nodeEntityId for input-variable capture.")
     source = Source(
         tenant_id=tenant_id, space_id=space_id, package_id=package_id, key=native.key, mode=mode
     )
     capture = Capture(
         source=source,
         definition=layer,
-        input_variables=_input_variables(native, node_id, native.key, mode),
+        input_variables=input_variables(native),
     )
     if data_model is None:
         return capture
