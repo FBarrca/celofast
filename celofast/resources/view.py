@@ -1,60 +1,88 @@
-"""Typed Studio and published View table handles backed by PyCelonis."""
+"""Studio and published View tables and inputs, backed by PyCelonis.
+
+``cf.view(key)`` returns a :class:`ViewHandle`; ``view[selector]`` returns a
+table or input by component ID or unique display name. Tables run their
+native ``Table.get_query()`` through the View's Knowledge Model, with every
+``${name}`` input placeholder bound to the input's current value.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from functools import cached_property
 from types import MappingProxyType
+from typing import TYPE_CHECKING, TypedDict, TypeVar
 
 import pandas as pd
+import pycelonis.pql as pql
 from pycelonis.ems.apps.content_node.view import PublishedView
-from pycelonis.ems.apps.content_node.view.component import Table
+from pycelonis.ems.apps.content_node.view.component import Component, Table
 from pycelonis.ems.apps.content_node.view.content import ViewContent
+from pycelonis.ems.studio.content_node.knowledge_model import KnowledgeModel
 from pycelonis.ems.studio.content_node.view import View
+from pycelonis.service.package_manager.service import AppMode, PackageManagerService
+from typing_extensions import NotRequired
 
 from celofast.exceptions import (
+    AmbiguousComponentError,
     AmbiguousTableError,
+    ComponentNotFoundError,
     QueryValidationError,
     TableNotFoundError,
 )
-from celofast.query import (
-    QueryDefinition,
-    query_from_pql,
-    validate_query,
-    validate_variables,
-)
-from celofast.resources.knowledge_model import KnowledgeModelConnection
 from celofast.resources.view_input import (
-    CheckboxHandle,
-    DatePickerHandle,
-    DropdownHandle,
-    InputBoxHandle,
-    SelectorHandle,
+    INPUT_HANDLES,
+    InputVariableValue,
+    ViewElement,
     ViewInputHandle,
-    ViewInputValueClient,
 )
+from celofast.sdk.expressions import bind_inputs, placeholders
+
+if TYPE_CHECKING:
+    from celofast.resources.knowledge_model import KnowledgeModelConnection
 
 NativeView = View | PublishedView
+E = TypeVar("E", bound=ViewElement)
+
+
+class OrderByDefinition(TypedDict):
+    """One ordering of a :class:`QueryDefinition`: a PQL expression and direction."""
+
+    pql: str
+    ascending: NotRequired[bool]
+
+
+class QueryDefinition(TypedDict):
+    """A View table's query as plain, serializable PQL strings.
+
+    ``columns`` maps output names to expressions in table order; ``filters``
+    are complete filter statements; ``order_by`` lists the sorting. KPI and
+    KM filter references such as ``FILTER @active;`` stay symbolic.
+    """
+
+    columns: dict[str, str]
+    filters: NotRequired[list[str]]
+    order_by: NotRequired[list[OrderByDefinition]]
+
+
+def _find(elements: Sequence[E], selector: str, missing: type[Exception],
+          ambiguous: type[Exception], kind: str, view: str) -> E:
+    """The element with that exact component ID, else that unique display name."""
+    matches = [e for e in elements if e.id == selector] or [e for e in elements if e.name == selector]
+    if not matches:
+        raise missing(f"{kind} {selector!r} was not found in View {view!r}.")
+    if len(matches) > 1:
+        locations = ", ".join(f"{e.id!r} (tab {e.tab_name!r})" for e in matches)
+        raise ambiguous(f"{kind} {selector!r} is ambiguous; use a component ID: {locations}.")
+    return matches[0]
 
 
 class ViewHandle:
-    """Expose typed table components from one Studio or published View.
+    """The tables and inputs of one Studio or published View.
 
-    A handle is built from PyCelonis's validated :class:`ViewContent`, so it
-    discovers native ``Table`` components in both root components and tab
-    components.  It does not recreate View semantics: table columns, filters,
-    KPI references, and sort expressions come directly from
-    ``Table.get_query()``.
-
-    Args:
-        view: Native Studio draft or published Apps View.
-        content: Typed content parsed by PyCelonis ``ViewContent``.
-        knowledge_model: Lazy factory for the KM named by the View metadata.
-        variables: Optional View-level exact string bindings.  Published View
-            input defaults are loaded first and these values take precedence.
-
-    Notes:
-        The associated KM/Data Model is resolved lazily.  Use ``native`` or
-        ``content`` when a caller needs the underlying PyCelonis objects.
+    Elements come from PyCelonis's validated :class:`ViewContent`, in root
+    components first, then each tab. The View's Knowledge Model is resolved
+    only when a table or data-backed dropdown runs a query.
     """
 
     def __init__(
@@ -62,440 +90,197 @@ class ViewHandle:
         view: NativeView,
         content: ViewContent,
         knowledge_model: Callable[[], KnowledgeModelConnection],
-        *,
-        variables: Mapping[str, str] | None = None,
+        native_knowledge_model: Callable[[], KnowledgeModel] | None = None,
     ) -> None:
         self._native = view
         self._content = content
         self._km_factory = knowledge_model
-        self._km: KnowledgeModelConnection | None = None
-
-        defaults: dict[str, str] = {}
-        for definition in view.input_variable_definitions or []:
-            if (
-                definition is not None
-                and definition.key
-                and definition.default_value is not None
-            ):
-                defaults[definition.key] = definition.default_value
-        defaults.update(validate_variables(variables))
-        self._variables = MappingProxyType(defaults)
-
-        tables: list[ViewTableHandle] = []
-        tables.extend(self._table_handles(content.components, tab_name=None))
-        for tab in content.tabs:
-            tables.extend(self._table_handles(tab.components, tab_name=tab.name))
-        self._tables = tuple(tables)
-        self._input_definitions: Mapping[str, object] | None = None
-        self._input_value_client = ViewInputValueClient(self)
-
-        controls: list[ViewInputHandle] = []
-        controls.extend(self._control_handles(content.components, tab_name=None))
-        for tab in content.tabs:
-            controls.extend(self._control_handles(tab.components, tab_name=tab.name))
-        self._controls = tuple(controls)
+        self._native_km_factory = native_knowledge_model or (lambda: self.km.native)
+        elements: list[ViewElement] = []
+        for tab_name, components in [(None, content.components)] + [
+            (tab.name, tab.components) for tab in content.tabs
+        ]:
+            for component in components:
+                if isinstance(component, Table):
+                    elements.append(ViewTableHandle(self, component, tab_name=tab_name))
+                elif isinstance(component, Component) and component.type_ in INPUT_HANDLES:
+                    elements.append(INPUT_HANDLES[component.type_](self, component, tab_name=tab_name))
+        self._elements = tuple(elements)
 
     @property
     def native(self) -> NativeView:
-        """Return the underlying native Studio or Apps View.
-
-        Returns:
-            The exact native View supplied by the package resolver.
-        """
-
+        """The native PyCelonis View."""
         return self._native
 
     @property
     def content(self) -> ViewContent:
-        """Return PyCelonis's validated, typed View content.
-
-        Returns:
-            The :class:`pycelonis.ems.apps.content_node.view.content.ViewContent`
-            parsed from the View's serialized draft definition or fetched from
-            the published Apps View.
-        """
-
+        """The View's typed PyCelonis content."""
         return self._content
 
-    @property
+    @cached_property
     def km(self) -> KnowledgeModelConnection:
-        """Return the lazily resolved Knowledge Model associated with the View.
+        """The View's Knowledge Model, resolved with its Data Model on first use."""
+        return self._km_factory()
 
-        Returns:
-            A cached :class:`KnowledgeModelConnection` selected using
-            ``content.metadata.knowledge_model_key``.
-
-        Raises:
-            ResourceNotFoundError: If the metadata key is not in the Package.
-            ResourceResolutionError: If its final Data Model is inaccessible.
-        """
-
-        if self._km is None:
-            self._km = self._km_factory()
-        return self._km
+    @cached_property
+    def native_km(self) -> KnowledgeModel:
+        """The View's native Knowledge Model, without resolving its Data Model."""
+        return self._native_km_factory()
 
     @property
-    def variables(self) -> Mapping[str, str]:
-        """Return immutable View-level template bindings.
+    def elements(self) -> tuple[ViewElement, ...]:
+        """Supported tables and inputs, root components first, then each tab."""
+        return self._elements
 
-        Returns:
-            A read-only mapping containing published View input defaults,
-            overridden by bindings passed to :meth:`CeloFast.view`.  The
-            mapping is used as the base for table execution; per-call
-            ``variables`` supplied to :meth:`ViewTableHandle.execute` take
-            final precedence.
-        """
-
-        return self._variables
-
-    @property
-    def tables(self) -> tuple[ViewTableHandle, ...]:
-        """Return all typed table components in stable content order.
-
-        Returns:
-            A tuple containing tables in root components first, followed by
-            each tab's components.  Each handle exposes its native component,
-            component ID, display name, and tab name.
-        """
-
-        return self._tables
-
-    @property
+    @cached_property
     def input_definitions(self) -> Mapping[str, object]:
-        """Return KM input-variable definitions indexed by their exact keys."""
+        """KM and View-scoped input variable definitions by key.
 
-        return self._input_definitions_by_key
+        A View-scoped definition overrides a KM definition of the same key.
+        """
+        definitions: dict[str, object] = {}
+        for source, sources in (
+            ("Knowledge Model", self.native_km.input_variable_definitions),
+            ("View", getattr(self._native, "input_variable_definitions", None)),
+        ):
+            keys = [d.key for d in sources or () if d is not None and d.key]
+            duplicate = next((key for key in keys if keys.count(key) > 1), None)
+            if duplicate is not None:
+                raise QueryValidationError(f"{source} input variable {duplicate!r} is duplicated.")
+            definitions.update({d.key: d for d in sources or () if d is not None and d.key})
+        return MappingProxyType(definitions)
 
-    @property
-    def _input_definitions_by_key(self) -> Mapping[str, object]:
-        if self._input_definitions is None:
-            definitions: dict[str, object] = {}
-            for definition in self.km.native.input_variable_definitions or []:
-                if definition is None or not definition.key:
-                    continue
-                if definition.key in definitions:
-                    raise QueryValidationError(
-                        f"Knowledge Model input variable {definition.key!r} is duplicated."
-                    )
-                definitions[definition.key] = definition
-            self._input_definitions = MappingProxyType(definitions)
-        return self._input_definitions
-
-    @property
-    def controls(self) -> tuple[ViewInputHandle, ...]:
-        """Return all supported variable-backed controls in content order."""
-
-        return self._controls
-
-    @property
-    def input_boxes(self) -> tuple[InputBoxHandle, ...]:
-        return tuple(c for c in self._controls if isinstance(c, InputBoxHandle))
-
-    @property
-    def dropdowns(self) -> tuple[DropdownHandle, ...]:
-        return tuple(
-            c
-            for c in self._controls
-            if isinstance(c, DropdownHandle) and not isinstance(c, SelectorHandle)
-        )
-
-    @property
-    def selectors(self) -> tuple[SelectorHandle, ...]:
-        return tuple(c for c in self._controls if isinstance(c, SelectorHandle))
-
-    @property
-    def date_pickers(self) -> tuple[DatePickerHandle, ...]:
-        return tuple(c for c in self._controls if isinstance(c, DatePickerHandle))
-
-    @property
-    def checkboxes(self) -> tuple[CheckboxHandle, ...]:
-        return tuple(c for c in self._controls if isinstance(c, CheckboxHandle))
-
-    def input_box(self, name_or_id: str) -> InputBoxHandle:
-        return self._control(name_or_id, InputBoxHandle, "input box")
-
-    def dropdown(self, name_or_id: str) -> DropdownHandle:
-        return self._control(name_or_id, DropdownHandle, "dropdown", exclude=SelectorHandle)
-
-    def selector(self, name_or_id: str) -> SelectorHandle:
-        return self._control(name_or_id, SelectorHandle, "selector")
-
-    def date_picker(self, name_or_id: str) -> DatePickerHandle:
-        return self._control(name_or_id, DatePickerHandle, "date picker")
-
-    def checkbox(self, name_or_id: str) -> CheckboxHandle:
-        return self._control(name_or_id, CheckboxHandle, "checkbox")
-
-    def table(self, name_or_id: str) -> ViewTableHandle:
-        """Find one table by exact component ID or exact display name.
-
-        Lookup checks IDs first, then display names.  An ID is always
-        unambiguous; duplicate display names are rejected so callers do not
-        accidentally execute the wrong table.
-
-        Args:
-            name_or_id: Exact native component ID or exact configured display
-                name.
-
-        Returns:
-            The matching :class:`ViewTableHandle`.
+    def __getitem__(self, selector: str) -> ViewElement:
+        """The table or input with that exact component ID, else unique display name.
 
         Raises:
-            TableNotFoundError: If no table has that ID or name.
-            AmbiguousTableError: If multiple tables share the display name.
-                The exception lists matching IDs and tabs; use an ID to select
-                one explicitly.
+            ComponentNotFoundError: No supported element matches.
+            AmbiguousComponentError: Several elements share the display name.
+            ComponentVariableError: The input is not bound to a defined variable.
         """
+        if not isinstance(selector, str):
+            raise TypeError("View element selector must be a string ID or display name.")
+        element = _find(self._elements, selector, ComponentNotFoundError,
+                        AmbiguousComponentError, "Element", self._native.key)
+        if isinstance(element, ViewInputHandle):
+            element._check_binding()
+        return element
 
-        id_matches = [table for table in self._tables if table.id == name_or_id]
-        if id_matches:
-            return id_matches[0]
+    def _table(self, selector: str) -> ViewTableHandle:
+        tables = [e for e in self._elements if isinstance(e, ViewTableHandle)]
+        return _find(tables, selector, TableNotFoundError, AmbiguousTableError, "Table", self._native.key)
 
-        name_matches = [table for table in self._tables if table.name == name_or_id]
-        if not name_matches:
-            raise TableNotFoundError(
-                f"Table {name_or_id!r} was not found in View {self._native.key!r}."
+    def _input_values(self) -> dict[str, InputVariableValue]:
+        """Current values of every KM and View-scoped input variable, read now."""
+        km = self.native_km
+        raw = list(km.get_variables())
+        if getattr(self._native, "input_variable_definitions", None):
+            # KM.get_variables() covers KM inputs only; View-scoped inputs
+            # (such as date-picker endpoints) are read from the View node.
+            raw += PackageManagerService.get_api_nodes_node_id_input_variables_values(
+                km.client,
+                self._native.id,
+                ref_node_id=km.id,
+                app_mode=AppMode.VIEWER if isinstance(self._native, PublishedView) else AppMode.CREATOR,
+            ) or []
+        definitions = self.input_definitions
+        return {
+            variable.key: InputVariableValue.of(variable, definitions.get(variable.key))
+            for variable in raw if variable is not None
+        }
+
+    def _binder(self) -> Callable[[str], str]:
+        """Bind ``${name}`` placeholders with current input values, read once if needed."""
+        values: dict[str, InputVariableValue] | None = None
+
+        def bind(expression: str) -> str:
+            nonlocal values
+            if not placeholders(expression):
+                return expression
+            if values is None:
+                values = self._input_values()
+            current = values
+            return bind_inputs(
+                expression,
+                lambda name: current[name].value if name in current else None,
+                {name: value.data_type for name, value in current.items()},
             )
-        if len(name_matches) > 1:
-            locations = ", ".join(
-                f"{table.id!r} (tab {table.tab_name!r})" for table in name_matches
-            )
-            raise AmbiguousTableError(
-                f"Table name {name_or_id!r} is ambiguous; use a component ID: "
-                f"{locations}."
-            )
-        return name_matches[0]
 
-    def _table_handles(
-        self,
-        components: Iterable[object],
-        *,
-        tab_name: str | None,
-    ) -> list[ViewTableHandle]:
-        return [
-            ViewTableHandle(self, component, tab_name=tab_name)
-            for component in components
-            if isinstance(component, Table)
-        ]
-
-    def _control_handles(
-        self,
-        components: Iterable[object],
-        *,
-        tab_name: str | None,
-    ) -> list[ViewInputHandle]:
-        handles: list[ViewInputHandle] = []
-        handle_types = (
-            InputBoxHandle,
-            DropdownHandle,
-            SelectorHandle,
-            DatePickerHandle,
-            CheckboxHandle,
-        )
-        for component in components:
-            component_type = getattr(component, "type_", None)
-            for handle_type in handle_types:
-                if component_type in handle_type.COMPONENT_TYPES:
-                    handles.append(handle_type(self, component, tab_name=tab_name))
-                    break
-        return handles
-
-    def _control(
-        self,
-        name_or_id: str,
-        handle_type: type[ViewInputHandle],
-        kind: str,
-        *,
-        exclude: type[ViewInputHandle] | None = None,
-    ):
-        from celofast.exceptions import AmbiguousComponentError, ComponentNotFoundError
-
-        candidates = [
-            control
-            for control in self._controls
-            if isinstance(control, handle_type)
-            and (exclude is None or not isinstance(control, exclude))
-        ]
-        id_matches = [control for control in candidates if control.id == name_or_id]
-        if id_matches:
-            id_matches[0].validate_binding()
-            return id_matches[0]
-        name_matches = [control for control in candidates if control.name == name_or_id]
-        if not name_matches:
-            raise ComponentNotFoundError(
-                f"{kind.title()} {name_or_id!r} was not found in View "
-                f"{self._native.key!r}."
-            )
-        if len(name_matches) > 1:
-            locations = ", ".join(
-                f"{control.id!r} (tab {control.tab_name!r})"
-                for control in name_matches
-            )
-            raise AmbiguousComponentError(
-                f"{kind.title()} name {name_or_id!r} is ambiguous; use a "
-                f"component ID: {locations}."
-            )
-        name_matches[0].validate_binding()
-        return name_matches[0]
+        return bind
 
 
-class ViewTableHandle:
-    """Export and execute one native PyCelonis View table component.
+class ViewTableHandle(ViewElement):
+    """One table of a View, running its native ``Table.get_query()``.
 
-    Table queries are obtained from ``component.get_query()``.  This preserves
-    every native column (including configured data-source attributes hidden in
-    the UI), native ``FILTER @...;`` references, and configured sorting.
-
-    The handle is normally obtained from :meth:`ViewHandle.table` rather than
-    constructed directly.  Its ``component`` property remains available as a
-    native PyCelonis escape hatch.
+    The native query keeps every configured column (including hidden ones),
+    filter, KM filter reference, and sorting.
     """
 
-    def __init__(
-        self,
-        view: ViewHandle,
-        component: Table,
-        *,
-        tab_name: str | None,
-    ) -> None:
-        self._view = view
-        self._component = component
-        self._tab_name = tab_name
-
-    @property
-    def id(self) -> str:
-        """Return the stable native component ID used for unambiguous lookup.
-
-        Returns:
-            The table component's PyCelonis ID.
-        """
-        return self._component.id
-
-    @property
-    def name(self) -> str:
-        """Return the configured display name, falling back to ``id``.
-
-        Returns:
-            The table's exact display name when configured; otherwise its
-            component ID.
-        """
-        name = getattr(self._component.settings, "name", None)
-        return name if isinstance(name, str) and name else self.id
-
-    @property
-    def tab_name(self) -> str | None:
-        """Return the containing tab name, or ``None`` for root components.
-
-        Returns:
-            The exact native tab display name when the table is nested in a
-            View tab; ``None`` when it belongs to the View root.
-        """
-        return self._tab_name
+    _component: Table
 
     @property
     def component(self) -> Table:
-        """Return the underlying typed PyCelonis ``Table`` component.
-
-        Returns:
-            The native component used to obtain the table query and filters.
-            Callers can use this property for PyCelonis features not exposed
-            by CeloFast.
-        """
-
+        """The native PyCelonis table component."""
         return self._component
 
     def to_query(
-        self,
-        *,
-        inherit_filters_from: Sequence[str] = (),
-        extra_filters: Iterable[str] = (),
+        self, *, inherit_filters_from: Sequence[str] = (), extra_filters: Iterable[str] = ()
     ) -> QueryDefinition:
-        """Export this table's native query as a symbolic dictionary.
+        """This table's query as a plain dictionary; nothing is executed.
 
-        Args:
-            inherit_filters_from: Ordered table selectors (IDs or unique
-                names).  Each selected table's configured filters are
-                appended in request order after this table's own filters.
-            extra_filters: Iterable of complete native PQL filter statements.
-                These are appended after all inherited filters.
-
-        Returns:
-            A fresh :class:`~celofast.QueryDefinition` containing every column,
-            native filter, and ``order_by`` expression returned by
-            ``Table.get_query()``.  KPI and Knowledge Model references remain
-            symbolic for server-side resolution; no KM execution occurs.
-
-        Raises:
-            QueryValidationError: If selector/filter arguments are strings in
-                place of iterables, contain invalid values, or the native
-                query has duplicate/invalid fields.
-            TableNotFoundError: If an inherited table selector is unknown.
-            AmbiguousTableError: If an inherited display name is duplicated.
+        ``inherit_filters_from`` names tables (by ID or unique name) whose
+        configured filters are added after this table's own; ``extra_filters``
+        are complete PQL filter statements added last. ``${name}``
+        placeholders are kept.
         """
+        query = self._query(inherit_filters_from, extra_filters)
+        return QueryDefinition(
+            columns={column.name: column.query for column in query.columns},
+            filters=[filter_.query for filter_ in query.filters],
+            order_by=[{"pql": o.query, "ascending": o.ascending} for o in query.order_by_columns],
+        )
 
-        if isinstance(inherit_filters_from, str):
-            raise QueryValidationError(
-                "inherit_filters_from must be a sequence of table names or IDs."
-            )
-        if isinstance(extra_filters, str):
-            raise QueryValidationError(
-                "extra_filters must be an iterable of complete PQL filter strings."
-            )
-
-        definition = query_from_pql(self._component.get_query())
-        filters = list(definition["filters"])
-        for selector in inherit_filters_from:
-            inherited = self._view.table(selector).component.get_filters()
-            filters.extend(filter_.query for filter_ in inherited)
-        filters.extend(extra_filters)
-        definition["filters"] = filters
-        return validate_query(definition)
-
-    def execute(
+    def rows(
         self,
         *,
         inherit_filters_from: Sequence[str] = (),
         extra_filters: Iterable[str] = (),
-        variables: Mapping[str, str] | None = None,
         limit: int | None = None,
         offset: int | None = None,
         distinct: bool = False,
     ) -> pd.DataFrame:
-        """Export and execute this table through its associated Knowledge Model.
+        """Run this table's query and return its rows.
 
-        Args:
-            inherit_filters_from: Ordered table selectors whose configured
-                filters should be inherited before ``extra_filters``.
-            extra_filters: Complete native PQL filter statements appended last.
-            variables: Per-call exact string bindings for ``${name}``
-                placeholders.  Precedence is execution values, then the
-                View-level values, then published View input defaults.
-            limit: Maximum number of rows, or ``None`` for no implicit limit.
-            offset: Number of rows to skip, or ``None`` for the connector
-                default.  Pagination is passed to SaolaPy ``to_pandas``.
-            distinct: Whether to request distinct rows from SaolaPy.
-
-        Returns:
-            The pandas ``DataFrame`` returned by the native KM connector.
-
-        Raises:
-            QueryValidationError: If filters, variables, or execution options
-                are malformed.
-            TableNotFoundError: If an inherited table selector is unknown.
-            AmbiguousTableError: If an inherited display name is ambiguous.
-            Exception: Native PyCelonis/SaolaPy execution errors are preserved
-                unchanged.
+        Filters compose as in :meth:`to_query`. Input placeholders are bound
+        with the inputs' current values. Native PyCelonis errors propagate.
         """
-
-        merged_variables = dict(self._view.variables)
-        merged_variables.update(validate_variables(variables))
-        return self._view.km._execute(
-            self.to_query(
-                inherit_filters_from=inherit_filters_from,
-                extra_filters=extra_filters,
-            ),
-            variables=merged_variables,
-            limit=limit,
-            offset=offset,
-            distinct=distinct,
+        query = self._query(inherit_filters_from, extra_filters)
+        bind = self._view._binder()
+        bound = pql.PQL(
+            columns=[pql.PQLColumn(name=c.name, query=bind(c.query)) for c in query.columns],
+            filters=[pql.PQLFilter(query=bind(f.query)) for f in query.filters],
+            order_by_columns=[
+                pql.OrderByColumn(query=bind(o.query), ascending=o.ascending)
+                for o in query.order_by_columns
+            ],
         )
+        return self._view.km._export(bound, limit=limit, offset=offset, distinct=distinct)
+
+    def _query(self, inherit_filters_from: Sequence[str], extra_filters: Iterable[str]) -> pql.PQL:
+        if isinstance(inherit_filters_from, str):
+            raise QueryValidationError("inherit_filters_from must be a sequence of table names or IDs.")
+        if isinstance(extra_filters, str):
+            raise QueryValidationError("extra_filters must be an iterable of complete PQL filter strings.")
+        query = self._component.get_query()
+        names = [column.name for column in query.columns]
+        duplicate = next((name for name in names if names.count(name) > 1), None)
+        if duplicate is not None:
+            raise QueryValidationError(f"Table {self.name!r} has duplicate column name {duplicate!r}.")
+        filters = list(query.filters)
+        for selector in inherit_filters_from:
+            filters.extend(self._view._table(selector).component.get_filters())
+        for statement in extra_filters:
+            if not isinstance(statement, str) or not statement.strip():
+                raise QueryValidationError("extra_filters must be non-empty PQL filter strings.")
+            filters.append(pql.PQLFilter(query=statement))
+        return pql.PQL(columns=query.columns, filters=filters, order_by_columns=query.order_by_columns)

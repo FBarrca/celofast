@@ -54,12 +54,13 @@ sharing a diagnostic.
 
 | Symptom | Check / next step |
 | --- | --- |
-| Missing or ambiguous View element | Iterate `view.elements` and select the exact ID. Names are case-sensitive and must be unique. |
-| `ComponentVariableError` | Check `onChange.update.variables` in the native component configuration and the KM input definitions. |
-| A range picker rejects `variable_key` or `details()` | Use `get()` for `DateRange`, plus `start_variable_key` and `end_variable_key`. |
-| Dropdown selection differs from `options()` | `get()` reads current selection; `options()` queries the configured data-source attribute. |
-| A control value is not affecting a KM query | Explicitly use it in a predicate or binding. Control reads do not automatically alter other queries. |
-| Missing/invalid value response | Check the View's associated KM and Package Manager response. Dates must be ISO dates; checkboxes must decode as booleans. |
+| `ComponentNotFoundError` or `AmbiguousComponentError` | List `view.elements` and select the element by its component ID. Names are case-sensitive. |
+| `ComponentVariableError` | The input field isn't bound to a variable the KM or View defines. Check the field's input variable in Studio. |
+| `variable_key` fails on a range date picker | A range has two variables: use `start_variable_key` and `end_variable_key`, or `.value` for a `DateRange`. |
+| An input's value differs from what a user sees in the browser | The input variable is user-specific (`USER_SPECIFIC`): each user has their own value, and Celofast can only read its own. Make the variable global (scope `SYSTEM`) in Studio. See [Whose value?](views.md#4-read-an-input-field). |
+| `UnresolvedVariableError` from `rows()` | The table uses an input with neither a value nor a default. Set one in Studio. |
+| A View input doesn't filter KM objects | Reading an input doesn't filter KM objects; use its value in a predicate. View tables use input values automatically. |
+| `ResourceResolutionError` for an input | Celonis returned no value, or an unreadable one. Dates must be ISO dates or epoch timestamps; checkboxes must be `true` or `false`. |
 
 ## Augmentation writes
 

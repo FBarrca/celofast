@@ -7,20 +7,24 @@ data. Knowledge Models become typed business objects you retrieve and traverse
 in Python; View tables provide configured tabular inputs; results can be written
 to augmentation tables.
 
-## Reading paths
+## Guides
 
-| Task | Guide |
+| Guide | Use it to |
 | --- | --- |
-| First connection and first objects | [Getting started](getting-started.md) |
-| Typed business objects, keys, filters, and relationships | [Knowledge Models](knowledge-model-sdk.md) |
-| Tables already configured in Studio and current control values | [Views and inputs](views-and-inputs.md) |
-| Query dictionaries exported from View tables | [View query dictionaries](dictionary-queries.md) |
-| Create, update, or remove application output | [Augmentation tables](augmentation-tables.md) |
-| Augmentation architecture, naming rules, and exact service limits | [Architecture and limit notes](Augmentated_tables.md) |
-| TAA/V2, legacy RAA/V1, Annotation Builder, and migration | [Detailed augmentation reference](Augmentated_tables%20copy.md) |
-| Method signatures and return values | [API reference](api-reference.md) |
-| Common failures and their next steps | [Troubleshooting](troubleshooting.md) |
-| Local tests, code layout, and documentation maintenance | [Development](development.md) |
+| [Getting started](getting-started.md) | Install Celofast, authenticate, and run a first query. |
+| [Knowledge Models](knowledge-model-sdk.md) | Load typed business objects, filter them, and follow relationships. |
+| [Views](views.md) | Read a View's tables as DataFrames and its input fields' values. |
+| [Augmentation tables](augmentation-tables.md) | Write predictions, scores, and other results back to Celonis. |
+
+## Reference
+
+| Page | Contents |
+| --- | --- |
+| [API reference](api-reference.md) | Every public call, argument, and command. |
+| [Troubleshooting](troubleshooting.md) | Common errors and what to do about them. |
+| [Augmentation architecture and limits](Augmentated_tables.md) | Storage, naming rules, and exact service limits. |
+| [Augmentation platform reference](Augmentated_tables%20copy.md) | Table-backed attributes (TAA/V2, RAA/V1), Annotation Builder, and migration. |
+| [Development](development.md) | Tests, code layout, and documentation maintenance. |
 
 ## The objects you work with
 
@@ -56,9 +60,8 @@ Cloud KM definitions + object mapping -- celofast km pull --> generated object c
 - Building collections, predicates, and relationship accessors, and reading
   values from loaded objects, never fetch data. `get()`, `fetch_page()`,
   `next_page()`, and `ToOne.fetch()` do.
-- View discovery loads View content. Its KM is resolved lazily when needed.
-  Control `get()`/`details()` calls fetch current values; dropdown `options()`
-  performs a separate data query.
+- `cf.view(key)` reads the View's definition. `table.rows()`, an input's
+  `.value` and `.details()`, and a dropdown's `options()` each read live data.
 - Augmentation mutations write to the underlying Data Model.
 
 ## Three distinctions that matter
@@ -71,11 +74,10 @@ data. Pull and restart Python when you want new definitions.
 `mode="published"` selects published Apps resources. The modes do not fall back
 to each other. Use matching Space and Package IDs for the selected context.
 
-**Defaults and current user input.** KM input variables, View template
-bindings, and a user's current control values are separate sources. Object
-reads bind KM input variables with the KM's current values on each read.
-Reading a control does not automatically filter
-objects. See [View values and object filters](views-and-inputs.md#values-and-object-filters).
+**Input variables.** KM object reads and View table reads use the current
+values of the KM's input variables on each read, and `view["Input"].value`
+reads one. Reading an input does not filter KM objects by itself: use its value
+in a predicate. See [Read an input field](views.md#4-read-an-input-field).
 
 ## Objects or View tables?
 

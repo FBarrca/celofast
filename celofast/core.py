@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from pycelonis.celonis import Celonis
 
 from celofast.client import get_celonis
-from celofast.query import validate_variables
 from celofast.resolution import (
     NativePackage,
     NativeSpace,
@@ -109,9 +106,7 @@ class CeloFast:
         )
         self._km_connections: dict[str, KnowledgeModelConnection] = {}
         self._augmentation_collections: dict[str, AugmentationTableCollection] = {}
-        self._view_handles: dict[
-            tuple[str, tuple[tuple[str, str], ...]], ViewHandle
-        ] = {}
+        self._view_handles: dict[str, ViewHandle] = {}
 
     @property
     def client(self) -> Celonis:
@@ -220,51 +215,27 @@ class CeloFast:
             )
         return self._km_connections[key]
 
-    def view(
-        self,
-        key: str,
-        *,
-        variables: Mapping[str, str] | None = None,
-    ) -> ViewHandle:
-        """Return a typed View handle selected by exact key.
+    def view(self, key: str) -> ViewHandle:
+        """Return the View with this exact key, cached per key.
 
-        Args:
-            key: Exact Studio/Apps View key, rather than a display name or ID.
-            variables: Optional View input bindings.  Values are exact strings
-                used for ``${name}`` substitutions in exported table queries.
-                They are merged after published View input defaults and do not
-                override server-managed Knowledge Model variables.
-
-        Returns:
-            A cached :class:`ViewHandle` exposing typed tables from root
-            components and all View tabs.  Draft content is parsed from YAML;
-            published content is fetched through ``PublishedView.get_content``.
-            The associated KM and Data Model are resolved lazily when
-            ``view.km`` or ``table.execute()`` needs them.  Exporting a table
-            with ``table.to_query()`` only reads the native View component.
+        Draft content is parsed from the Studio View; published content is
+        fetched from the Apps View. The View's Knowledge Model is resolved
+        only when a table or data-backed dropdown runs a query.
 
         Raises:
-            ResourceNotFoundError: If no View with ``key`` exists in the
-                configured Package.
-            ResourceAmbiguityError: If multiple Views have that key.
-            ViewContentError: If the View has no valid serialized typed
-                ``ViewContent``.
-            QueryValidationError: If ``variables`` is not a string mapping.
+            ResourceNotFoundError: If no View with ``key`` exists in the Package.
+            ResourceAmbiguityError: If several Views have that key.
+            ViewContentError: If the View has no valid typed content.
         """
 
-        validated_variables = validate_variables(variables)
-        variable_items = tuple(sorted(validated_variables.items()))
-        cache_key = (key, variable_items)
-        if cache_key in self._view_handles:
-            return self._view_handles[cache_key]
-
-        native = self._resolver.view(key)
-        content = self._resolver.view_content(native)
-        handle = ViewHandle(
-            native,
-            content,
-            lambda: self._km_connection(content.metadata.knowledge_model_key),
-            variables=validated_variables,
-        )
-        self._view_handles[cache_key] = handle
-        return handle
+        if key not in self._view_handles:
+            native = self._resolver.view(key)
+            content = self._resolver.view_content(native)
+            km_key = content.metadata.knowledge_model_key
+            self._view_handles[key] = ViewHandle(
+                native,
+                content,
+                lambda: self._km_connection(km_key),
+                lambda: self._resolver.knowledge_model(km_key),
+            )
+        return self._view_handles[key]

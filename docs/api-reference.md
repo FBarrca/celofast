@@ -19,7 +19,7 @@ from celofast import CeloFast, KnowledgeModelClient, get_celonis
 | `CeloFast(space_id, package_id, *, mode="draft", client=None)` | A package-scoped connection. Mode is `draft` or `published`. |
 | `cf.km(inventory)` | `KnowledgeModelClient` for a generated object model. Validates Space, Package, lifecycle, KM, and Data Model. KM keys raise `TypeError`. Reads bind KM input variables with the KM's current values. |
 | `cf.augmentation_tables("exact-km-key")` | Augmentation tables of the Data Model behind a KM; no generated package needed. |
-| `cf.view("exact-key", *, variables=None)` | A View handle, cached for that key and set of bindings. |
+| `cf.view("exact-key")` | A View handle, cached per key. |
 
 `cf.client`, `cf.space`, and `cf.package` expose the native resources.
 `cf.mode` exposes the selected lifecycle. `client.native`, `client.data_model`,
@@ -90,10 +90,10 @@ Source: [objects.py](../celofast/sdk/objects.py),
 | `view.elements` | Tuple of supported input and table handles, root components followed by tab components. |
 | `view[name_or_id]` | Element matched by exact ID or unique display name across input and table types. |
 | `table.to_query(*, inherit_filters_from=(), extra_filters=())` | Symbolic dictionary including configured, inherited, and extra filters. |
-| `table.rows(*, inherit_filters_from=(), extra_filters=(), variables=None, limit=None, offset=None, distinct=False)` | Fresh pandas DataFrame. |
+| `table.rows(*, inherit_filters_from=(), extra_filters=(), limit=None, offset=None, distinct=False)` | Fresh pandas DataFrame; `${name}` input placeholders are bound with the inputs' current values. |
 | `input.value` | Fresh decoded effective value for this input only. |
 | `input.details()` | Current `InputVariableValue`, or `DateRangeDetails(start, end)` for a range date picker. |
-| `dropdown.options(*, limit=None, offset=None)` | Tuple of `DropdownOption(value, label)` from a distinct query. |
+| `dropdown.options(*, limit=None, offset=None)` | Tuple of `DropdownOption(value, label)` from a distinct query or the configured manual items. |
 
 All components expose `id`, `name`, `tab_name`, and `component`. Controls also
 expose `settings`, `variable_keys`, and binding metadata. Range date pickers
@@ -102,7 +102,7 @@ use `.value` to return `DateRange(start, end)`; inspect `start_variable_key` and
 
 Source: [view.py](../celofast/resources/view.py),
 [view_input.py](../celofast/resources/view_input.py). More examples:
-[Views and inputs](views-and-inputs.md).
+[Views](views.md).
 
 ## Augmentation tables
 

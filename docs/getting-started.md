@@ -138,6 +138,6 @@ relationships, input variables, and keeping the package up to date.
 
 ## Next steps
 
-- [Views and inputs](views-and-inputs.md): use configured tables and control values.
-- [Augmentation tables](augmentation-tables.md): persist application output.
+- [Views](views.md): read a View's tables and input fields.
+- [Augmentation tables](augmentation-tables.md): write your results back to Celonis.
 - [API reference](api-reference.md): look up arguments and return types.

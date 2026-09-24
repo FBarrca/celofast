@@ -25,7 +25,7 @@ if TYPE_CHECKING:
         UnresolvedVariableError,
         ViewContentError,
     )
-    from celofast.query import OrderByDefinition, QueryDefinition
+    from celofast.resources.view import OrderByDefinition, QueryDefinition
     from celofast.resources.knowledge_model import KnowledgeModelClient
     from celofast.resources.augmentation_table import (
         AugmentationTableCollection,
@@ -35,6 +35,7 @@ if TYPE_CHECKING:
         CheckboxHandle,
         DatePickerHandle,
         DateRange,
+        DateRangeDetails,
         DropdownHandle,
         DropdownOption,
         InputBoxHandle,
@@ -56,6 +57,7 @@ __all__ = [
     "ComponentVariableError",
     "DatePickerHandle",
     "DateRange",
+    "DateRangeDetails",
     "DropdownHandle",
     "DropdownOption",
     "InputBoxHandle",
@@ -83,8 +85,8 @@ __all__ = [
 _MODULES = {
     "get_celonis": "celofast.client",
     "CeloFast": "celofast.core",
-    "OrderByDefinition": "celofast.query",
-    "QueryDefinition": "celofast.query",
+    "OrderByDefinition": "celofast.resources.view",
+    "QueryDefinition": "celofast.resources.view",
     "ResourceMode": "celofast.types",
     "KnowledgeModelClient": "celofast.resources.knowledge_model",
     "AugmentationTableCollection": "celofast.resources.augmentation_table",
@@ -94,6 +96,7 @@ for _name in (
     "CheckboxHandle",
     "DatePickerHandle",
     "DateRange",
+    "DateRangeDetails",
     "DropdownHandle",
     "DropdownOption",
     "InputBoxHandle",

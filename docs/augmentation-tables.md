@@ -1,49 +1,11 @@
 # Augmentation tables
 
-[Documentation](index.md) · [Views and inputs](views-and-inputs.md)
+[Documentation](index.md) · [Getting started](getting-started.md) · [API reference](api-reference.md)
 
-Use augmentation tables to store application results such as predictions,
-scores, and operational decisions. Celofast exposes these operations through
-the Data Model resolved from a KM.
-
-## Platform reference and research notes
-
-The detailed augmentation research is available in full:
-
-- [Architecture and exact service limits](Augmentated_tables.md): the architecture
-  diagram, PostgreSQL storage, join constraints, naming rules, numeric limits,
-  and the original internal API and Compute documentation links.
-- [Table-backed attributes, Annotation Builder, and migration](Augmentated_tables%20copy.md):
-  TAA/V2 versus RAA/V1, primary keys and identifier tuples, native PyCelonis
-  examples, runtime refresh behavior, Annotation Builder internals, value API
-  endpoints, and migration requirements including `CELONIS_MIGRATION_ATTRIBUTE`.
-
-These references retain their original content and sources. The sections below
-explain how to use Celofast's table API.
-
-## Understand the destination
-
-An augmentation table is a **Data Model resource**. A generated record exposes
-captured augmented attributes directly alongside its other fields. Their source
-definitions remain in `record.metadata["augmentedAttributes"]`; they do not expose
-the table's storage or a row-writing API. Creating a table does not
-automatically create a corresponding attribute in the KM.
-
-```text
-Connected KM --> resolved Data Model --> augmentation table
-                                            ^
-                                            |
-                                  application output rows
-```
-
-`mode="draft"` and `mode="published"` control which KM is resolved. They do
-not create separate destinations for augmentation writes. A write can affect
-every KM or View consuming the same underlying table.
-
-The examples below perform real mutations when run. Replace the resource and
-table names with your application's intended destination.
-
-## Update an existing table
+Augmentation tables store your application's results, such as predictions,
+scores, or decisions, in the Data Model behind a Knowledge Model. Add them to
+the KM as augmented attributes, and the results appear next to the process
+data in Studio and in your [KM objects](knowledge-model-sdk.md).
 
 ```python
 import pandas as pd
@@ -52,111 +14,142 @@ from celofast import CeloFast
 cf = CeloFast("SPACE_ID", "PACKAGE_ID")
 tables = cf.augmentation_tables("orders-km")
 
-prediction_frame = pd.DataFrame({
+predictions = tables.table("ML_ORDER_PREDICTIONS", key="ORDER_ID")
+predictions.upsert(pd.DataFrame({
     "ORDER_ID": ["PO-1001", "PO-1002"],
     "RISK_SCORE": [0.82, 0.14],
-})
-
-predictions = tables.table(
-    "ML_ORDER_PREDICTIONS",
-    key="ORDER_ID",
-)
-predictions.upsert(prediction_frame)
+}))
 ```
 
-`table()` returns a cached lazy reference. It does not check whether the remote
-table exists; the first native operation reports a missing table. `upsert()`
-uses the server-side primary key to insert new rows or update existing ones.
-It does not add columns to the table's schema.
+> **Writes are real and shared.** The examples on this page change data in
+> Celonis. An augmentation table belongs to the Data Model, so a write is seen
+> by every KM and View that uses it, in draft and published alike.
 
-The optional `key` on `table()` is remembered for subsequent `remove()` calls.
-It does not alter the remote primary key. Asking the same cached table handle
-to remember a different key raises `AugmentationValidationError`.
+## Contents
 
-## Create a table with initial rows
+1. [Find the tables](#1-find-the-tables)
+2. [Create a table](#2-create-a-table)
+3. [Write rows](#3-write-rows)
+4. [Remove rows](#4-remove-rows)
+5. [Delete a table](#5-delete-a-table)
+6. [Write large DataFrames](#6-write-large-dataframes)
+7. [Use the results in the KM](#7-use-the-results-in-the-km)
+8. [Errors and limits](#8-errors-and-limits)
 
-Use this alternative when the table has not been created yet. The initial
-DataFrame must be non-empty; PyCelonis infers its schema from that frame.
+## 1. Find the tables
+
+Name the KM whose Data Model holds the tables. No generated package is needed:
+
+```python
+tables = cf.augmentation_tables("orders-km")
+```
+
+A KM client offers the same: `cf.km(inventory).augmentation_tables`.
+
+`tables.table(name)` returns a handle to one table. It doesn't check that the
+table exists; the first write reports a missing table.
+
+## 2. Create a table
+
+Create a table from its first rows. Its columns and types come from the
+DataFrame, which must not be empty:
 
 ```python
 predictions = tables.create(
     prediction_frame,
     table_name="ML_ORDER_PREDICTIONS",
-    key="ORDER_ID",
-    data_model_table_name="O_CELONIS_ORDER",
-    foreign_key_columns=[("ORDER_ID", "ORDER_ID")],
+    key="ORDER_ID",                                # the primary key column
+    data_model_table_name="O_CELONIS_ORDER",       # the process table it joins to
+    foreign_key_columns=[("ORDER_ID", "ORDER_ID")],  # (this table's column, that table's column)
 )
 ```
 
-| Argument | Meaning |
-| --- | --- |
-| `key` | One primary-key column in the augmentation DataFrame. |
-| `data_model_table_name` | Existing regular Data Model table used as the join partner. |
-| `foreign_key_columns` | Non-empty list of `(augmentation_column, data_model_column)` pairs. |
+`key` identifies each row of your table. `foreign_key_columns` joins it to a
+table of the Data Model, so each result belongs to an order. The two often use
+the same column, as here.
 
-The primary key identifies an output row. The foreign-key mapping relates it
-to a row in the regular table. They happen to use the same column in this
-example, but have different roles. Supply values and column types compatible
-with your destination schema and join.
+`create()` fails if the table already exists; it never replaces one.
 
-Creation is explicit. Celofast does not implement "create if absent" or silently
-replace an existing table. Native creation errors propagate to the caller.
+## 3. Write rows
 
-## Remove rows or delete the table
-
-To remove specific keys, supply a DataFrame containing those keys:
+`upsert()` adds new rows and updates existing ones, matched by the table's
+primary key:
 
 ```python
-obsolete = pd.DataFrame({"ORDER_ID": ["PO-1002"]})
-predictions.remove(obsolete)
+predictions = tables.table("ML_ORDER_PREDICTIONS", key="ORDER_ID")
+predictions.upsert(prediction_frame)
 ```
 
-If the handle has no remembered key, pass it explicitly:
+The DataFrame's columns must be the table's columns; `upsert()` can't add new
+ones. An empty DataFrame writes nothing. Your DataFrame is never modified.
+
+## 4. Remove rows
+
+Pass a DataFrame with the keys of the rows to remove:
 
 ```python
-table = tables.table("OTHER_PREDICTIONS")
-table.remove(pd.DataFrame({"ID": ["obsolete-id"]}), key="ID")
+predictions.remove(pd.DataFrame({"ORDER_ID": ["PO-1002"]}))
 ```
 
-`remove()` removes rows. `predictions.delete()` permanently deletes the entire
-remote augmentation table. After successful deletion, the collection forgets
-that handle; obtain a fresh handle for a later table with the same name.
+`remove()` uses the `key` given to `table()`. Without one, pass it:
 
-## Batches and failure behavior
+```python
+tables.table("OTHER_PREDICTIONS").remove(pd.DataFrame({"ID": ["obsolete-id"]}), key="ID")
+```
 
-Create, upsert, and remove use batches of at most **1,000 rows**. Override the
-default with an integer `batch_size` from 1 to 1,000:
+## 5. Delete a table
+
+```python
+predictions.delete()
+```
+
+This permanently deletes the whole table and its rows. To use the name again,
+create the table again.
+
+## 6. Write large DataFrames
+
+`create()`, `upsert()`, and `remove()` send rows in batches of up to 1,000.
+Choose a smaller batch with `batch_size`:
 
 ```python
 predictions.upsert(prediction_frame, batch_size=500)
 ```
 
-Creation sends the first batch through native table creation and the remaining
-batches through native upserts. Calls stop at the first failed batch. There is
-no transaction or automatic rollback across batches: after a failure, the
-schema and earlier rows may already exist. Inspect the remote state before
-deciding how your application should retry.
+A call stops at the first batch that fails, and batches already sent stay
+written: there is no rollback. After a failure, check what's in the table
+before retrying; `upsert()` is safe to repeat.
 
-An empty upsert is a no-op. Empty removal is also a no-op when its key metadata
-and key column are valid. Empty creation is rejected. Celofast does not mutate
-the caller's DataFrame.
+## 7. Use the results in the KM
 
-## Validation, access, and limits
+Creating a table doesn't add anything to the KM. To see the results in Studio
+and in your objects:
 
-Celofast checks DataFrame types, unique non-empty string column names, required
-key/foreign-key columns for creation, required keys for removal, and batch
-sizes. These failures raise `AugmentationValidationError`. Native schema,
-permission, quota, and API failures retain their original exceptions.
+1. In Studio, add an augmented attribute to the KM record that the table joins
+   to (for example, `RISK_SCORE` on the order record).
+2. Pull the KM again: `uv run celofast km pull orders`. The attribute becomes
+   a field of the generated class, like any other.
 
-The tenant must expose the augmentation API and grant the caller the relevant
-Data Model write access. Service-level limits beyond Celofast's batching are
-enforced by Celonis and can depend on the tenant/service version. The
-[Compute 2.31.0 notes](Augmentated_tables.md#limitations) include exact constants
-for table, column, row, identifier, string, and batch limits. They record a
-100-table limit, while the [table-backed attribute reference](Augmentated_tables%20copy.md#limits-and-operating-guidance)
-records 200 tables per Data Model. Both source contexts are preserved; check
-which applies to your connected service before relying on either quota.
+```python
+order = client.objects(Order).get("PO-1001")
+print(order.risk_score)
+```
 
-For native functionality, use `predictions.native` or `km.data_model`. See
-[API reference](api-reference.md#augmentation-tables) for the complete public
-surface and [Troubleshooting](troubleshooting.md) for failures.
+Later writes to the table show up on the next read; no pull is needed unless
+you add attributes.
+
+## 8. Errors and limits
+
+| Error | Meaning |
+| --- | --- |
+| `AugmentationValidationError` | The DataFrame or arguments are invalid: not a DataFrame, empty or duplicate column names, a missing key or foreign-key column, or `batch_size` outside 1 to 1,000. Checked before anything is sent. |
+| Native PyCelonis errors | Schema, permission, quota, and API failures from Celonis, raised unchanged. |
+
+Your client needs write access to the Data Model. Celonis limits the number of
+tables, columns, and rows, and the lengths of names and values; see the
+[architecture and limit notes](Augmentated_tables.md) and the
+[detailed platform reference](Augmentated_tables%20copy.md) for the exact
+figures, which depend on the service version.
+
+For native access, `predictions.native` is the PyCelonis augmentation table and
+`tables.data_model` the Data Model. See also
+[Troubleshooting](troubleshooting.md#augmentation-writes).

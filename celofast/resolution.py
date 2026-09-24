@@ -64,7 +64,13 @@ class _BaseResolver:
         cache_key = knowledge_model.id
         if cache_key not in self._knowledge_model_content:
             try:
-                content = knowledge_model.get_content()
+                # We only need the Data Model ID here. A KM can contain an
+                # unrelated, unresolved variable in a filter or KPI while a
+                # View table query remains executable. Keep query validation
+                # on the actual export path rather than blocking resolution.
+                content = knowledge_model.get_content(
+                    with_unknown_variables_validation=False
+                )
             except PyCelonisNotFoundError as exc:
                 if self.draft:
                     raise
@@ -116,7 +122,8 @@ class StudioResolver(_BaseResolver):
     lazily loads KM/View collections, and scans accessible Data Pools only
     when a KM's final content identifies a Data Model.  It deliberately uses
     PyCelonis collections and ``KnowledgeModel.get_content()`` instead of
-    parsing Studio YAML or reimplementing package-variable semantics.
+    parsing Studio YAML or reimplementing package-variable semantics. Unknown
+    KM variables are not validated during this Data Model-only lookup.
 
     Args:
         client: Authenticated native PyCelonis client.

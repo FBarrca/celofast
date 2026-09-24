@@ -8,15 +8,13 @@ autocompletes. Query them in plain Python, without writing PQL. Built for
 Machine Learning Workbench (MLWB) apps, it also reads View tables and writes
 results back to augmentation tables.
 
-| I want to… | Start here |
-| --- | --- |
-| Install Celofast and connect to a tenant | [Getting started](docs/getting-started.md) |
-| Retrieve typed business objects and relationships | [Knowledge Models](docs/knowledge-model-sdk.md) |
-| Read a configured table or input control | [Views and inputs](docs/views-and-inputs.md) |
-| Store predictions, scores, or other app output | [Augmentation tables](docs/augmentation-tables.md) |
-| Look up a method or diagnose an error | [API reference](docs/api-reference.md) · [Troubleshooting](docs/troubleshooting.md) |
+[Getting started](docs/getting-started.md) 
 
-The [documentation index](docs/index.md) lists every guide.
+| Features| |
+| --- | --- |
+| Retrieve typed business objects and relationships | [Knowledge Models](docs/knowledge-model-sdk.md) |
+| Read a View's tables and input fields | [Views](docs/views.md) |
+| Store predictions, scores, or other app output | [Augmentation tables](docs/augmentation-tables.md) |
 
 ```python
 from celofast import CeloFast
@@ -123,7 +121,7 @@ table = cf.view("operations-view")["Orders"]
 orders = table.rows(limit=100)
 ```
 
-See [Views and inputs](docs/views-and-inputs.md).
+See [Views](docs/views.md).
 
 ## Write application output
 

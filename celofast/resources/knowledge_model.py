@@ -13,7 +13,6 @@ import pycelonis.pql as pql
 from pycelonis.pql.saola_connector import KnowledgeModelSaolaConnector
 
 from celofast.exceptions import ObjectValueError, QueryValidationError
-from celofast.query import query_to_pql
 from celofast.resources.augmentation_table import AugmentationTableCollection
 from celofast.sdk.capture import input_variables
 from celofast.sdk.definitions import Predicate, Sort
@@ -106,26 +105,6 @@ class KnowledgeModelConnection:
         # The DataFrame is a transport detail; native errors propagate unchanged.
         frame = pql.DataFrame.from_pql(query, saola_connector=self._connector)
         return frame.to_pandas(limit=limit, offset=offset, distinct=distinct)
-
-    def _execute(
-        self,
-        query: Mapping[str, object],
-        *,
-        variables: Mapping[str, str] | None = None,
-        limit: int | None = None,
-        offset: int | None = None,
-        distinct: bool = False,
-    ) -> pd.DataFrame:
-        """Export a View table query; not part of the Knowledge Model SDK."""
-        for name, value in (("limit", limit), ("offset", offset)):
-            if value is not None and (
-                not isinstance(value, int) or isinstance(value, bool) or value < 0
-            ):
-                raise QueryValidationError(f"{name} must be a non-negative integer or None.")
-        if not isinstance(distinct, bool):
-            raise QueryValidationError("distinct must be a boolean.")
-        native_query = query_to_pql(query, variables=variables)
-        return self._export(native_query, limit=limit, offset=offset, distinct=distinct)
 
     def _probe(self, expressions: Sequence[str], limit: int) -> list[tuple[object, ...]]:
         """Export expressions for a sample of rows; used to validate attributes at pull."""

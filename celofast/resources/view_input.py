@@ -1,4 +1,9 @@
-"""Typed handles for variable-backed input components in Studio Views."""
+"""View inputs (input boxes, dropdowns, selectors, date pickers, checkboxes).
+
+Each input is bound to KM or View-scoped input variables. Reading ``.value``
+or ``.details()`` fetches the current values from Celonis every time; inputs
+are read-only.
+"""
 
 from __future__ import annotations
 
@@ -6,9 +11,13 @@ import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timezone
+from functools import cached_property
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
+import pandas as pd
+import pycelonis.pql as pql
 from pycelonis.ems.apps.content_node.view.component import Component
 
 from celofast.exceptions import ComponentVariableError, ResourceResolutionError
@@ -16,26 +25,26 @@ from celofast.exceptions import ComponentVariableError, ResourceResolutionError
 if TYPE_CHECKING:
     from celofast.resources.view import ViewHandle
 
+_PLACEHOLDER = re.compile(r"^\$\{([^{}]+)\}$")
 
-_VARIABLE_PATTERN = re.compile(r"^\$\{([^{}]+)\}$")
 
-
-def _enum_value(value: object) -> str | None:
+def _text(value: object) -> str | None:
+    """A string, the value of an enum, or None."""
     if value is None:
         return None
-    raw = getattr(value, "value", value)
-    return str(raw)
+    return str(getattr(value, "value", value))
 
 
 @dataclass(frozen=True)
 class InputVariableValue:
-    """One KM input-variable definition combined with its current value."""
+    """One input variable's definition together with its current value."""
 
     key: str
     data_type: str | None
     default_value: str | None
     assigned_value: str | None
     value: str | None
+    """The effective value: the assigned value, otherwise the default."""
     display_name: str | None = None
     description: str | None = None
     scope: str | None = None
@@ -43,14 +52,37 @@ class InputVariableValue:
 
     @property
     def uses_default(self) -> bool:
-        """Whether the effective value falls back to the configured default."""
-
+        """Whether no value is assigned, so the default applies."""
         return self.assigned_value is None
+
+    @classmethod
+    def of(cls, variable: Any, definition: Any = None) -> InputVariableValue:
+        """Combine a value read from Celonis with the variable's definition."""
+        def field(name: str) -> Any:
+            value = getattr(variable, name, None)
+            return getattr(definition, name, None) if value is None else value
+
+        assigned, default = variable.value, field("default_value")
+        effective = variable.value_or_default
+        if effective is None:
+            effective = assigned if assigned is not None else default
+        propagate = field("propagate")
+        return cls(
+            key=variable.key,
+            data_type=_text(field("data_type")),
+            default_value=_text(default),
+            assigned_value=_text(assigned),
+            value=_text(effective),
+            display_name=_text(field("display_name")),
+            description=_text(field("description")),
+            scope=_text(field("scope")),
+            propagate=propagate if isinstance(propagate, bool) else None,
+        )
 
 
 @dataclass(frozen=True)
 class DropdownOption:
-    """One value offered by a data-backed dropdown or selector."""
+    """One value offered by a dropdown or selector."""
 
     value: object
     label: str
@@ -58,481 +90,350 @@ class DropdownOption:
 
 @dataclass(frozen=True)
 class DateRange:
-    """The effective start and end dates of a range date picker."""
+    """The start and end dates of a range date picker."""
 
     start: date | None
     end: date | None
 
 
-class ViewInputValueClient:
-    """Read current KM input values through the Package Manager API."""
+@dataclass(frozen=True)
+class DateRangeDetails:
+    """The current records of both ends of a range date picker."""
 
-    def __init__(self, view: ViewHandle) -> None:
-        self._view = view
-
-    def find_all(self) -> Mapping[str, InputVariableValue]:
-        km = self._view.km.native
-        client = getattr(km, "client", None)
-        if client is None:
-            raise ResourceResolutionError(
-                "The native Knowledge Model does not expose its API client."
-            )
-
-        response = client.request(
-            method="GET",
-            url=(
-                f"/package-manager/api/nodes/{self._view.native.id}"
-                "/input-variables/values"
-            ),
-            params={
-                "refNodeId": km.id,
-                "appMode": "CREATOR"
-                if self._view.km.mode == "draft"
-                else "VIEWER",
-            },
-            parse_json=True,
-            type_=Any,
-        )
-        if response is None:
-            return {}
-        if not isinstance(response, list):
-            raise ResourceResolutionError(
-                "Package Manager returned an invalid input-variable response."
-            )
-
-        definitions = self._view._input_definitions_by_key
-        values: dict[str, InputVariableValue] = {}
-        for raw in response:
-            if hasattr(raw, "json_dict"):
-                raw = raw.json_dict(by_alias=True)
-            if not isinstance(raw, Mapping):
-                raise ResourceResolutionError(
-                    "Package Manager returned an invalid input-variable entry."
-                )
-            key = raw.get("key")
-            if not isinstance(key, str) or not key:
-                raise ResourceResolutionError(
-                    "Package Manager returned an input variable without a key."
-                )
-            definition = definitions.get(key)
-            default = raw.get("defaultValue")
-            if default is None and definition is not None:
-                default = getattr(definition, "default_value", None)
-            assigned = raw.get("value")
-            effective = raw.get("valueOrDefault")
-            if effective is None:
-                effective = assigned if assigned is not None else default
-            values[key] = InputVariableValue(
-                key=key,
-                data_type=_enum_value(
-                    raw.get("dataType")
-                    or (getattr(definition, "data_type", None) if definition else None)
-                ),
-                default_value=default,
-                assigned_value=assigned,
-                value=effective,
-                display_name=raw.get("displayName")
-                or (getattr(definition, "display_name", None) if definition else None),
-                description=raw.get("description")
-                or (getattr(definition, "description", None) if definition else None),
-                scope=_enum_value(
-                    raw.get("scope")
-                    or (getattr(definition, "scope", None) if definition else None)
-                ),
-                propagate=raw.get("propagate")
-                if "propagate" in raw
-                else (getattr(definition, "propagate", None) if definition else None),
-            )
-        return values
+    start: InputVariableValue
+    end: InputVariableValue
 
 
-class ViewInputHandle:
-    """Common metadata and value resolution for a typed View input."""
+def _update(settings: Mapping[str, object], event: str = "onChange") -> Mapping[str, object]:
+    """The ``<event>.update`` settings of a component or item, or an empty mapping."""
+    handler = settings.get(event)
+    update = handler.get("update") if isinstance(handler, Mapping) else None
+    return update if isinstance(update, Mapping) else {}
 
-    COMPONENT_TYPES: tuple[str, ...] = ()
 
-    def __init__(
-        self,
-        view: ViewHandle,
-        component: Component,
-        *,
-        tab_name: str | None,
-    ) -> None:
+def _bound_names(variables: object) -> list[str]:
+    """Variable names from ``[{"name": ...}]`` or ``{role: name}`` settings."""
+    if isinstance(variables, Mapping):
+        names: list[object] = list(variables.values())
+    elif isinstance(variables, list):
+        names = [item.get("name") for item in variables if isinstance(item, Mapping)]
+    else:
+        names = []
+    return [name for name in names if isinstance(name, str) and name]
+
+
+class ViewElement:
+    """A table or input of a View, found with ``view[selector]``."""
+
+    def __init__(self, view: ViewHandle, component: Component, *, tab_name: str | None) -> None:
         self._view = view
         self._component = component
         self._tab_name = tab_name
-        self._variable_keys = self._extract_variable_keys()
-
-    def _validate_variable_keys(self, keys: tuple[str, ...]) -> None:
-        if len(keys) != 1:
-            raise ComponentVariableError(
-                f"{self._component.type_!r} component {self._component.id!r} "
-                "must bind exactly "
-                "one Knowledge Model input variable."
-            )
 
     @property
     def id(self) -> str:
+        """The component ID; unique within the View."""
         return self._component.id
 
     @property
     def name(self) -> str:
+        """The configured display name, or the ID when none is set."""
         name = getattr(self._component.settings, "name", None)
         return name if isinstance(name, str) and name else self.id
 
     @property
     def tab_name(self) -> str | None:
+        """The containing tab's name, or None at the View's root."""
         return self._tab_name
 
     @property
     def component(self) -> Component:
-        """Return the native PyCelonis component as an escape hatch."""
-
+        """The native PyCelonis component."""
         return self._component
 
-    @property
+
+class ViewInputHandle(ViewElement):
+    """An input bound to one input variable."""
+
+    @cached_property
     def settings(self) -> Mapping[str, object]:
-        """Return the component's serialized settings as a read-only mapping."""
+        """The component's settings, as configured in Studio."""
+        return MappingProxyType(self._component.settings.dict(by_alias=True))
 
-        from types import MappingProxyType
-
-        return MappingProxyType(dict(self._settings()))
+    @cached_property
+    def variable_keys(self) -> tuple[str, ...]:
+        """Every input variable the component updates, primary first."""
+        keys = _bound_names(_update(self.settings).get("variables"))
+        value = self.settings.get("value")
+        if not keys and isinstance(value, str):
+            match = _PLACEHOLDER.match(value)
+            keys = [match.group(1)] if match else []
+        if not keys:
+            keys = _bound_names(self.settings.get("variables"))
+        return tuple(dict.fromkeys(keys))
 
     @property
     def variable_key(self) -> str:
-        self._validate_variable_keys(self._variable_keys)
-        return self._variable_keys[0]
-
-    @property
-    def variable_keys(self) -> tuple[str, ...]:
-        return self._variable_keys
+        """The input variable holding the component's value."""
+        self._check_key_count(len(self.variable_keys))
+        return self.variable_keys[0]
 
     @property
     def variable_definition(self) -> object:
-        self._ensure_defined_variables()
-        return self._view._input_definitions_by_key[self.variable_key]
-
-    def validate_binding(self) -> None:
-        """Validate this component's binding against its Knowledge Model."""
-
-        self._ensure_defined_variables()
+        """The native definition of :attr:`variable_key`."""
+        self._check_binding()
+        return self._view.input_definitions[self.variable_key]
 
     @property
-    def data_type(self) -> str | None:
-        return _enum_value(getattr(self.variable_definition, "data_type", None))
+    def value(self) -> object:
+        """The current value, read now and decoded for this kind of input."""
+        details = self.details()
+        assert isinstance(details, InputVariableValue)
+        return self._decode(details.value)
 
-    @property
-    def default_value(self) -> str | None:
-        return getattr(self.variable_definition, "default_value", None)
+    def details(self) -> InputVariableValue | DateRangeDetails:
+        """The variable's definition and current value, read now."""
+        self._check_binding()
+        return self._read(self._view._input_values(), self.variable_key)
 
-    @property
-    def scope(self) -> str | None:
-        return _enum_value(getattr(self.variable_definition, "scope", None))
+    def _read(self, values: Mapping[str, InputVariableValue], key: str | None) -> InputVariableValue:
+        if key is None or key not in values:
+            raise ResourceResolutionError(f"Celonis returned no value for input variable {key!r}.")
+        return values[key]
 
-    @property
-    def variable_display_name(self) -> str | None:
-        return getattr(self.variable_definition, "display_name", None)
+    def _check_key_count(self, count: int) -> None:
+        if count != 1:
+            raise self._binding_error("must bind exactly one input variable")
 
-    @property
-    def description(self) -> str | None:
-        return getattr(self.variable_definition, "description", None)
+    def _binding_error(self, problem: str) -> ComponentVariableError:
+        return ComponentVariableError(f"{self._component.type_!r} component {self.id!r} {problem}.")
 
-    @property
-    def propagate(self) -> bool | None:
-        return getattr(self.variable_definition, "propagate", None)
-
-    def get(self) -> object:
-        """Fetch and decode this component's current effective value."""
-
-        return self._decode(self.details().value)
-
-    def details(self) -> InputVariableValue:
-        """Fetch the complete definition and value record for this input."""
-
-        self._ensure_defined_variables()
-        values = self._view._input_value_client.find_all()
-        try:
-            return values[self.variable_key]
-        except KeyError as exc:
-            raise ResourceResolutionError(
-                f"Package Manager did not return input variable "
-                f"{self.variable_key!r}."
-            ) from exc
-
-    def _settings(self) -> Mapping[str, object]:
-        return self._component.settings.dict(by_alias=True)
-
-    def _ensure_defined_variables(self) -> None:
-        self._validate_variable_keys(self.variable_keys)
-        definitions = self._view._input_definitions_by_key
+    def _check_binding(self) -> None:
+        """Every bound variable must be defined by the KM or the View."""
+        self._check_key_count(len(self.variable_keys))
         for key in self.variable_keys:
-            if key not in definitions:
-                raise ComponentVariableError(
-                    f"{self._component.type_!r} component {self.id!r} references "
-                    f"{key!r}, but that variable is not defined by Knowledge "
-                    f"Model {self._view.km.native.key!r}."
+            if key not in self._view.input_definitions:
+                raise self._binding_error(
+                    f"references {key!r}, but that variable is not defined by Knowledge "
+                    f"Model {self._view.native_km.key!r} or the View"
                 )
-
-    def _extract_variable_keys(self) -> tuple[str, ...]:
-        settings = self._settings()
-        on_change = settings.get("onChange")
-        update = on_change.get("update") if isinstance(on_change, Mapping) else None
-        variables = update.get("variables") if isinstance(update, Mapping) else None
-        keys: list[str] = []
-        if isinstance(variables, list):
-            for variable in variables:
-                if isinstance(variable, Mapping):
-                    name = variable.get("name")
-                    if isinstance(name, str) and name:
-                        keys.append(name)
-        elif isinstance(variables, Mapping):
-            keys.extend(
-                name
-                for name in variables.values()
-                if isinstance(name, str) and name
-            )
-
-        if not keys:
-            configured_value = settings.get("value")
-            if isinstance(configured_value, str):
-                match = _VARIABLE_PATTERN.match(configured_value)
-                if match:
-                    keys.append(match.group(1))
-        return tuple(dict.fromkeys(keys))
 
     def _decode(self, value: str | None) -> object:
         return value
 
 
 class InputBoxHandle(ViewInputHandle):
-    """A variable-backed Studio ``input-box`` component."""
-
-    COMPONENT_TYPES = ("input-box",)
+    """An input box; its value is a string."""
 
     @property
     def input_type(self) -> str | None:
-        value = self._settings().get("type")
+        value = self.settings.get("type")
         return value if isinstance(value, str) else None
 
     @property
     def placeholder(self) -> str | None:
-        value = self._settings().get("placeholder")
+        value = self.settings.get("placeholder")
         return value if isinstance(value, str) else None
 
 
 class DropdownHandle(ViewInputHandle):
-    """A variable-backed, data-backed Studio dropdown component."""
+    """A dropdown; its value is a string, or a tuple for multiple selection.
 
-    COMPONENT_TYPES = ("input-dropdown",)
+    A manually configured dropdown may also update companion variables; its
+    selected value is the first bound variable.
+    """
 
     @property
     def selection_mode(self) -> str:
-        on_change = self._settings().get("onChange")
-        update = on_change.get("update") if isinstance(on_change, Mapping) else None
-        selection = update.get("selection") if isinstance(update, Mapping) else None
+        selection = _update(self.settings).get("selection")
         return selection if isinstance(selection, str) else "single"
 
     @property
     def attribute(self) -> str | None:
-        value = self._settings().get("attribute")
-        return value if isinstance(value, str) else None
+        """The configured ``<data source ID>.<attribute ID>`` of a data-backed dropdown."""
+        value = self.settings.get("attribute")
+        return value if isinstance(value, str) and "." in value else None
 
     @property
     def data_source_id(self) -> str | None:
-        return self._attribute_parts()[0]
+        return self.attribute.split(".", 1)[0] if self.attribute else None
 
     @property
     def attribute_id(self) -> str | None:
-        return self._attribute_parts()[1]
+        return self.attribute.split(".", 1)[1] if self.attribute else None
 
     @property
     def attribute_pql(self) -> str | None:
-        try:
-            return self._option_query()[0]
-        except ResourceResolutionError:
-            return None
+        """The PQL expression of the configured attribute, if it exists."""
+        found = self._attribute_query()
+        return found[0] if found else None
 
-    def options(
-        self,
-        *,
-        limit: int | None = None,
-        offset: int | None = None,
-    ) -> tuple[DropdownOption, ...]:
-        """Query the configured KM attribute for distinct dropdown options."""
+    def options(self, *, limit: int | None = None, offset: int | None = None) -> tuple[DropdownOption, ...]:
+        """The configured items, or the distinct values of the configured attribute."""
+        self._check_binding()
+        if self.attribute is None:
+            start = offset or 0
+            items = self._manual_options()
+            return items[start: None if limit is None else start + limit]
+        found = self._attribute_query()
+        if found is None:
+            raise ResourceResolutionError(f"Dropdown {self.id!r} references unknown attribute {self.attribute!r}.")
+        expression, filters = found
+        bind = self._view._binder()
+        query = pql.PQL(
+            columns=[pql.PQLColumn(name="value", query=bind(expression))],
+            filters=[pql.PQLFilter(query=bind(statement)) for statement in filters],
+        )
+        frame = self._view.km._export(query, limit=limit, offset=offset, distinct=True)
+        return tuple(DropdownOption(value, str(value)) for value in frame["value"].tolist() if not _is_null(value))
 
-        self._ensure_defined_variables()
-        pql, filters = self._option_query()
-        frame = self._view.km._execute(
-            {"columns": {"value": pql}, "filters": filters},
-            limit=limit,
-            offset=offset,
-            distinct=True,
-        )
-        return tuple(
-            DropdownOption(value=value, label=str(value))
-            for value in frame["value"].tolist()
-            if not _is_missing(value)
-        )
+    def _manual_options(self) -> tuple[DropdownOption, ...]:
+        options = []
+        items = self.settings.get("items")
+        for item in items if isinstance(items, list) else ():
+            if not isinstance(item, Mapping):
+                continue
+            value = item.get("value")
+            variables = _update(item, "onClick").get("variables")
+            if isinstance(variables, Mapping):
+                value = variables.get(self.variable_key, value)
+            elif isinstance(variables, list):
+                value = next((v.get("value", value) for v in variables
+                              if isinstance(v, Mapping) and v.get("name") == self.variable_key), value)
+            label = item.get("displayName") or item.get("label") or item.get("id")
+            options.append(DropdownOption(value, str(label or value or "")))
+        return tuple(options)
+
+    def _attribute_query(self) -> tuple[str, list[str]] | None:
+        for source in self._component.settings.data_sources:
+            if source.id == self.data_source_id:
+                for attribute in source.attributes:
+                    if attribute.id == self.attribute_id:
+                        return attribute.pql, [item.to_pql().query for item in source.filters]
+        return None
+
+    def _check_key_count(self, count: int) -> None:
+        if count < 1:
+            raise self._binding_error("must bind at least one input variable")
 
     def _decode(self, value: str | None) -> object:
-        if self.selection_mode == "multiple":
-            return decode_multiple_value(value)
-        return value
-
-    def _option_query(self) -> tuple[str, list[str]]:
-        source_id, attribute_id = self._attribute_parts()
-        if source_id is None or attribute_id is None:
-            raise ResourceResolutionError(
-                f"Dropdown {self.id!r} has no valid configured attribute."
-            )
-        for source in self._component.settings.data_sources:
-            if source.id != source_id:
-                continue
-            for attribute in source.attributes:
-                if attribute.id == attribute_id:
-                    return attribute.pql, [item.to_pql().query for item in source.filters]
-        raise ResourceResolutionError(
-            f"Dropdown {self.id!r} references unknown attribute {self.attribute!r}."
-        )
-
-    def _attribute_parts(self) -> tuple[str | None, str | None]:
-        attribute_ref = self.attribute
-        if not attribute_ref or "." not in attribute_ref:
-            return None, None
-        source_id, attribute_id = attribute_ref.split(".", 1)
-        return source_id, attribute_id
+        if self.selection_mode != "multiple":
+            return value
+        if value is None:
+            return ()
+        try:
+            decoded = json.loads(value)
+        except json.JSONDecodeError:
+            return (value,)
+        return tuple(decoded) if isinstance(decoded, list) else (decoded,)
 
 
 class SelectorHandle(DropdownHandle):
-    """A variable-backed selector with queryable options."""
-
-    COMPONENT_TYPES = ("input-selector", "selector")
+    """A selector; it behaves like a dropdown."""
 
 
 class DatePickerHandle(ViewInputHandle):
-    """A variable-backed date picker returning ``datetime.date`` values."""
-
-    COMPONENT_TYPES = ("input-date-picker", "date-picker")
+    """A date picker; its value is a ``date``, or a :class:`DateRange` for a range."""
 
     @property
     def range_selection(self) -> bool:
-        return self._settings().get("rangeSelection") is True
+        return self.settings.get("rangeSelection") is True
 
     @property
     def variable_key(self) -> str:
         if self.range_selection:
             raise ComponentVariableError(
-                f"Date picker {self.id!r} is a range; use start_variable_key "
-                "and end_variable_key."
+                f"Date picker {self.id!r} is a range; use start_variable_key and end_variable_key."
             )
         return super().variable_key
 
     @property
     def start_variable_key(self) -> str | None:
-        variables = self._configured_variables()
-        value = variables.get("startDate")
-        return value if isinstance(value, str) else None
+        return self._range_key("startDate")
 
     @property
     def end_variable_key(self) -> str | None:
-        variables = self._configured_variables()
-        value = variables.get("endDate")
-        return value if isinstance(value, str) else None
+        return self._range_key("endDate")
 
     @property
     def minimum_date(self) -> str | None:
-        value = self._settings().get("minDate")
+        value = self.settings.get("minDate")
         return value if isinstance(value, str) else None
 
     @property
     def maximum_date(self) -> str | None:
-        value = self._settings().get("maxDate")
+        value = self.settings.get("maxDate")
         return value if isinstance(value, str) else None
 
-    def get(self) -> date | DateRange | None:
-        self._ensure_defined_variables()
-        values = self._view._input_value_client.find_all()
-        if self.range_selection:
-            return DateRange(
-                start=self._decode_key(values, self.start_variable_key),
-                end=self._decode_key(values, self.end_variable_key),
-            )
-        return self._decode_key(values, self.variable_key)
+    @property
+    def value(self) -> date | DateRange | None:
+        details = self.details()
+        if isinstance(details, DateRangeDetails):
+            return DateRange(self._decode(details.start.value), self._decode(details.end.value))
+        return self._decode(details.value)
 
-    def _validate_variable_keys(self, keys: tuple[str, ...]) -> None:
+    def details(self) -> InputVariableValue | DateRangeDetails:
+        """The current record of the date, or of both ends of a range, in one read."""
+        if not self.range_selection:
+            return super().details()
+        self._check_binding()
+        values = self._view._input_values()
+        return DateRangeDetails(
+            self._read(values, self.start_variable_key), self._read(values, self.end_variable_key)
+        )
+
+    def _range_key(self, role: str) -> str | None:
+        variables = _update(self.settings).get("variables")
+        key = variables.get(role) if isinstance(variables, Mapping) else None
+        return key if isinstance(key, str) else None
+
+    def _check_key_count(self, count: int) -> None:
         expected = 2 if self.range_selection else 1
-        if len(keys) != expected:
-            raise ComponentVariableError(
-                f"Date picker {self._component.id!r} must bind exactly "
-                f"{expected} Knowledge Model input variable"
-                f"{'s' if expected != 1 else ''}."
-            )
-
-    def _configured_variables(self) -> Mapping[str, object]:
-        on_change = self._settings().get("onChange")
-        update = on_change.get("update") if isinstance(on_change, Mapping) else None
-        variables = update.get("variables") if isinstance(update, Mapping) else None
-        return variables if isinstance(variables, Mapping) else {}
-
-    def _decode_key(
-        self,
-        values: Mapping[str, InputVariableValue],
-        key: str | None,
-    ) -> date | None:
-        if key is None or key not in values:
-            raise ResourceResolutionError(
-                f"Package Manager did not return date-picker variable {key!r}."
-            )
-        return self._decode(values[key].value)
+        if count != expected:
+            raise self._binding_error(f"must bind exactly {expected} input variable{'s' if expected > 1 else ''}")
 
     def _decode(self, value: str | None) -> date | None:
+        """An ISO date, or a Celonis epoch timestamp in seconds or milliseconds."""
         if value is None:
             return None
-        candidate = value.strip().strip('"').strip("'")
+        candidate = value.strip().strip("\"'")
         try:
-            return date.fromisoformat(candidate)
-        except ValueError as exc:
-            raise ResourceResolutionError(
-                f"Date picker {self.id!r} returned non-ISO date {value!r}."
-            ) from exc
+            if candidate[4:5] == "-" and candidate[7:8] == "-":
+                return date.fromisoformat(candidate[:10])
+            epoch = int(candidate)
+            seconds = epoch / 1000 if abs(epoch) >= 100_000_000_000 else epoch
+            return datetime.fromtimestamp(seconds, tz=timezone.utc).date()
+        except (OverflowError, OSError, ValueError) as exc:
+            raise ResourceResolutionError(f"Date picker {self.id!r} returned invalid date {value!r}.") from exc
 
 
 class CheckboxHandle(ViewInputHandle):
-    """A variable-backed checkbox returning a boolean value."""
-
-    COMPONENT_TYPES = ("input-checkbox", "checkbox")
+    """A checkbox; its value is a ``bool``."""
 
     def _decode(self, value: str | None) -> bool | None:
         if value is None:
             return None
         normalized = value.strip().lower()
-        if normalized == "true":
-            return True
-        if normalized == "false":
-            return False
-        raise ResourceResolutionError(
-            f"Checkbox {self.id!r} returned invalid boolean {value!r}."
-        )
+        if normalized not in ("true", "false"):
+            raise ResourceResolutionError(f"Checkbox {self.id!r} returned invalid boolean {value!r}.")
+        return normalized == "true"
 
 
-def _is_missing(value: object) -> bool:
-    """Return whether a scalar option is null without failing on arrays."""
+INPUT_HANDLES: dict[str, type[ViewInputHandle]] = {
+    "input-box": InputBoxHandle,
+    "input-dropdown": DropdownHandle,
+    "input-selector": SelectorHandle,
+    "selector": SelectorHandle,
+    "input-date-picker": DatePickerHandle,
+    "date-picker": DatePickerHandle,
+    "input-checkbox": CheckboxHandle,
+    "checkbox": CheckboxHandle,
+}
+"""Handle class for each supported input component type."""
 
+
+def _is_null(value: object) -> bool:
     try:
-        import pandas as pd
-
         return bool(pd.isna(value))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # Arrays are values, not nulls.
         return False
-
-
-def decode_multiple_value(value: str | None) -> tuple[object, ...]:
-    """Decode a JSON-list KM value while preserving non-JSON scalar strings."""
-
-    if value is None:
-        return ()
-    try:
-        decoded = json.loads(value)
-    except json.JSONDecodeError:
-        return (value,)
-    return tuple(decoded) if isinstance(decoded, list) else (decoded,)

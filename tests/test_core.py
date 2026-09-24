@@ -69,7 +69,9 @@ def test_celofast_resolves_scope_once_and_caches_native_contexts():
     space.get_package.assert_called_once_with("package-id")
     package.get_knowledge_models.assert_called_once_with()
     package.get_views.assert_called_once_with()
-    knowledge_model.get_content.assert_called_once_with()
+    knowledge_model.get_content.assert_called_once_with(
+        with_unknown_variables_validation=False
+    )
     client.data_integration.get_data_pools.assert_called_once_with()
     data_pool.get_data_models.assert_called_once_with()
 
@@ -99,23 +101,19 @@ def test_exporting_view_table_does_not_resolve_knowledge_model_or_data_model():
     client, _, package, knowledge_model, _, _ = make_client()
     cf = CeloFast("space-id", "package-id", client=cast(Celonis, client))
 
-    assert cf.view("orders-view").tables == ()
+    assert cf.view("orders-view").elements == ()
 
     package.get_knowledge_models.assert_not_called()
     knowledge_model.get_content.assert_not_called()
     client.data_integration.get_data_pools.assert_not_called()
 
 
-def test_view_handles_cache_per_variable_binding():
-    client, *_ = make_client()
+def test_view_handles_are_cached_per_key():
+    client, _, package, *_ = make_client()
     cf = CeloFast("space-id", "package-id", client=cast(Celonis, client))
 
-    first = cf.view("orders-view", variables={"days": "7"})
-    same = cf.view("orders-view", variables={"days": "7"})
-    different = cf.view("orders-view", variables={"days": "30"})
-
-    assert first is same
-    assert different is not first
+    assert cf.view("orders-view") is cf.view("orders-view")
+    package.get_views.assert_called_once_with()
 
 
 def test_exact_missing_resource_key_has_contextual_error():
@@ -204,14 +202,12 @@ def test_published_mode_uses_apps_and_hydrates_views():
     )
     first = cf.view("orders-view")
     second = cf.view("orders-view")
-    different_variables = cf.view("orders-view", variables={"days": "7"})
 
     assert cf.mode == "published"
     assert cf.space is space
     assert cf.package is package
     assert first is second
-    assert different_variables is not first
-    assert first.table("published-table").to_query()["columns"] == {
+    assert first["published-table"].to_query()["columns"] == {
         "Order ID": '"Orders"."ID"'
     }
     client.apps.get_space.assert_called_once_with("space-id")
@@ -236,7 +232,9 @@ def test_published_km_uses_canonical_root_key_and_apps_connector():
     assert handle.native.id == "published-package-root.orders-km"
     assert handle.mode == "published"
     assert handle._connector.draft is False
-    get_content.assert_called_once_with()
+    get_content.assert_called_once_with(
+        with_unknown_variables_validation=False
+    )
 
 
 def test_missing_published_km_is_mapped_to_resource_not_found():
