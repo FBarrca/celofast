@@ -1,5 +1,11 @@
-"""PQL expression handling: rewriting bridged key counts at pull, and binding
-KM input variables (``${name}``) at query time.
+"""KM input variables (``${name}``): inlining the references that use them at
+pull, and binding them at query time.
+
+Data exports do not bind placeholders written in the query, and bind the ones
+inside a referenced calculated attribute or KPI raw (a TEXT value becomes an
+unquoted name; verified live). So pull inlines every input-dependent reference
+with its placeholders kept, and each read binds them all with typed literals.
+Every other reference stays as it is; Celonis resolves it from the KM.
 
 Both work on the same tokens, so comments, quoted identifiers, and string
 literals are never mistaken for code.
@@ -18,7 +24,6 @@ _IDENTIFIER = r'"(?:\\.|""|[^"\\])*"'
 _TOKENS = re.compile(
     r"(?P<comment>/\*[\s\S]*?\*/|--[^\r\n]*)"
     r"|(?P<string>'(?:\\.|''|[^'\\])*')"
-    rf"|(?P<count>(?i:\bPU_COUNT)\s*\(\s*{_IDENTIFIER}\s*,\s*{_IDENTIFIER}\s*\.\s*{_IDENTIFIER}\s*\))"
     rf"|(?P<kpi>(?i:\bKPI)\s*\(\s*(?:{_IDENTIFIER}|[A-Za-z_][\w$]*)\s*\))"
     rf"|(?P<column>{_IDENTIFIER}\s*\.\s*{_IDENTIFIER})"
     rf"|(?P<identifier>{_IDENTIFIER})"
@@ -28,7 +33,8 @@ _VARIABLE = re.compile(r"\$\{(\w+)\}")
 _NUMBER = re.compile(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?")
 
 
-def _column_key(expression: str) -> tuple[str, ...]:
+def _names(expression: str) -> tuple[str, ...]:
+    """The case-folded identifiers of a column reference or quoted KPI name."""
     return tuple(name[1:-1].replace('""', '"').casefold()
                  for name in re.findall(_IDENTIFIER, expression))
 
@@ -87,18 +93,17 @@ def bind_inputs(
     return _TOKENS.sub(bind, expression)
 
 
-class Expressions:
-    """Rewrite ``PU_COUNT`` of a key through a unique shared child table.
 
-    A bridged count becomes ``PU_COUNT_DISTINCT(target, BIND(bridge, key))``
-    so each related source object counts once. A referenced calculated
-    attribute or KPI that contains such a count is inlined with the rewrite;
-    every other reference, including input-dependent ones, stays as it is and
-    Celonis resolves it with the KM's current values.
+class References:
+    """Inline references to input-dependent calculated attributes and KPIs.
+
+    An attribute or KPI depends on an input when its definition, or one it
+    references, contains a placeholder. Such a reference is replaced by its
+    expanded definition; every other reference is kept. Raises ``ValueError``
+    for a reference cycle.
     """
 
     def __init__(self, capture: Capture) -> None:
-        self.count_bridges = _count_bridges(capture)
         physical = {
             (table.casefold(), name.casefold())
             for table, metadata in (capture.tables or {}).items()
@@ -117,37 +122,31 @@ class Expressions:
             table = record_table(record.get("pql")) if isinstance(record, dict) else None
             if table is None:
                 continue
+            # KM expressions reference a record by its table or by its ID.
+            owners = {table.casefold(), str(record.get("id", table)).casefold()}
             for collection in ("attributes", "newAttributes", "augmentedAttributes"):
                 for attribute in record.get(collection) or ():
                     id_ = attribute.get("id") if isinstance(attribute, dict) else None
                     expression = attribute.get("pql") if isinstance(attribute, dict) else None
                     if not isinstance(id_, str) or not isinstance(expression, str):
                         continue
-                    key = (table.casefold(), id_.casefold())
-                    # A catalog column must never expand into its own definition.
-                    token = _TOKENS.fullmatch(expression.strip())
-                    if key not in physical and not (token and token.lastgroup == "column"
-                                                    and _column_key(expression) == key):
-                        self.definitions.setdefault(key, expression)
+                    for owner in owners:
+                        key = (owner, id_.casefold())
+                        # A catalog column must never expand into its own definition.
+                        token = _TOKENS.fullmatch(expression.strip())
+                        if key not in physical and not (token and token.lastgroup == "column"
+                                                        and _names(expression) == key):
+                            self.definitions.setdefault(key, expression)
 
     def _expand(self, expression: str, stack: tuple[tuple[str, ...], ...] = ()) -> str:
         def replace(token: re.Match[str]) -> str:
-            if token.lastgroup == "count":
-                text = token.group()
-                bridge = self.count_bridges.get(_column_key(text))
-                if bridge is not None:
-                    target, source, column = re.findall(_IDENTIFIER, text)
-                    quoted_bridge = '"' + bridge.replace('"', '""') + '"'
-                    return f"PU_COUNT_DISTINCT({target}, BIND({quoted_bridge}, {source}.{column}))"
-                start = text.index("(") + 1
-                return text[:start] + self._expand(text[start:-1], stack) + ")"
-            if token.lastgroup not in ("column", "kpi"):
-                return token.group()
             if token.lastgroup == "kpi":
                 name = token.group().split("(", 1)[1][:-1].strip()
-                key = _column_key(name) if name.startswith('"') else (name.casefold(),)
+                key = _names(name) if name.startswith('"') else (name.casefold(),)
+            elif token.lastgroup == "column":
+                key = _names(token.group())
             else:
-                key = _column_key(token.group())
+                return token.group()
             if key not in self.definitions:
                 return token.group()
             if key in stack:
@@ -155,41 +154,11 @@ class Expressions:
             if key not in self.cache:
                 self.cache[key] = self._expand(self.definitions[key], (*stack, key))
             expanded = self.cache[key]
-            return f"({expanded}\n)" if expanded != self.definitions[key] else token.group()
+            # A newline keeps a trailing line comment from consuming what follows.
+            return f"({expanded}\n)" if placeholders(expanded) else token.group()
 
         return _TOKENS.sub(replace, expression)
 
     def resolve(self, expression: str) -> str:
-        """The expression with bridged key counts rewritten; everything else is kept."""
+        """The expression with every input-dependent reference inlined."""
         return self._expand(expression)
-
-
-def _count_bridges(capture: Capture) -> dict[tuple[str, ...], str]:
-    """Unique shared-child paths for counting source objects by their primary key."""
-    tables = {name.casefold(): table for name, table in (capture.tables or {}).items()}
-    joins = capture.joins or ()
-    children: dict[str, set[str]] = {}
-    candidates: dict[tuple[str, str], list[str]] = {}
-    for left in joins:
-        one, many = left["one"].casefold(), left["many"].casefold()
-        children.setdefault(one, set()).add(many)
-        for right in joins:
-            source = right["one"].casefold()
-            if right["many"].casefold() == many and source != one:
-                candidates.setdefault((one, source), []).append(left["many"])
-    def reaches(start: str, end: str) -> bool:
-        pending, descendants = [start], set()
-        while pending:
-            table = pending.pop()
-            if table not in descendants:
-                descendants.add(table)
-                pending.extend(children.get(table, ()))
-        return end in descendants
-
-    bridges: dict[tuple[str, ...], str] = {}
-    for (target, source), paths in candidates.items():
-        # Only bridge peer tables; preserve existing ancestor/descendant paths.
-        key: list[str] = tables.get(source, {}).get("primary_key") or []
-        if len(paths) == 1 and len(key) == 1 and not reaches(target, source) and not reaches(source, target):
-            bridges[(target, source, key[0].casefold())] = paths[0]
-    return bridges

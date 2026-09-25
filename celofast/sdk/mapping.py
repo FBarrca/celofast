@@ -41,7 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from celofast.exceptions import ObjectMappingError
 from celofast.sdk.capture import Capture, record_table
 from celofast.sdk.definitions import ObjectDefinition
-from celofast.sdk.expressions import Expressions, placeholders
+from celofast.sdk.expressions import References, placeholders
 from celofast.sdk.hydration import KEY_TYPES, ValueType
 from celofast.sdk.objects import Links, Object
 
@@ -293,7 +293,8 @@ class _Attribute:
 class _Field:
     attribute: _Attribute
     expression: str
-    """The resolved expression: input-dependent references are inlined."""
+    """The KM expression with input-dependent references inlined; its
+    placeholders are bound per read."""
     value_type: ValueType
 
 
@@ -320,7 +321,7 @@ class _Normalizer:
         self.capture = capture
         self.config = config
         self.describe = describe
-        self.expressions = Expressions(capture)
+        self.references = References(capture)
         self.tables = {name.lower(): table for name, table in (capture.tables or {}).items()}
         self.errors: list[str] = []
         self.diagnostics: list[str] = []
@@ -381,7 +382,7 @@ class _Normalizer:
         """Resolve one attribute's expression and type, or report why it is skipped."""
         where = f"{rid}.{attribute.id}"
         try:
-            expression = self.expressions.resolve(attribute.pql)
+            expression = self.references.resolve(attribute.pql)
         except ValueError as exc:
             self.diagnostics.append(f"{where}: {exc}; not generated.")
             return None

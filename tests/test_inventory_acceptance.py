@@ -18,41 +18,20 @@ configured, and only read data. Without credentials they are skipped;
 
 from __future__ import annotations
 
-import importlib
-import os
-import sys
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from celofast import ObjectNotFoundError
-from celofast.cli import main as celofast_cli
 from celofast.sdk import Field, ObjectPage, ToManyRelation, ToOneRelation
 
 from inventory_oracle import select
 
-def _credentials() -> bool:
-    from dotenv import find_dotenv, load_dotenv
+# Run with credentials from .env or the environment; exclude with -m "not live".
+pytestmark = pytest.mark.live
 
-    load_dotenv(find_dotenv(usecwd=True))
-    required = ("CELONIS_URL", "OAUTH_CLIENT_ID", "OAUTH_CLIENT_SECRET", "OAUTH_SCOPES")
-    return all(os.environ.get(name) for name in required)
-
-
-# Online by default: these run whenever Celonis credentials are configured
-# (environment or .env). Deselect with `-m "not live"`.
-pytestmark = [
-    pytest.mark.live,
-    pytest.mark.skipif(
-        not _credentials(),
-        reason="Online acceptance tests need CELONIS_URL and OAUTH_* credentials (.env)",
-    ),
-]
-
-ROOT = Path(__file__).resolve().parents[1]
 SPEC_DATE = date(2026, 9, 23)  # The planning date used in the documented examples.
 PLAIN = (str, int, float, bool, date, datetime, type(None))
 
@@ -70,28 +49,10 @@ USED = (
 )
 
 
-def _purge() -> None:
-    for name in list(sys.modules):
-        if name.split(".")[0] == "generated":
-            del sys.modules[name]
-
-
 @pytest.fixture(scope="module")
-def km(tmp_path_factory):
-    """Pull the KM with the CLI, import it, connect, and load every used object."""
-    root = tmp_path_factory.mktemp("pulled")
-    pull = ["km", "pull", "inventory", "--project", str(ROOT / "pyproject.toml"),
-            "--output", str(root / "generated" / "inventory")]
-    assert celofast_cli(pull) == 0
-    assert celofast_cli([*pull, "--check"]) == 0  # A repeated pull finds no drift.
-
-    _purge()
-    sys.path.insert(0, str(root))
-    try:
-        package = importlib.import_module("generated.inventory")
-    finally:
-        sys.path.remove(str(root))
-    assert Path(package.__file__).parent == root / "generated" / "inventory"
+def km(inventory_package):
+    """Connect to the pulled KM and load every used object."""
+    package = inventory_package
 
     from celofast import CeloFast
 
@@ -110,8 +71,7 @@ def km(tmp_path_factory):
     exports = []
     export = client._connection._export
     client._connection._export = lambda *args, **kwargs: exports.append(1) or export(*args, **kwargs)
-    yield SimpleNamespace(package=package, client=client, all=loaded, exports=exports)
-    _purge()
+    return SimpleNamespace(package=package, client=client, all=loaded, exports=exports)
 
 
 def by_key(items):

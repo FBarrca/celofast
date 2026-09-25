@@ -11,13 +11,17 @@ function of it:
    bisected until each failing field is isolated. When it succeeds, every
    sampled value must convert to the field's type.
 
+Both steps run their exports concurrently (``WORKERS`` at a time).
+
 Test runs bind KM input placeholders with their values at pull; the
 generated fields keep the placeholders, bound with live values at query time.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from typing import TypeVar
 
 from celofast.exceptions import CeloFastError, UnresolvedVariableError
 from celofast.sdk.capture import Capture, Progress
@@ -31,6 +35,29 @@ Execute = Callable[[Sequence[str], int], Sequence[Sequence[object]]]
 """Runs one export of the given expressions and returns plain row values."""
 
 SAMPLE_ROWS = 200
+WORKERS = 8
+"""Concurrent Celonis exports during pull; each test run is one slow round trip."""
+
+_T = TypeVar("_T")
+_R = TypeVar("_R")
+
+
+def _concurrently(
+    run: Callable[[_T], _R], items: Sequence[_T],
+) -> Iterable[tuple[int, _T, Future[_R]]]:
+    """Run ``run`` on each item in a thread pool; yield (done, item, future) as each finishes.
+
+    Leaving the loop early, such as on an error, cancels the runs not yet started.
+    """
+    if not items:
+        return
+    executor = ThreadPoolExecutor(max_workers=min(WORKERS, len(items)))
+    try:
+        futures = {executor.submit(run, item): item for item in items}
+        for done, future in enumerate(as_completed(futures), start=1):
+            yield done, futures[future], future
+    finally:
+        executor.shutdown(wait=True, cancel_futures=True)
 
 
 def _reason(exc: BaseException) -> str:
@@ -71,32 +98,43 @@ def resolve_types(
 ) -> Capture:
     """Record Celonis result types; attributes whose export fails are rejected.
 
-    Attributes with an input that has no value keep their declared type.
+    Expressions are described concurrently, once each, however many
+    attributes share them. Attributes with an input that has no value keep
+    their declared type.
     """
     types = dict(capture.types)
     rejected = _rejections(capture)
     bind = _with_pull_values(capture)
+    # Expression -> (bound for the test run, attributes that use it).
+    pending: dict[str, tuple[str, list[tuple[str, str]]]] = {}
 
-    def resolve(rid: str, attribute_id: str, expression: str) -> ValueType | None:
+    def collect(rid: str, attribute_id: str, expression: str) -> ValueType | None:
         if expression in types:
             return types[expression]
         bound = bind(expression)
-        if bound is None:
-            return None
+        if bound is not None:
+            pending.setdefault(expression, (bound, []))[1].append((rid, attribute_id))
+        return None
+
+    normalize(capture, mapping, describe=collect)
+    expressions = list(pending)
+    if progress is not None and expressions:
+        progress("Resolving types", 0, len(expressions))
+    for done, expression, future in _concurrently(lambda e: describe(pending[e][0]), expressions):
+        owners = pending[expression][1]
         if progress is not None:
-            progress(f"Resolving type: {rid}.{attribute_id}", 0, 1)
+            rid, attribute_id = owners[0]
+            progress(f"Resolving types: {rid}.{attribute_id}", done, len(expressions))
         try:
-            value_type = describe(bound)
+            value_type = future.result()
         except CeloFastError:
             raise
         except Exception as exc:  # noqa: BLE001 - native export errors identify bad fields
-            rejected.setdefault(rid, {})[attribute_id] = _reason(exc)
-            return None
+            for rid, attribute_id in owners:
+                rejected.setdefault(rid, {})[attribute_id] = _reason(exc)
+            continue
         if value_type is not None:
             types[expression] = value_type
-        return value_type
-
-    normalize(capture, mapping, describe=resolve)
     return capture.model_copy(update={"types": types, "validation": rejected})
 
 
@@ -150,12 +188,13 @@ def validate(
         if bound:
             work.append((spec, [f.expression for f in spec.fields if f.key], bound))
     rejected = _rejections(capture)
-    for done, (spec, keys, fields) in enumerate(work):
+    if progress is not None and work:
+        progress("Validating calculated attributes", 0, len(work))
+    probes = _concurrently(lambda item: _probe(item[1], item[2], execute), work)
+    for done, (spec, _, _), future in probes:
         if progress is not None:
             progress(f"Validating calculated attributes: {spec.class_name}", done, len(work))
-        found = _probe(keys, fields, execute)
+        found = future.result()
         if found:
             rejected.setdefault(spec.record_id, {}).update(found)
-    if progress is not None and work:
-        progress("Validating calculated attributes", len(work), len(work))
     return capture.model_copy(update={"validation": rejected})

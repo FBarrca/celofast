@@ -79,10 +79,12 @@ def test_input_attributes_are_typed_with_pull_values_but_keep_their_placeholders
         return "float"
 
     cap = resolve_types(original, describe)
-    # Total references Planned and stays a reference; Celonis resolves it with
-    # the KM's own values. Planned uses ${months} directly: bound for the run.
-    assert described == ['"o_Plant"."Planned" + "o_Plant"."Purchased"', described[1]]
-    assert "< 3)" in described[1]
+    # Planned uses ${months} directly: bound for the run. Total references
+    # Planned, so Planned is inlined into it and bound the same way.
+    # Types are described concurrently, in no fixed order.
+    described.sort(key=lambda expression: expression.endswith('"o_Plant"."Purchased"'), reverse=True)
+    assert len(described) == 2 and "< 3)" in described[1]
+    assert described[0] == f'({described[1]}\n) + "o_Plant"."Purchased"'
     assert cap.definition == original.definition
     assert original.types == {}
     cap = Capture.model_validate_json(cap.model_dump_json())
@@ -96,8 +98,9 @@ def test_input_attributes_are_typed_with_pull_values_but_keep_their_placeholders
         (tmp_path / name).write_bytes(content)
     sdk = load(tmp_path, "result_type_sdk")
     assert sdk.Plant.fields.total.value_type == "float"
-    assert sdk.Plant.fields.total.expression == described[0]
-    assert "${months}" in sdk.Plant.fields.planned.expression
+    planned = sdk.Plant.fields.planned.expression
+    assert "${months}" in planned
+    assert sdk.Plant.fields.total.expression == f'({planned}\n) + "o_Plant"."Purchased"'
     assert sdk.km.variables == {"months": "NUMBER"}
 
 

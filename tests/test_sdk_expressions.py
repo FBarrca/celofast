@@ -1,4 +1,5 @@
-"""KM input variables: inlined references keep placeholders, bound at query time."""
+"""KM input variables: input-dependent references are inlined with their
+placeholders at pull, and every placeholder is bound at query time."""
 
 from datetime import datetime
 
@@ -6,7 +7,7 @@ import pytest
 
 from celofast.exceptions import UnresolvedVariableError
 from celofast.sdk import Capture
-from celofast.sdk.expressions import Expressions, bind_inputs
+from celofast.sdk.expressions import References, bind_inputs
 from celofast.sdk.generate import generate
 from celofast.sdk.mapping import normalize
 from celofast.sdk.validation import validate
@@ -55,24 +56,97 @@ def test_generated_fields_keep_placeholders_and_pull_tests_them_with_pull_values
     assert due.expression.startswith("CASE WHEN ${choice} LIKE 'Requested'")
     assert probes[0][1] == f"({bind(due.expression, 'Requested')}\n)"
     assert "'Requested' LIKE 'Requested'" in probes[0][1]
-    # References to input-dependent attributes stay references: Celonis
-    # resolves them with the KM's own values.
+    # References to input-dependent attributes are inlined, placeholders and
+    # all: Celonis would bind a referenced attribute's inputs raw.
     late = sdk.Line.fields.is_delivered_late
-    assert (late.value_type, late.expression) == ("int", 'CASE WHEN "o_Line"."Classification" = \'LATE\' THEN 1 ELSE 0 END')
+    classification = sdk.Line.fields.classification.expression
+    assert classification == f"CASE WHEN ({due.expression}\n) < TODAY() THEN 'LATE' ELSE 'ON_TIME' END"
+    assert (late.value_type, late.expression) == (
+        "int", f"CASE WHEN ({classification}\n) = 'LATE' THEN 1 ELSE 0 END"
+    )
+    assert probes[0][3] == f"({bind(late.expression, 'Requested')}\n)"
     assert sdk.km.variables == {"choice": "TEXT"}
     assert cap.model_dump_json() == original  # Resolving never edits the captured source.
 
 
 def test_inputs_without_a_value_still_load_and_are_not_test_run():
-    due = next(f for f in normalize(capture(None)).objects[0].fields if f.attribute_id == "DueDate")
-    assert "${choice}" in due.expression
+    fields = {f.attribute_id: f for f in normalize(capture(None)).objects[0].fields}
+    # DueDate, and the attributes that reach it through references.
+    for name in ("DueDate", "Classification", "IsDeliveredLate"):
+        assert "${choice}" in fields[name].expression
 
     def execute(expressions, limit):
-        assert not any("${" in e or "CASE WHEN  LIKE" in e for e in expressions)
-        assert len(expressions) == 3  # Key, Classification, IsDeliveredLate; not DueDate.
-        return [("L1", "LATE", 1)]
+        raise AssertionError("nothing is test-run without input values")
 
     assert validate(capture(None), execute).validation == {}
+
+
+def test_attributes_without_inputs_stay_references():
+    cap = capture(due='"o_Line"."RequestedDate"')
+    fields = {f.attribute_id: f for f in normalize(cap).objects[0].fields}
+    assert fields["IsDeliveredLate"].expression == (
+        "CASE WHEN \"o_Line\".\"Classification\" = 'LATE' THEN 1 ELSE 0 END"
+    )
+
+
+def test_references_by_record_id_are_inlined():
+    inlined = References(capture()).resolve('"O_LINE"."DueDate"')
+    assert inlined.startswith("(CASE WHEN ${choice} LIKE 'Requested'")
+
+
+def test_dependency_cycles_are_reported_without_recursing_forever():
+    result = normalize(capture(due='"o_Line"."Classification"'))
+    assert any("cyclic calculated attribute" in d for d in result.diagnostics)
+
+
+def test_physical_columns_never_expand_to_calculated_definitions():
+    cap = capture()
+    layer = cap.definition
+    layer["records"][0]["attributes"].append(attribute("RequestedDate", "${choice}"))
+    changed = Capture(source=SOURCE, definition=layer, input_variables=cap.input_variables, tables=cap.tables)
+    assert References(changed).resolve('"o_Line"."RequestedDate"') == '"o_Line"."RequestedDate"'
+
+
+def kpi_capture():
+    return Capture(source=SOURCE, definition={"records": [{
+        "id": "O_LINE", "pql": "o_Line", "attributes": [
+            attribute("ID", '"o_Line"."ID"'),
+            attribute("ActualPurchaseLeadTime", "CASE WHEN ${choice} = 'Average' THEN 1 ELSE 2 END", "FLOAT"),
+        ],
+    }], "kpis": [
+        {"id": "IsLegacy", "pql": 'KPI("LeadTime")', "parameters": []},
+        {"id": "LeadTime", "pql": '"o_Line"."ActualPurchaseLeadTime"'},
+        {"id": "Constant", "pql": "1.0"},
+        {"id": "Parameterized", "pql": "${choice}", "parameters": [{"id": "ARG"}]},
+    ]}, input_variables={"choice": {"dataType": "TEXT", "value": "Average"}},
+        tables={"o_Line": {"primary_key": ["ID"], "columns": {"ID": "STRING"}}})
+
+
+LEAD_TIME = "(CASE WHEN ${choice} = 'Average' THEN 1 ELSE 2 END\n)"
+
+
+@pytest.mark.parametrize(("expression", "expected"), [
+    ("KPI(LeadTime)", f"({LEAD_TIME}\n)"),
+    ('kpi ( "leadtime" )', f"({LEAD_TIME}\n)"),
+    ("CASE WHEN KPI (\n IsLegacy\n) > 0 THEN 10.0 ELSE 0.0 END",
+     f"CASE WHEN (({LEAD_TIME}\n)\n) > 0 THEN 10.0 ELSE 0.0 END"),
+])
+def test_input_dependent_kpis_are_inlined(expression, expected):
+    assert References(kpi_capture()).resolve(expression) == expected
+
+
+def test_kpi_text_and_other_kpis_are_preserved():
+    references = References(kpi_capture())
+    expression = "'KPI(LeadTime)' /* KPI(LeadTime) */ -- KPI(LeadTime)\n \"KPI(LeadTime)\""
+    assert references.resolve(expression) == expression
+    for expression in ("KPI(Constant)", "KPI(Unknown)", "KPI(Parameterized)", "KPI(Parameterized, 3)"):
+        assert references.resolve(expression) == expression
+
+
+def test_cycles_through_kpis_and_attributes_are_reported():
+    cap = kpi_capture()
+    cap.definition["records"][0]["attributes"][1]["pql"] = "KPI(IsLegacy)"
+    assert any("cyclic calculated attribute or KPI" in d for d in normalize(cap).diagnostics)
 
 
 def test_quoted_placeholders_and_text_values_are_escaped_once():
@@ -109,54 +183,12 @@ def test_a_placeholder_without_a_value_is_an_error():
         bind("${choice}", None)
 
 
-def test_dependency_cycles_are_reported_without_recursing_forever():
-    result = normalize(capture(due='"o_Line"."Classification"'))
-    assert any("cyclic calculated attribute" in d for d in result.diagnostics)
-
-
-def test_physical_columns_never_expand_to_calculated_definitions():
-    cap = capture()
-    layer = cap.definition
-    layer["records"][0]["attributes"].append(attribute("RequestedDate", "${choice}"))
-    changed = Capture(source=SOURCE, definition=layer, input_variables=cap.input_variables, tables=cap.tables)
-    assert Expressions(changed).resolve('"o_Line"."RequestedDate"') == '"o_Line"."RequestedDate"'
-
-
-def kpi_capture(default="Average"):
-    return Capture(source=SOURCE, definition={"records": [{
-        "id": "O_LINE", "pql": "o_Line", "attributes": [
-            attribute("ID", '"o_Line"."ID"'),
-            attribute("ActualPurchaseLeadTime", "CASE WHEN ${choice} = 'Average' THEN 1 ELSE 2 END", "FLOAT"),
-            attribute("LegacyStockValue", "CASE WHEN KPI (\n IsLegacy\n) > 0 THEN 10.0 ELSE 0.0 END", "FLOAT"),
-        ],
-    }], "kpis": [
-        {"id": "IsLegacy", "pql": 'KPI("LeadTime")', "parameters": []},
-        {"id": "LeadTime", "pql": '"o_Line"."ActualPurchaseLeadTime"'},
-        {"id": "Constant", "pql": "1.0"},
-        {"id": "Parameterized", "pql": "${choice}", "parameters": [{"id": "ARG"}]},
-    ]}, input_variables={"choice": {"dataType": "TEXT", "value": default}},
-        tables={"o_Line": {"primary_key": ["ID"], "columns": {"ID": "STRING"}}})
-
-
 @pytest.mark.parametrize("expression", [
-    'KPI(LeadTime)', 'kpi ( "leadtime" )', 'CASE WHEN KPI (IsLegacy) > 0 THEN 10.0 ELSE 0.0 END',
+    'PU_COUNT("Target", "Source"."ID")',  # Across a shared child table: not repaired.
+    'KPI(Unknown)',
 ])
-def test_references_to_input_dependent_kpis_are_kept(expression):
-    # Celonis resolves them with the KM's current input values.
-    assert Expressions(kpi_capture()).resolve(expression) == expression
-
-
-def test_kpi_text_and_unaffected_calls_are_preserved():
-    resolver = Expressions(kpi_capture())
-    expression = '\'KPI(LeadTime)\' /* KPI(LeadTime) */ -- KPI(LeadTime)\n "KPI(LeadTime)"'
-    assert resolver.resolve(expression) == expression
-    for expression in ('KPI(Constant)', 'KPI(Unknown)', 'KPI(Parameterized)', 'KPI(Parameterized, 3)'):
-        assert resolver.resolve(expression) == expression
-
-
-def test_cycles_through_kpis_and_attributes_are_reported():
-    cap = kpi_capture()
-    layer = cap.definition
-    layer["records"][0]["attributes"][1]["pql"] = "KPI(IsLegacy)"
-    cap = Capture(source=SOURCE, definition=layer, input_variables=cap.input_variables, tables=cap.tables)
-    assert any("cyclic calculated attribute or KPI" in d for d in normalize(cap).diagnostics)
+def test_km_pql_is_never_repaired(expression):
+    # Celonis rejects PQL that fails at pull; celofast does not rewrite it.
+    cap = capture(due=expression)
+    due = next(f for f in normalize(cap).objects[0].fields if f.attribute_id == "DueDate")
+    assert due.expression == expression
