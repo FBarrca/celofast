@@ -15,6 +15,7 @@ from celofast.exceptions import (
 )
 from celofast.resources.knowledge_model import KnowledgeModelClient, KnowledgeModelConnection
 from celofast.sdk import Event, EventLogRelation, ObjectCollection, ObjectPage, ToOne
+from celofast.sdk.hydration import convert
 
 from objects_fixture import load, write
 
@@ -83,7 +84,7 @@ def test_get_retrieves_a_typed_object_with_plain_values(sdk, client, transport):
     assert plant.key == "P1" and plant.id == "P1"
     assert plant.country == "DE"
     assert plant.plantnumber is None
-    assert plant.opened == date(2020, 1, 1) and type(plant.opened) is date
+    assert plant.opened == datetime(2020, 1, 1) and type(plant.opened) is datetime
 
     request = transport.requests[0]
     assert (request.limit, request.offset, request.distinct) == (2, 0, True)
@@ -170,7 +171,7 @@ def test_relationships_are_explicit_typed_requests(sdk, client, transport):
 def test_composite_keys(sdk, client, transport):
     transport.reply(["P1", pd.Timestamp("2024-01-31"), 7], columns=["plant_id", "day", "qty"])
     # Celonis DATE columns load as datetimes; a date argument means its midnight.
-    line = client.objects(sdk.StockLine).get(("P1", date(2024, 1, 31)))
+    line = client.objects(sdk.Stock).get(("P1", date(2024, 1, 31)))
     assert line.key == ("P1", datetime(2024, 1, 31)) and line.qty == 7
     filters = [f.query for f in transport.requests[0].query.filters]
     assert filters == [
@@ -178,9 +179,9 @@ def test_composite_keys(sdk, client, transport):
         eq_filter('"o_Stock"."Day"', "{t 1706659200000}"),
     ]
     with pytest.raises(QueryValidationError, match="2 parts"):
-        client.objects(sdk.StockLine).get("P1")
+        client.objects(sdk.Stock).get("P1")
     with pytest.raises(QueryValidationError, match="None"):
-        client.objects(sdk.StockLine).get(("P1", None))
+        client.objects(sdk.Stock).get(("P1", None))
 
 
 def test_missing_objects_and_failed_requests_are_errors(sdk, client, transport):
@@ -198,7 +199,7 @@ def test_missing_objects_and_failed_requests_are_errors(sdk, client, transport):
         ([plant_row("P1", "DE"), plant_row("P1", "FR")], ObjectIdentityError, "conflicting values for country"),
         ([plant_row(None)], ObjectIdentityError, "key value is null"),
         ([["P1", 42, None, None, None]], ObjectValueError, "expects str"),
-        ([["P1", "DE", None, pd.Timestamp("2020-01-01 08:00"), None]], ObjectValueError, "date but received time"),
+        ([["P1", "DE", None, "2020-01-01", None]], ObjectValueError, "expects datetime"),
     ],
 )
 def test_hydration_rejects_invalid_identity_and_values(sdk, client, transport, rows, error, message):
@@ -281,7 +282,7 @@ def test_results_contain_no_analytical_types(sdk, client, transport):
     transport.reply(plant_row(), columns=PLANT_COLUMNS)
     plant = client.objects(sdk.Plant).fetch_page().items[0]
     values = [getattr(plant, name) for name in PLANT_COLUMNS]
-    assert all(type(v) in (str, date, type(None)) for v in values)
+    assert all(type(v) in (str, datetime, type(None)) for v in values)
     for removed in ("select", "execute", "build", "records"):
         assert not hasattr(client, removed)
 
@@ -345,7 +346,7 @@ def test_membership_range_and_pattern_predicates(sdk, client, transport):
     text = wrapped('"o_Plant"."Text"')
     assert f"CASE WHEN {country} IN ('DE', 'FR') THEN 1 ELSE 0 END = 1" in condition
     assert (
-        f"CASE WHEN {opened} BETWEEN {{d '2020-01-01'}} AND {{d '2020-12-31'}} THEN 1 ELSE 0 END = 1"
+        f"CASE WHEN {opened} BETWEEN {{t 1577836800000}} AND {{t 1609372800000}} THEN 1 ELSE 0 END = 1"
         in condition
     )
     assert f"CASE WHEN {text} LIKE 'Old%' THEN 1 ELSE 0 END = 0" in condition
@@ -362,12 +363,6 @@ def test_membership_range_and_pattern_predicates(sdk, client, transport):
         Material.fields.active.between(False, True)
     with pytest.raises(ObjectValueError, match="not a string"):
         Material.fields.count.like("1%")
-
-
-def test_relations_without_a_join_are_not_predicates(sdk):
-    # Plant.stock has no Data Model foreign key; it supports traversal only.
-    with pytest.raises(QueryValidationError, match="no Data Model foreign key or lookup path"):
-        sdk.Plant.relations.stock.any()
 
 
 def test_relation_aggregates_render_pull_up_functions(sdk, client, transport):
@@ -420,7 +415,7 @@ def test_aggregates_compare_with_other_aggregates(sdk, client, transport):
 
 
 def test_aggregate_validation(sdk):
-    Plant, Material, Stock = sdk.Plant, sdk.Material, sdk.StockLine
+    Plant, Material, Stock = sdk.Plant, sdk.Material, sdk.Stock
     materials = Plant.relations.materials
     with pytest.raises(ObjectValueError, match="numeric"):
         materials.sum(Material.fields.untyped)
@@ -436,9 +431,6 @@ def test_aggregate_validation(sdk):
         materials.count().gt(2.5)
     with pytest.raises(QueryValidationError, match="same type"):
         materials.count().gt(Stock.fields.qty)
-    # Plant.stock has no foreign key: no Pull-Up path to aggregate over.
-    with pytest.raises(QueryValidationError, match="Pull-Up aggregates need one"):
-        Plant.relations.stock.count()
 
 
 def test_datetime_fields_accept_date_filters_as_midnight(sdk):
@@ -449,9 +441,9 @@ def test_datetime_fields_accept_date_filters_as_midnight(sdk):
         datetime(2024, 5, 1), datetime(2024, 6, 1)
     )
     assert updated.is_in([date(2024, 5, 1)]).operand == (datetime(2024, 5, 1),)
-    # A strict date field (types override) still rejects datetimes.
-    with pytest.raises(ObjectValueError, match="expects date"):
-        sdk.Plant.fields.opened.eq(datetime(2020, 1, 1, 8))
+    # A strict date (a result type Celonis reports as date) rejects a time of day.
+    with pytest.raises(ValueError, match="date but received time"):
+        convert("date", datetime(2020, 1, 1, 8))
 
 
 def event_row(event_id="E1", case="P1", activity="e_celonis_Opening", at="2024-01-04 08:00"):

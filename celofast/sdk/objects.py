@@ -7,7 +7,7 @@ client that loaded the instance.
 Each relationship is declared once, on a generated ``Links`` class::
 
     class PlantLinks(Links, source=Plant):
-        materials = ToManyRelation(Material, on=(("id", "plant_id"),), join="fk")
+        materials = ToManyRelation(Material, on=(("id", "plant_id"),))
 
 Read from the class (``Plant.relations.materials``) it builds predicates and
 aggregates; read from an instance (``plant.links.materials``) it fetches the
@@ -109,25 +109,18 @@ Object.relations = Links
 
 
 class Relation(Generic[O]):
-    """A declared relationship from ``source`` objects to ``target`` objects.
+    """A relationship from ``source`` objects to ``target`` objects along a
+    Data Model foreign key (or an event log's join to its lead object).
 
-    ``on`` pairs (source field name, target field name). ``join`` says how
-    predicates reach the target in PQL: a Data Model foreign key, a ``LOOKUP``
-    by value, or None when the link only supports traversal.
+    ``on`` pairs (source field name, target field name).
     """
 
     cardinality: ClassVar[Literal["one", "many"]]
     name: str
     source: type[Object]
 
-    def __init__(
-        self,
-        target: type[O],
-        *,
-        on: tuple[tuple[str, str], ...],
-        join: Literal["fk", "lookup"] | None = None,
-    ) -> None:
-        self.target, self.on, self.join = target, on, join
+    def __init__(self, target: type[O], *, on: tuple[tuple[str, str], ...]) -> None:
+        self.target, self.on = target, on
 
     def __set_name__(self, owner: type[Links], name: str) -> None:
         self.name = name
@@ -136,11 +129,6 @@ class Relation(Generic[O]):
         return f"{type(self).__name__}({self.name!r} -> {self.target.fields.object_type})"
 
     def _related(self, predicate: Predicate | None) -> Predicate:
-        if self.join is None:
-            raise QueryValidationError(
-                f"Relation {self.name!r} has no Data Model foreign key or lookup path; "
-                "use links for traversal instead."
-            )
         self._check_target(predicate)
         return Related(self, predicate)
 
@@ -236,10 +224,6 @@ class ToManyRelation(Relation[O]):
     def _aggregate(
         self, function: AggregateFunction, field: Field[Any] | None, predicate: Predicate | None
     ) -> Aggregate[Any]:
-        if self.join != "fk":
-            raise QueryValidationError(
-                f"Relation {self.name!r} has no Data Model foreign key; Pull-Up aggregates need one."
-            )
         self._check_target(predicate)
         target = self.target.fields
         if field is None:

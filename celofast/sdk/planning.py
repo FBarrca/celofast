@@ -10,8 +10,7 @@ so ``~`` is an exact complement even when values are null.
 Relationship predicates are rendered in the same query:
 
 * to-one ``has()`` pulls the related type's expressions onto the filtered row
-  with ``BIND`` (Data Model foreign key) or ``LOOKUP`` (value join without a
-  join path), so unmatched rows see NULL;
+  with ``BIND``, so unmatched rows see NULL;
 * to-many ``any()`` counts matching related rows with ``PU_COUNT`` on the
   filtered row's table, rendering the nested condition on the related table;
 * aggregates (``count``, ``sum``, ``avg``, ...) render as the matching
@@ -169,13 +168,7 @@ class _Renderer:
         key = target.key_fields[0]
         if relation.cardinality == "one":
             table = _table(source)
-            if relation.join == "fk":
-                reach: Pull = lambda e: f"BIND({table}, {e})"  # noqa: E731
-            else:
-                (left, right), = relation.on  # Lookup links join on the single target key.
-                on = f"({self.expression(getattr(source, left))}, {self.expression(getattr(target, right))})"
-                reach = lambda e: f"LOOKUP({table}, {e}, {on})"  # noqa: E731
-            to_target: Pull = lambda e: pull(reach(e))  # noqa: E731
+            to_target: Pull = lambda e: pull(f"BIND({table}, {e})")  # noqa: E731
             exists = f"{self.expression(key, to_target)} IS NOT NULL"
             if related.predicate is None:
                 return _case(exists)

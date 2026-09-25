@@ -1,4 +1,4 @@
-"""Deterministic object SDK packages from a KM capture and an object mapping.
+"""Deterministic object SDK packages from a KM capture.
 
 Each object type produces a definition class (``PlantDefinition``, its typed
 fields), a value class (``Plant``, one loaded object), and, when it has
@@ -19,7 +19,7 @@ from typing import Any
 from celofast.sdk.capture import Capture
 from celofast.sdk.expressions import placeholders
 from celofast.sdk.loading import RUNTIME_API_VERSION
-from celofast.sdk.mapping import MappingInput, ModelSpec, ObjectSpec, normalize
+from celofast.sdk.mapping import ModelSpec, ObjectSpec, normalize
 
 PACKAGE_FILES = ("__init__.py", "objects.py", "py.typed")
 MARKER = "__celofast__"
@@ -100,7 +100,7 @@ def _links(spec: ObjectSpec, classes: dict[str, str], events: set[str]) -> list[
             else "EventLogRelation" if link.target in events else "ToManyRelation"
         )
         lines.append(
-            f"    {link.name} = _o.{kind}({classes[link.target]}, on={link.on!r}, join={link.join!r})\n"
+            f"    {link.name} = _o.{kind}({classes[link.target]}, on={link.on!r})\n"
         )
     return lines
 
@@ -165,9 +165,9 @@ def _init(model: ModelSpec, capture: Capture) -> str:
     )
 
 
-def generate(capture: Capture, mapping: MappingInput = None) -> dict[str, bytes]:
+def generate(capture: Capture) -> dict[str, bytes]:
     """Render a self-contained Python package without touching the filesystem."""
-    model = normalize(capture, mapping)
+    model = normalize(capture)
     modules = {"__init__.py": _init(model, capture), "objects.py": _objects(model, capture)}
     for name, source in modules.items():
         compile(source, f"<generated {name}>", "exec")

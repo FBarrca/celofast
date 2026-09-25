@@ -52,8 +52,6 @@ def test_incorrect_declared_type_is_corrected_before_validation_and_generation(t
         (tmp_path / name).write_bytes(content)
     sdk = load(tmp_path, "corrected_type_sdk")
     assert sdk.Line.fields.actual_delivery_timestamp.value_type == "datetime"
-    overridden = normalize(cap, {"objects": {"O_LINE": {"types": {"ActualDeliveryTimestamp": "date"}}}})
-    assert overridden.objects[0].fields[1].value_type == "date"
 
 
 def test_inputs_without_a_default_keep_declared_types_without_schema_queries():
@@ -102,22 +100,6 @@ def test_input_attributes_are_typed_with_pull_values_but_keep_their_placeholders
     assert "${months}" in planned
     assert sdk.Plant.fields.total.expression == f'({planned}\n) + "o_Plant"."Purchased"'
     assert sdk.km.variables == {"months": "NUMBER"}
-
-
-@pytest.mark.parametrize("catalog", [True, False])
-def test_explicit_types_and_exclusions_do_not_query_the_schema(catalog):
-    def unexpected(expression):
-        pytest.fail("No type lookup needed")
-
-    for settings in (
-        {"types": {"Total": "int", "Planned": "float"}},
-        {"exclude-fields": ["Total", "Planned"]},
-    ):
-        original = capture()
-        if not catalog:
-            original = original.model_copy(update={"tables": None})
-        cap = resolve_types(original, unexpected, mapping={"objects": {"O_PLANT": settings}})
-        assert cap.types == {}
 
 
 def test_unresolvable_types_stay_skipped_and_export_failures_are_reported():

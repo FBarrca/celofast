@@ -23,7 +23,6 @@ generated packages, object retrieval, Views, or output writes.
 
 | Symptom | Check / next step |
 | --- | --- |
-| `ObjectMappingError` during pull | An override is invalid: it names an unknown record or attribute, sets an unusable key, repeats a class name, or declares a broken link. Fix the listed [overrides](knowledge-model-sdk.md#10-customize-what-is-generated). |
 | A record or field you need is missing | Look under `# Not generated:` at the top of the generated `objects.py` for the reason. A record without a primary key needs `key = ["ID"]`; an untyped attribute needs `types`; an attribute that fails in Celonis must be fixed in the KM, then pulled again. |
 | Pull refuses the output directory | Keep application code outside the managed directory. Use a separate output for a different KM source. |
 | `ModuleNotFoundError` for `generated.inventory` | Run the configured pull and make its output importable from the application's working directory or package. |
@@ -39,13 +38,12 @@ generated packages, object retrieval, Views, or output writes.
 | --- | --- |
 | `ObjectNotFoundError` | No object has that key. Composite keys are tuples in key-field order (`Plant.fields.key_fields`). |
 | `ObjectIdentityError` | The key is null, or one key produced different values. The key is not unique for that record, or a field's expression joins to several rows; choose another key or exclude the field. |
-| `ObjectValueError` | A retrieved value does not match the declared type, or a filter value has the wrong type. Correct `types` in the mapping, or pass a value of the field's type. |
+| `ObjectValueError` | A retrieved value does not match the declared type, or a filter value has the wrong type. Pull again if the KM changed, or pass a value of the field's type. |
 | `UnresolvedVariableError` | A loaded field uses a `${name}` KM input variable that has neither a value nor a default in the KM. Set one in Studio, or exclude the field. |
 | `QueryValidationError` from `where()` | Use predicates from the collection's own class, such as `Plant.fields.country.eq(...)`. Raw PQL is not accepted. |
 | Native export error, such as an error in another record's calculated attribute | A loaded field depends on a definition that fails in Celonis. Inspect the exception chain and exclude the affected fields until the KM is fixed. |
 | Python `and`/`or` on predicates raises an error | Pass several predicates to `where()` or chain calls; they combine with AND. |
-| `QueryValidationError` saying a relation has no Data Model foreign key or lookup path | The link matches no Data Model foreign key, and is not a single-column to-one link. It can be followed with `plant.links.<name>`, but not used in conditions or aggregates. The generated `objects.py` lists it under "Not generated". |
-| Results differ from what you expect | Enable DEBUG on the `celofast.km` logger to see the exact PQL of every request. See [See the PQL that runs](knowledge-model-sdk.md#11-see-the-pql-that-runs). |
+| Results differ from what you expect | Enable DEBUG on the `celofast.km` logger to see the exact PQL of every request. See [See the PQL that runs](knowledge-model-sdk.md#10-see-the-pql-that-runs). |
 
 Printed metadata can contain business information; review the content before
 sharing a diagnostic.

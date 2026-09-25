@@ -7,7 +7,7 @@ PREFIX = """from datetime import date, datetime
 from typing_extensions import assert_type
 from celofast import CeloFast, KnowledgeModelClient
 from celofast.sdk import Field, ObjectCollection, ObjectModel, ObjectPage, ToOne
-from inventory import Material, Plant, StockLine, km as inventory
+from inventory import Material, Plant, Stock, km as inventory
 
 assert_type(inventory, ObjectModel)
 assert_type(Plant.fields.country, Field[str | None])
@@ -19,7 +19,7 @@ assert_type(plants, ObjectCollection[Plant])
 plant = plants.get("P1")
 assert_type(plant, Plant)
 assert_type(plant.country, str | None)
-assert_type(plant.opened, date | None)
+assert_type(plant.opened, datetime | None)
 assert_type(plant.key, str)
 page = plants.where(Plant.fields.country.eq("DE")).fetch_page(page_size=100)
 assert_type(page, ObjectPage[Plant])
@@ -30,7 +30,7 @@ material = plant.links.materials.fetch_page().items[0]
 assert_type(material.links.plant, ToOne[Plant])
 assert_type(material.links.plant.fetch(), Plant | None)
 from celofast.sdk import Predicate, ToManyRelation, ToOneRelation
-line = client.objects(StockLine).get(("P1", date(2024, 1, 1)))
+line = client.objects(Stock).get(("P1", date(2024, 1, 1)))
 assert_type(line.key, tuple[str, datetime])
 # Celonis DATE columns are datetimes; their filters also take a date.
 recent: Predicate = Material.fields.updated.gte(date(2024, 1, 1)) & Material.fields.updated.between(
@@ -93,7 +93,7 @@ def test_static_analyzer_sees_values_definitions_and_links(tmp_path):
         "plant.links.materials.fetch()\n": 'has no attribute "fetch"',
         "client.select(Plant)\n": 'has no attribute "select"',
         "client.execute({})\n": 'has no attribute "execute"',
-        "Plant.fields.opened.lt('2020-01-01')\n": 'Argument 1 to "lt" of "Operand" has incompatible type "str"',
+        "Plant.fields.opened.lt('2020-01-01')\n": 'Argument 1 to "lt" of "DateTimeField" has incompatible type "str"',
         "Plant.relations.materials.has()\n": 'has no attribute "has"',
         "Material.relations.plant.any()\n": 'has no attribute "any"',
         "inventory.records\n": 'has no attribute "records"',

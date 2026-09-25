@@ -82,13 +82,6 @@ output = "generated/inventory"
     assert "Plant.BROKEN: fails in Celonis: KPI missing does not exist; not generated." in definitions
     assert "label: _d.Field[str | None] = _d.Field(" in definitions
 
-    # An explicit mapping file supplies overrides; invalid ones fail clearly.
-    (tmp_path / "broken.toml").write_text('[objects.Plant]\nkey = ["MISSING"]\n')
-    monkeypatch.chdir(tmp_path)
-    assert main([*args, "--mapping", "broken.toml", "--check"]) == 2
-    error = capsys.readouterr().err
-    assert "Plant: key attribute 'MISSING' is not a loaded field" in error
-
 
 def test_configuration_error_is_distinct_from_drift(capsys):
     assert main(["km", "pull", "--km", "missing-other-fields", "--check"]) == 2

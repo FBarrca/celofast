@@ -41,7 +41,6 @@ package-id = "c1721b64-5f2c-4311-99ee-8177f0839c92"
 key = "dm_test_perspective_celonis_inventorymanagement-km"
 mode = "draft"
 output = "generated/inventory"
-mapping = "inventory-objects.toml"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

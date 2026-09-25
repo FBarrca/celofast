@@ -1,7 +1,7 @@
 """End-to-end acceptance tests against the Inventory Management KM.
 
 The suite runs the real ``celofast km pull inventory`` (configuration from this
-repository's pyproject.toml and inventory-objects.toml) into a temporary
+repository's pyproject.toml) into a temporary
 directory, imports the generated package, and runs the documented business
 questions exactly as an application writes them. Each test asserts:
 
@@ -462,7 +462,6 @@ def conformance_cases(sdk):
         "like": (Stock, S.id.like("%::1000"), ()),
         "~like": (Stock, ~S.id.like("%00000001%"), ()),
         "~has": (Stock, ~R.plant.has(P.country.eq("DE")), ()),
-        "lookup has": (Schedule, Schedule.relations.plant.has(P.plant_name.like("B%")), ()),
         "any(has) (BIND in PU)": (Stock, R.purchase_schedule_lines.any(
             sdk.PurchaseScheduleLine.relations.purchase_document_line.has(L.is_canceled.eq(1))), ()),
         "has(any) (PU through BIND)": (Schedule, Schedule.relations.material_master_plant.has(
@@ -485,7 +484,7 @@ def conformance_cases(sdk):
             R.planned_supplies.max(PS.order_quantity)), ()),
         "has(count)": (Schedule, Schedule.relations.material_master_plant.has(
             R.planned_supplies.count().gte(2)), ()),
-        "count(any) (PU in PU)": (sdk.Plant, sdk.Plant.relations.materials.count(
+        "count(any) (PU in PU)": (sdk.Plant, sdk.Plant.relations.material_master_plants.count(
             R.planned_supplies.any(PS.is_firm_order.eq(1))).gte(30), ()),
         "order by count desc": (Stock, R.planned_supplies.count().gt(0),
                                 (R.planned_supplies.count().desc(),)),

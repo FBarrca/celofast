@@ -7,7 +7,7 @@ from celofast.sdk import Capture
 from celofast.sdk.mapping import normalize
 from celofast.sdk.validation import SAMPLE_ROWS, validate
 
-from objects_fixture import JOINS, MAPPING, TABLES, attribute, capture
+from objects_fixture import JOINS, TABLES, attribute, capture
 
 
 def with_calculated(*attributes):
@@ -40,7 +40,7 @@ def test_failing_attributes_are_isolated_by_bisection():
         attribute("BAD2", 'FAIL(1)'),
     )
     export = Export({})
-    validated = validate(captured, export, mapping=MAPPING)
+    validated = validate(captured, export)
     assert validated.validation == {"O_PLANT": {
         "BAD1": "fails in Celonis: Syntax error near FAIL",
         "BAD2": "fails in Celonis: Syntax error near FAIL",
@@ -51,7 +51,7 @@ def test_failing_attributes_are_isolated_by_bisection():
     assert first[0] == '("o_Plant"."ID"\n)'
     assert not any('"o_Plant"."Opened"' in e for query in export.queries for e in query)
     # The rejected attributes are skipped at generation.
-    model = normalize(validated, MAPPING)
+    model = normalize(validated)
     plant = next(o for o in model.objects if o.record_id == "O_PLANT")
     assert {"GOOD", "OTHER"} <= {f.attribute_id for f in plant.fields}
     assert not {"BAD1", "BAD2"} & {f.attribute_id for f in plant.fields}
@@ -59,8 +59,7 @@ def test_failing_attributes_are_isolated_by_bisection():
 
 def test_values_that_do_not_decode_are_rejected():
     captured = with_calculated(attribute("FLAG", 'CASE WHEN "o_Plant"."Country" = \'DE\' THEN 1.0 END'))
-    validated = validate(captured, Export({'CASE WHEN "o_Plant"."Country" = \'DE\' THEN 1.0 END': 1.0}),
-                         mapping=MAPPING)
+    validated = validate(captured, Export({'CASE WHEN "o_Plant"."Country" = \'DE\' THEN 1.0 END': 1.0}))
     reason = validated.validation["O_PLANT"]["FLAG"]
     assert reason.startswith("returned values that are not str")
 
@@ -68,7 +67,7 @@ def test_values_that_do_not_decode_are_rejected():
 def test_only_calculated_attributes_are_queried_with_input_defaults_bound():
     stock = '"o_Material"."Stock" * 1'
     export = Export({stock: 2.0})
-    assert validate(capture(), export, mapping=MAPPING).validation == {}
+    assert validate(capture(), export).validation == {}
     # Material.stock is the only calculated attribute; it runs with the
     # captured default of ${factor}. Records of plain columns need no query.
     assert export.queries == [['("o_Material"."ID"\n)', f"({stock}\n)"]]
@@ -79,4 +78,4 @@ def test_celofast_errors_are_not_mistaken_for_bad_attributes():
         raise CeloFastError("not connected")
 
     with pytest.raises(CeloFastError, match="not connected"):
-        validate(with_calculated(attribute("GOOD", 'UPPER("o_Plant"."Country")')), export, mapping=MAPPING)
+        validate(with_calculated(attribute("GOOD", 'UPPER("o_Plant"."Country")')), export)

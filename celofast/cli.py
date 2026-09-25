@@ -42,7 +42,7 @@ def _configuration(name: str, project: Path | None) -> tuple[dict[str, Any], Pat
     if not isinstance(settings, dict):
         raise TypeError(f"Knowledge Model {name!r} configuration must be a table.")
     unexpected = set(settings) - {
-        "space-id", "package-id", "key", "mode", "output", "mapping"
+        "space-id", "package-id", "key", "mode", "output"
     }
     if unexpected:
         raise ValueError(
@@ -106,17 +106,6 @@ class _Progress:
         self._bar = self._task = self._title = None
 
 
-def _mapping(value: Any, base: Path) -> dict[str, Any] | None:
-    """Read an inline mapping table or a TOML file relative to ``base``."""
-    if value is None or isinstance(value, dict):
-        return value
-    if not isinstance(value, (str, Path)):
-        raise TypeError("KM mapping must be a table or a path to a TOML file.")
-    path = Path(value)
-    with (path if path.is_absolute() else base / path).open("rb") as stream:
-        return tomllib.load(stream)
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="celofast",
@@ -135,11 +124,6 @@ def main(argv: list[str] | None = None) -> int:
     pull.add_argument("--km", dest="key", help="Exact Knowledge Model key")
     pull.add_argument("--mode", choices=("draft", "published"))
     pull.add_argument("--output", type=Path)
-    pull.add_argument(
-        "--mapping",
-        type=Path,
-        help="Optional TOML file of overrides: exclusions, keys, types, and link names",
-    )
     pull.add_argument(
         "--check",
         action="store_true",
@@ -169,11 +153,6 @@ def main(argv: list[str] | None = None) -> int:
         for key in ("space-id", "package-id", "key"):
             if not isinstance(settings[key], str) or not settings[key].strip():
                 raise ValueError(f"KM {key} must be a non-empty string.")
-        mapping = (
-            _mapping(args.mapping, Path.cwd())
-            if args.mapping is not None
-            else _mapping(settings.get("mapping"), root)
-        )
         output = Path(settings["output"])
         # Explicit output paths are relative to the shell; configured paths
         # remain relative to their pyproject.toml even when invoked elsewhere.
@@ -198,11 +177,11 @@ def main(argv: list[str] | None = None) -> int:
                 progress=progress,
             )
             connection = cf._km_connection(settings["key"])
-            capture = resolve_types(capture, connection._type_of, mapping=mapping, progress=progress)
-            capture = validate(capture, connection._probe, mapping=mapping, progress=progress)
+            capture = resolve_types(capture, connection._type_of, progress=progress)
+            capture = validate(capture, connection._probe, progress=progress)
         finally:
             progress.close()
-        changes = write_package(capture, output, mapping=mapping, check=args.check)
+        changes = write_package(capture, output, check=args.check)
         for change in changes:
             print(change)
             if args.check and change.diff:
@@ -213,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"{capture.source.key}: {'generated' if changes else 'up to date'} at {output.resolve()}"
         )
-        model = normalize(capture, mapping)
+        model = normalize(capture)
         links = sum(len(spec.links) for spec in model.objects)
         print(
             f"{len(model.objects)} object types, {links} links; "

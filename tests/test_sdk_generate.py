@@ -1,20 +1,18 @@
 import ast
 import dataclasses
-import json
 import subprocess
 import sys
-from datetime import date
+from datetime import datetime
 
 import pytest
 
-from celofast.exceptions import ObjectMappingError
 from celofast.sdk import Field, ObjectModel
 from celofast.sdk.generate import PACKAGE_FILES, generate
 from celofast.sdk.mapping import _names, normalize
 
 from celofast.sdk import Capture
 
-from objects_fixture import INPUTS, JOINS, MAPPING, TABLES, attribute, capture, load, write
+from objects_fixture import INPUTS, JOINS, TABLES, attribute, capture, load, write
 
 
 def record(layer, record_id):
@@ -31,7 +29,7 @@ def spec(model, record_id):
 
 
 def test_package_layout_and_offline_import(tmp_path):
-    files = generate(capture(), MAPPING)
+    files = generate(capture())
     assert tuple(sorted(files)) == tuple(sorted(PACKAGE_FILES))
     package = write(tmp_path / "inventory")
     # Importing generated classes never loads the PyCelonis query stack.
@@ -51,12 +49,12 @@ def test_package_layout_and_offline_import(tmp_path):
 
 def test_value_classes_and_definitions_are_separate(tmp_path):
     module = load(write(tmp_path / "inventory"))
-    Plant, Material, StockLine = module.Plant, module.Material, module.StockLine
+    Plant, Material, Stock = module.Plant, module.Material, module.Stock
 
     assert isinstance(module.km, ObjectModel)
-    assert list(module.km) == [module.PlantActivity, Material, Plant, StockLine]
+    assert list(module.km) == [module.PlantActivity, Material, Plant, Stock]
     assert module.km["O_PLANT"] is Plant
-    assert module.__all__ == ["PlantActivity", "Material", "Plant", "StockLine", "km"]
+    assert module.__all__ == ["PlantActivity", "Material", "Plant", "Stock", "km"]
 
     # Plant.fields describes the type; its members are typed Field definitions.
     definition = Plant.fields
@@ -72,27 +70,27 @@ def test_value_classes_and_definitions_are_separate(tmp_path):
     # Plant describes one loaded object: plain values plus key.
     names = [f.name for f in dataclasses.fields(Plant)]
     assert names == ["key", "id", "country", "plantnumber", "opened", "description"]
-    plant = Plant(key="P1", id="P1", country="DE", plantnumber=None, opened=date(2020, 1, 1), description="x")
+    plant = Plant(key="P1", id="P1", country="DE", plantnumber=None, opened=datetime(2020, 1, 1), description="x")
     assert plant.country == "DE" and plant.plantnumber is None
     with pytest.raises(dataclasses.FrozenInstanceError):
         plant.country = "FR"
-    assert plant == Plant(key="P1", id="P1", country="DE", plantnumber=None, opened=date(2020, 1, 1), description="x")
+    assert plant == Plant(key="P1", id="P1", country="DE", plantnumber=None, opened=datetime(2020, 1, 1), description="x")
     assert dataclasses.asdict(plant) == {
         "key": "P1", "id": "P1", "country": "DE", "plantnumber": None,
-        "opened": date(2020, 1, 1), "description": "x",
+        "opened": datetime(2020, 1, 1), "description": "x",
     }
     assert "_context" not in repr(plant)
 
-    assert StockLine.fields.object_type == "O_STOCK"
-    assert [f.name for f in StockLine.fields.key_fields] == ["plant_id", "day"]
+    assert Stock.fields.object_type == "O_STOCK"
+    assert [f.name for f in Stock.fields.key_fields] == ["plant_id", "day"]
     assert Material.fields.untyped.value_type == "str"
 
 
 def test_generated_source_declares_explicit_types(tmp_path):
-    files = generate(capture(), MAPPING)
+    files = generate(capture())
     objects = files["objects.py"].decode()
     tree = ast.parse(objects)
-    stock = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "StockLine")
+    stock = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "Stock")
     annotations = {
         n.target.id: ast.unparse(n.annotation) for n in stock.body if isinstance(n, ast.AnnAssign)
     }
@@ -101,17 +99,17 @@ def test_generated_source_declares_explicit_types(tmp_path):
     assert annotations["day"] == "_dt.datetime"
     assert annotations["plant_id"] == "str"
     assert annotations["qty"] == "int | None"
-    assert annotations["fields"] == "ClassVar[StockLineDefinition]"
+    assert annotations["fields"] == "ClassVar[StockDefinition]"
     assert "country: _d.Field[str | None] = _d.Field(" in objects
     assert "id: _d.Field[str] = _d.Field(" in objects
     assert "day: _d.DateTimeField[_dt.datetime] = _d.DateTimeField(" in objects
-    assert "opened: _d.Field[_dt.date | None] = _d.Field(" in objects  # types override
-    assert "plant = _o.ToOneRelation(Plant, on=(('plant_id', 'id'),), join='fk')" in objects
-    assert "materials = _o.ToManyRelation(Material, on=(('id', 'plant_id'),), join='fk')" in objects
+    assert "opened: _d.DateTimeField[_dt.datetime | None] = _d.DateTimeField(" in objects
+    assert "plant = _o.ToOneRelation(Plant, on=(('plant_id', 'id'),))" in objects
+    assert "materials = _o.ToManyRelation(Material, on=(('id', 'plant_id'),))" in objects
 
 
 def test_package_is_self_contained_python(tmp_path):
-    files = generate(capture(), MAPPING)
+    files = generate(capture())
     assert not [name for name in files if name.endswith(".json")]
     module = load(write(tmp_path / "inventory"))
 
@@ -136,7 +134,7 @@ def test_package_is_self_contained_python(tmp_path):
 def test_inputs_the_km_does_not_define_are_reported():
     layer = capture().definition
     record(layer, "O_PLANT")["attributes"][1]["pql"] = '"o_Plant"."Country" || ${missing}'
-    model = normalize(rebuild(layer), MAPPING)
+    model = normalize(rebuild(layer))
     assert "COUNTRY" not in {f.attribute_id for f in spec(model, "O_PLANT").fields}
     assert "O_PLANT.COUNTRY: uses ${missing}, which the KM does not define; not generated." in model.diagnostics
 
@@ -149,11 +147,11 @@ def test_variables_in_comments_are_not_reported(tmp_path):
 
 
 def test_generation_is_deterministic():
-    assert generate(capture(), MAPPING) == generate(capture(), MAPPING)
+    assert generate(capture()) == generate(capture())
 
 
 def test_records_keys_and_types_are_derived_from_the_data_model():
-    model = normalize(capture(), {})
+    model = normalize(capture())
     assert [(o.record_id, o.class_name, o.key) for o in model.objects] == [
         ("EL_LOG", "PlantActivity", ("case", "event_id")),
         ("O_MATERIAL", "Material", ("id",)),
@@ -171,13 +169,13 @@ def test_records_keys_and_types_are_derived_from_the_data_model():
 
 def test_records_without_primary_key_are_skipped():
     tables = {**TABLES, "o_Stock": {**TABLES["o_Stock"], "primary_key": []}}
-    model = normalize(rebuild(capture().definition, tables=tables), {})
+    model = normalize(rebuild(capture().definition, tables=tables))
     assert "O_STOCK" not in {o.record_id for o in model.objects}
     assert "O_STOCK: no primary key or declared identifier; not an object type." in model.diagnostics
 
 
 def test_event_logs_are_the_history_of_their_lead_object():
-    model = normalize(capture(), {})
+    model = normalize(capture())
     log = spec(model, "EL_LOG")
     assert (log.class_name, log.table, log.lead, log.key) == (
         "PlantActivity", "el__PlantActivities", "o_Plant", ("case", "event_id"),
@@ -191,15 +189,12 @@ def test_event_logs_are_the_history_of_their_lead_object():
         ("case", "LEAD_OBJECT_ID", "str"),
         ("timestamp", "TIMESTAMP", "datetime"),
     ]
-    assert [(l.name, l.target, l.cardinality, l.on, l.join) for l in log.links] == [
-        ("case", "O_PLANT", "one", (("case", "id"),), "fk"),
+    assert [(l.name, l.target, l.cardinality, l.on) for l in log.links] == [
+        ("case", "O_PLANT", "one", (("case", "id"),)),
     ]
-    assert ("activities", "EL_LOG", "many", (("id", "case"),), "fk") in [
-        (l.name, l.target, l.cardinality, l.on, l.join) for l in spec(model, "O_PLANT").links
+    assert ("activities", "EL_LOG", "many", (("id", "case"),)) in [
+        (l.name, l.target, l.cardinality, l.on) for l in spec(model, "O_PLANT").links
     ]
-    # Typing epoch loads it like any other field.
-    model = normalize(capture(), {"objects": {"EL_LOG": {"types": {"EPOCH": "int"}}}})
-    assert "epoch" in {f.name for f in spec(model, "EL_LOG").fields}
 
 
 def test_event_log_names_avoid_their_lead_and_role_fields():
@@ -210,7 +205,7 @@ def test_event_log_names_avoid_their_lead_and_role_fields():
         item["pql"] = item["pql"].replace("el__PlantActivities", "el_celonis_Plant")
     # A business attribute spelled like a role field keeps its own name.
     log["attributes"].append(attribute("Activity", '"el_celonis_Plant"."Activity"'))
-    model = normalize(rebuild(layer), {})
+    model = normalize(rebuild(layer))
     event = spec(model, "EL_LOG")
     assert event.class_name == "PlantEvent"
     assert "activity_attribute" in {f.name for f in event.fields}
@@ -229,20 +224,9 @@ def test_event_log_names_avoid_their_lead_and_role_fields():
 def test_event_logs_that_cannot_be_generated_are_reported(change, message):
     layer = capture().definition
     change(layer)
-    model = normalize(rebuild(layer), {})
+    model = normalize(rebuild(layer))
     assert "EL_LOG" not in {o.record_id for o in model.objects}
     assert any(message in note for note in model.diagnostics), model.diagnostics
-
-
-def test_declared_links_rename_event_log_links_and_keep_their_join():
-    mapping = {"objects": {"O_PLANT": {"links": {"history": {
-        "target": "EL_LOG", "cardinality": "many", "on": {"ID": "LEAD_OBJECT_ID"}}}}}}
-    model = normalize(capture(), mapping)
-    assert ("history", "fk") in [(l.name, l.join) for l in spec(model, "O_PLANT").links]
-    source = generate(capture(), mapping)["objects.py"].decode()
-    assert "    history = _o.EventLogRelation(PlantActivity, on=(('id', 'case'),), join='fk')\n" in source
-    assert "class PlantActivityDefinition(_d.EventDefinition):" in source
-    assert "_event_types = ('e_celonis_Inspection', 'e_celonis_Opening')" in source
 
 
 def test_unknown_types_and_missing_expressions_are_skipped_and_reported():
@@ -252,28 +236,29 @@ def test_unknown_types_and_missing_expressions_are_skipped_and_reported():
         {"id": "EMPTY", "columnType": "STRING", "type": "ATTRIBUTE"},
     ]
     changed = rebuild(layer)
-    model = normalize(changed, {})
+    model = normalize(changed)
     loaded = {f.attribute_id for f in spec(model, "O_MATERIAL").fields}
     assert not {"CALC", "EMPTY"} & loaded
     assert "O_MATERIAL.CALC: unknown type None; not generated." in model.diagnostics
     assert "O_MATERIAL.EMPTY: no expression; not generated." in model.diagnostics
-    # An explicit type loads a calculated attribute the KM leaves untyped.
-    model = normalize(changed, {"objects": {"O_MATERIAL": {"types": {"CALC": "int"}}}})
+    # The type Celonis reported at pull loads a calculated attribute the KM leaves untyped.
+    typed = changed.model_copy(update={"types": {'CASE WHEN "o_Material"."Count" > 1 THEN 1 END': "int"}})
+    model = normalize(typed)
     assert {f.attribute_id: f.value_type for f in spec(model, "O_MATERIAL").fields}["CALC"] == "int"
 
 
 def test_attributes_rejected_at_pull_are_skipped_and_reported():
     rejected = capture().model_copy(update={"validation": {"O_MATERIAL": {"COUNT": "fails in Celonis: boom"}}})
-    model = normalize(rejected, {})
+    model = normalize(rejected)
     assert "COUNT" not in {f.attribute_id for f in spec(model, "O_MATERIAL").fields}
     assert "O_MATERIAL.COUNT: fails in Celonis: boom; not generated." in model.diagnostics
 
 
 def test_automatic_links_follow_foreign_keys():
-    model = normalize(capture(), {})
-    assert [(l.name, l.target, l.cardinality, l.on, l.join) for l in spec(model, "O_PLANT").links] == [
-        ("activities", "EL_LOG", "many", (("id", "case"),), "fk"),
-        ("materials", "O_MATERIAL", "many", (("id", "plant_id"),), "fk"),
+    model = normalize(capture())
+    assert [(l.name, l.target, l.cardinality, l.on) for l in spec(model, "O_PLANT").links] == [
+        ("activities", "EL_LOG", "many", (("id", "case"),)),
+        ("materials", "O_MATERIAL", "many", (("id", "plant_id"),)),
     ]
     assert [(l.name, l.cardinality) for l in spec(model, "O_MATERIAL").links] == [("plant", "one")]
 
@@ -284,79 +269,21 @@ def test_automatic_links_follow_foreign_keys():
     tables = {**TABLES, "o_Material": {
         **TABLES["o_Material"], "columns": {**TABLES["o_Material"]["columns"], "Origin_ID": "STRING"}}}
     joins = [*JOINS, {"one": "o_Plant", "many": "o_Material", "columns": [["ID", "Origin_ID"]]}]
-    model = normalize(rebuild(layer, joins=joins, tables=tables), {})
+    model = normalize(rebuild(layer, joins=joins, tables=tables))
     assert {l.name for l in spec(model, "O_MATERIAL").links} == {"plant", "origin"}
     assert {l.name for l in spec(model, "O_PLANT").links} == {"activities", "materials", "materials_by_plant"}
 
 
-def test_declared_links_rename_matching_automatic_links():
-    mapping = {"objects": {"O_PLANT": {"links": {"inventory": {
-        "target": "O_MATERIAL", "cardinality": "many", "on": {"ID": "PLANT_ID"}}}}}}
-    model = normalize(capture(), mapping)
-    assert [(l.name, l.join) for l in spec(model, "O_PLANT").links] == [("activities", "fk"), ("inventory", "fk")]
-
-
-@pytest.mark.parametrize(
-    ("change", "message"),
-    [
-        ({"key": ["COUNT"], "types": {"COUNT": "float"}}, "has type float"),
-        ({"key": ["MISSING"]}, "not a loaded field"),
-        ({"key": ["ID", "ID"]}, "repeats"),
-        ({"exclude-fields": ["NOPE"], "key": ["ID"]}, "unknown attribute 'NOPE'"),
-    ],
-)
-def test_keys_are_verified(change, message):
-    mapping = json.loads(json.dumps(MAPPING))
-    mapping["objects"]["O_MATERIAL"].update(change)
-    with pytest.raises(ObjectMappingError, match=message):
-        normalize(capture(), mapping)
-
-
 def test_declared_identifier_is_the_key_without_a_primary_key():
     tables = {**TABLES, "o_Plant": {**TABLES["o_Plant"], "primary_key": []}}
-    model = normalize(rebuild(capture().definition, tables=tables), {})
+    model = normalize(rebuild(capture().definition, tables=tables))
     assert spec(model, "O_PLANT").key == ("id",)
 
     layer = capture().definition
     record(layer, "O_PLANT")["identifier"] = {"pql": '"o_Plant"."Other"'}
-    model = normalize(rebuild(layer, tables=tables), {})
+    model = normalize(rebuild(layer, tables=tables))
     assert "O_PLANT" not in {o.record_id for o in model.objects}
     assert "O_PLANT: no primary key or declared identifier; not an object type." in model.diagnostics
-
-
-@pytest.mark.parametrize(
-    ("link", "message"),
-    [
-        ({"target": "O_STOCK", "cardinality": "one", "on": {"ID": "PLANT_ID"}}, "must map exactly the target key"),
-        ({"target": "O_UNKNOWN", "cardinality": "many", "on": {"ID": "ID"}}, "not a generated object type"),
-        ({"target": "O_MATERIAL", "cardinality": "many", "on": {"OPENED": "PLANT_ID"}}, "different types"),
-        ({"target": "O_MATERIAL", "cardinality": "many", "on": {"ID": "NOPE"}}, "loaded fields"),
-    ],
-)
-def test_relationships_require_known_target_cardinality_and_mapping(link, message):
-    mapping = json.loads(json.dumps(MAPPING))
-    mapping["objects"]["O_PLANT"]["links"]["broken"] = link
-    with pytest.raises(ObjectMappingError, match=message):
-        normalize(capture(), mapping)
-
-
-def test_invalid_mapping_documents_and_names_fail_clearly():
-    with pytest.raises(ObjectMappingError, match="Invalid KM object mapping"):
-        normalize(capture(), {"objects": {"O_PLANT": {"unknown": 1}}})
-    mapping = json.loads(json.dumps(MAPPING))
-    mapping["objects"]["O_STOCK"]["class"] = "Plant"
-    with pytest.raises(ObjectMappingError, match="O_STOCK: no free class name among Plant"):
-        normalize(capture(), mapping)
-    mapping["objects"]["O_STOCK"]["class"] = "not a class"
-    with pytest.raises(ObjectMappingError, match="capitalized Python identifier"):
-        normalize(capture(), mapping)
-    mapping = json.loads(json.dumps(MAPPING))
-    mapping["exclude"] = ["O_STOCK"]
-    mapping["objects"]["MISSING"] = {"key": ["ID"]}
-    with pytest.raises(ObjectMappingError) as error:
-        normalize(capture(), mapping)
-    assert "O_STOCK: both mapped and excluded" in str(error.value)
-    assert "MISSING: mapped or excluded, but no such record" in str(error.value)
 
 
 def test_reserved_and_colliding_names_get_readable_suffixes(tmp_path):
@@ -380,40 +307,23 @@ def test_an_id_in_several_collections_loads_the_first():
     layer = capture().definition
     record(layer, "O_PLANT")["newAttributes"] = [attribute("COUNTRY", '"o_Plant"."C2"')]
     changed = rebuild(layer)
-    model = normalize(changed, MAPPING)
+    model = normalize(changed)
     countries = [f for f in spec(model, "O_PLANT").fields if f.attribute_id == "COUNTRY"]
     assert [(f.name, f.expression) for f in countries] == [("country", '"o_Plant"."Country"')]
     assert "O_PLANT.newAttributes.COUNTRY: ID also defined in attributes; not generated." in model.diagnostics
-    mapping = json.loads(json.dumps(MAPPING))
-    mapping["objects"]["O_PLANT"]["exclude-fields"] = ["COUNTRY"]
-    plant = spec(normalize(changed, mapping), "O_PLANT")
-    assert "COUNTRY" not in {f.attribute_id for f in plant.fields}
     ids = ["ID", "ID_ATTRIBUTE", "ID_ATTRIBUTE_1", "NumberName", "number_name", "KEY"]
     assert _names(ids, {"id", "key"}, suffixes=["attribute"] * 6) == [
         "id_attribute_2", "id_attribute", "id_attribute_1",
         "number_name_attribute_1", "number_name_attribute_2", "key_attribute",
     ]
 
-def test_links_are_classified_against_data_model_joins(tmp_path):
+
+def test_links_follow_data_model_joins(tmp_path):
     module = load(write(tmp_path / "joined"))
     Plant, Material = module.Plant, module.Material
     # Plant -> Material follows the captured foreign key in both directions.
-    assert Plant.relations.materials.join == "fk"
-    assert Material.relations.plant.join == "fk"
-    # Stock lines have no foreign key and the link is to-many: traversal only.
-    assert Plant.relations.stock.join is None
-    definitions = generate(capture(), MAPPING)["objects.py"].decode()
-    assert "O_PLANT.links.stock: no Data Model foreign key or lookup path" in definitions
+    assert Plant.relations.materials.target is Material
+    assert Material.relations.plant.target is Plant
+    # Stock lines have no foreign key to plants: no link.
+    assert not hasattr(Plant.relations, "stock")
     assert Plant.fields._table == "o_Plant"
-
-
-def test_to_one_links_without_foreign_keys_use_lookup(tmp_path):
-    no_joins = rebuild(capture().definition, joins=[])
-    mapping = json.loads(json.dumps(MAPPING))
-    mapping["objects"]["O_PLANT"]["links"]["materials"] = {
-        "target": "O_MATERIAL", "cardinality": "many", "on": {"ID": "PLANT_ID"}}
-    mapping["objects"]["O_MATERIAL"]["links"] = {
-        "plant": {"target": "O_PLANT", "cardinality": "one", "on": {"PLANT_ID": "ID"}}}
-    module = load(write(tmp_path / "unjoined", no_joins, mapping))
-    assert module.Material.relations.plant.join == "lookup"
-    assert module.Plant.relations.materials.join is None

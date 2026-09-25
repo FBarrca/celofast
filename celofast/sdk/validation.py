@@ -5,7 +5,7 @@ runs two steps, each returning an updated capture so generation stays a pure
 function of it:
 
 1. ``resolve_types`` asks Celonis for the result type of every calculated
-   attribute that no override or column type covers.
+   attribute that no column type covers.
 2. ``validate`` exports the key and all calculated fields of each object type
    for a sample of rows. When Celonis rejects the query, the field set is
    bisected until each failing field is isolated. When it succeeds, every
@@ -27,7 +27,7 @@ from celofast.exceptions import CeloFastError, UnresolvedVariableError
 from celofast.sdk.capture import Capture, Progress
 from celofast.sdk.expressions import bind_inputs
 from celofast.sdk.hydration import ValueType, convert
-from celofast.sdk.mapping import FieldSpec, MappingInput, ObjectSpec, column, normalize
+from celofast.sdk.mapping import FieldSpec, ObjectSpec, column, normalize
 
 Describe = Callable[[str], "ValueType | None"]
 """Returns the Celonis result type of one expression."""
@@ -93,8 +93,7 @@ def _with_pull_values(capture: Capture) -> Callable[[str], str | None]:
 
 
 def resolve_types(
-    capture: Capture, describe: Describe, *,
-    mapping: MappingInput = None, progress: Progress | None = None,
+    capture: Capture, describe: Describe, *, progress: Progress | None = None,
 ) -> Capture:
     """Record Celonis result types; attributes whose export fails are rejected.
 
@@ -116,7 +115,7 @@ def resolve_types(
             pending.setdefault(expression, (bound, []))[1].append((rid, attribute_id))
         return None
 
-    normalize(capture, mapping, describe=collect)
+    normalize(capture, describe=collect)
     expressions = list(pending)
     if progress is not None and expressions:
         progress("Resolving types", 0, len(expressions))
@@ -174,8 +173,7 @@ def _probe(keys: list[str], fields: list[tuple[FieldSpec, str]], execute: Execut
 
 
 def validate(
-    capture: Capture, execute: Execute, *,
-    mapping: MappingInput = None, progress: Progress | None = None,
+    capture: Capture, execute: Execute, *, progress: Progress | None = None,
 ) -> Capture:
     """Test-run calculated attributes; return the capture with rejections added.
 
@@ -183,7 +181,7 @@ def validate(
     """
     bind = _with_pull_values(capture)
     work = []
-    for spec in normalize(capture, mapping).objects:
+    for spec in normalize(capture).objects:
         bound = [(field, e) for field in _calculated(spec) if (e := bind(field.expression)) is not None]
         if bound:
             work.append((spec, [f.expression for f in spec.fields if f.key], bound))

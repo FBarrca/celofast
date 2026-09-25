@@ -85,8 +85,7 @@ def capture(**changes):
         "kpis": [{"id": "Value", "pql": "SUM(1)"}],
         **changes,
     }
-    # The Data Model joins plants to materials; stock lines have no foreign key,
-    # so Plant.links.stock is traversal-only.
+    # The Data Model joins plants to materials; stock lines have no foreign key.
     return Capture(
         source=SOURCE, definition=layer, input_variables=INPUTS, joins=JOINS, tables=TABLES,
         event_types=EVENT_TYPES,
@@ -119,28 +118,9 @@ TABLES = {
     },
 }
 
-# Everything else (keys, types, the materials/plant links) is derived.
-MAPPING = {
-    "objects": {
-        "O_PLANT": {
-            "types": {"OPENED": "date"},
-            "links": {
-                "stock": {
-                    "target": "O_STOCK",
-                    "cardinality": "many",
-                    "on": {"ID": "PLANT_ID"},
-                },
-            },
-        },
-        "O_MATERIAL": {},
-        "O_STOCK": {"class": "StockLine"},
-    },
-}
-
-
-def write(directory: Path, capture_=None, mapping=MAPPING) -> Path:
+def write(directory: Path, capture_=None) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
-    for name, data in generate(capture_ or capture(), mapping).items():
+    for name, data in generate(capture_ or capture()).items():
         (directory / name).write_bytes(data)
     return directory
 

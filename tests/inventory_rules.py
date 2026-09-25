@@ -1,8 +1,8 @@
 """Inventory business rules written against the generated object SDK.
 
 Each function is one realistic use case built on the Inventory Management KM,
-exercised by test_inventory_rules.py. The object types and relations come from
-inventory-objects.toml; the tests import whichever ``generated.inventory`` they
+exercised by test_inventory_rules.py. The object types and relations are the
+ones pull derives from the KM; the tests import whichever ``generated.inventory`` they
 put first on the path (a fixture package offline, the pulled package live).
 """
 

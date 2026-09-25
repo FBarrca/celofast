@@ -14,7 +14,6 @@ from typing import Any
 
 from celofast.sdk.capture import Capture, CaptureError
 from celofast.sdk.generate import HEADER, MARKER, PACKAGE_FILES, generate
-from celofast.sdk.mapping import MappingInput
 
 
 @dataclass(frozen=True)
@@ -120,18 +119,16 @@ def write_package(
     capture: Capture,
     output: str | Path,
     *,
-    mapping: MappingInput = None,
     check: bool = False,
 ) -> tuple[Change, ...]:
     """Generate and install a package; ``check`` only reports what would change.
 
-    ``mapping`` supplies object keys, types, exclusions, and relationships.
     Returns the changed files, each with a unified diff of generated code. An
     empty tuple means the output already matches: KM changes that do not affect
     the generated types are not drift.
     """
     target = Path(output).resolve()
-    expected = generate(capture, mapping)
+    expected = generate(capture)
     changes = differences(_existing(target, capture), expected)
     if check or not changes:
         return changes

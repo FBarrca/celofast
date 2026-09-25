@@ -1,7 +1,7 @@
 """The inventory business rules (tests/inventory_rules.py) as tests.
 
 Offline: the object package is generated from a tenant-free Inventory KM
-fixture with the repository's inventory-objects.toml. Each business rule runs
+fixture. Each business rule runs
 over hand-built objects that cover every branch, through a client that
 evaluates predicates in plain Python (tests/inventory_oracle.py). The PQL the
 real client sends is checked against a recording transport.
@@ -30,14 +30,8 @@ from celofast.sdk.package import write_package
 
 from inventory_oracle import MemoryClient
 
-try:
-    import tomllib
-except ImportError:  # Python 3.10
-    import tomli as tomllib  # type: ignore[no-redef]
-
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = Path(__file__).with_name("fixtures") / "inventory_km.json"
-MAPPING = ROOT / "inventory-objects.toml"
 AS_OF = date(2026, 9, 23)
 
 
@@ -69,9 +63,7 @@ def _import(path: Path):
 def offline(tmp_path_factory):
     root = tmp_path_factory.mktemp("offline")
     capture = Capture.model_validate_json(FIXTURE.read_text(encoding="utf-8"))
-    with MAPPING.open("rb") as stream:
-        mapping = tomllib.load(stream)
-    write_package(capture, root / "generated" / "inventory", mapping=mapping)
+    write_package(capture, root / "generated" / "inventory")
     sdk, rules = _import(root)
     yield SimpleNamespace(sdk=sdk, rules=rules)
     _purge()
@@ -310,19 +302,6 @@ def test_nested_relations_bind_one_hop_at_a_time(offline):
         expression(offline.sdk.PurchaseScheduleLine.fields.expected_delivery_date),
         expression(offline.sdk.PurchaseScheduleLine.fields.id),
     ]
-
-
-def test_lookup_links_join_by_value(offline):
-    sdk, transport = offline.sdk, Transport()
-    Schedule, Plant = sdk.PurchaseScheduleLine, sdk.Plant
-    assert Schedule.relations.plant.join == "lookup"  # No Data Model foreign key.
-    real_client(sdk, transport).objects(Schedule).where(
-        Schedule.relations.plant.has(Plant.fields.country.eq("DE"))
-    ).fetch_page()
-    condition = transport.queries[0].filters[0].query
-    schedule = '"o_celonis_PurchaseScheduleLine"'
-    join = f"({expression(Schedule.fields.plant_id)}, {expression(Plant.fields.id)})"
-    assert f"LOOKUP({schedule}, {expression(Plant.fields.country)}, {join}) = 'DE'" in condition
 
 
 def test_any_inside_pu_binds_the_related_parent(offline):

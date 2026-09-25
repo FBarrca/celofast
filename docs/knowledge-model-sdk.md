@@ -15,7 +15,7 @@ plant = client.objects(Plant).get("SAP_ECC::100::1000")
 print(plant.plant_name, plant.country)
 
 german_plants = client.objects(Plant).where(Plant.fields.country.eq("DE")).fetch_page()
-materials = plant.links.materials.fetch_page()          # this plant's MaterialMasterPlants
+materials = plant.links.material_master_plants.fetch_page()   # this plant's MaterialMasterPlants
 ```
 
 Your editor autocompletes every class, field, and relationship, and a type
@@ -33,8 +33,7 @@ KM; your names come from your own KM.
 7. [Event logs](#7-event-logs)
 8. [KM input variables](#8-km-input-variables)
 9. [Keep the package up to date](#9-keep-the-package-up-to-date)
-10. [Customize what is generated](#10-customize-what-is-generated)
-11. [See the PQL that runs](#11-see-the-pql-that-runs)
+10. [See the PQL that runs](#10-see-the-pql-that-runs)
 
 ## 1. Generate the package
 
@@ -209,7 +208,7 @@ key order.
 ```python
 plant = client.objects(Plant).get("SAP_ECC::100::1000")
 
-materials = plant.links.materials                 # a collection of MaterialMasterPlant
+materials = plant.links.material_master_plants    # a collection of MaterialMasterPlant
 purchased = materials.where(MaterialMasterPlant.fields.procurement_type.eq("F"))
 page = purchased.fetch_page(page_size=50)
 
@@ -280,11 +279,6 @@ The optional condition limits which related objects count. Every aggregate
 except the two counts is `None` when there is no related value, and
 `.eq(None)` finds those objects.
 
-Relationships are filterable when they follow a Data Model foreign key, or are
-to-one links on a single column (joined by value). Other relationships, such
-as a declared to-many link without a foreign key, can be followed with `links`
-but not used in conditions; their `relations` raise `QueryValidationError`.
-
 ## 7. Event logs
 
 In an object-centric Data Model, events are stored by event type
@@ -353,8 +347,7 @@ without a pull.
 
 `inventory.variables` lists the inputs the package uses. If an input has
 neither a value nor a default, reading a field that uses it raises
-`UnresolvedVariableError`: set a value in Studio, or
-[exclude the field](#10-customize-what-is-generated).
+`UnresolvedVariableError`: set a value in Studio.
 
 ## 9. Keep the package up to date
 
@@ -379,59 +372,7 @@ Don't edit generated files; pull replaces them. Keep your own code outside the
 output directory: pull refuses to write into a directory with files it didn't
 generate.
 
-## 10. Customize what is generated
-
-Pull needs no configuration beyond section 1. To change its choices, add a
-`mapping`: inline, or as a TOML file next to `pyproject.toml`:
-
-```toml
-[tool.celofast.knowledge-models.inventory]
-# ...
-mapping = "inventory-objects.toml"
-```
-
-Records and attributes are named by their KM IDs, as shown in Studio:
-
-```toml
-# inventory-objects.toml
-
-# Don't generate these records.
-exclude = ["O_CELONIS_CURRENCYCONVERSION"]
-
-[objects.O_CELONIS_PLANT]
-class = "Site"                          # rename the class
-key = ["ID"]                            # choose the key (default: the primary key)
-exclude-fields = ["NumberNameConcat"]   # don't load these attributes
-types = { OpenedOn = "date" }           # force a type
-```
-
-`types` accepts `str`, `int`, `float`, `bool`, `date`, and `datetime`. Celonis
-dates load as `datetime`; use `"date"` for a plain date.
-
-**Relationships.** Declaring a link with the same target and columns as an
-automatic one renames it. Declaring any other link adds it:
-
-```toml
-# Rename Plant.material_master_plants to Plant.materials.
-[objects.O_CELONIS_PLANT.links.materials]
-target = "O_CELONIS_MATERIALMASTERPLANT"
-cardinality = "many"
-on = { ID = "PLANT_ID" }                # this record's attribute -> target attribute
-
-# Add a link that no foreign key declares.
-[objects.O_CELONIS_PURCHASESCHEDULELINE.links.plant]
-target = "O_CELONIS_PLANT"
-cardinality = "one"                     # a to-one link must map the target's key
-on = { PLANT_ID = "ID" }
-```
-
-A mistake in the mapping, such as an unknown record or attribute, or a key or
-link that doesn't fit, raises `ObjectMappingError` and nothing is written.
-
-Pass a different mapping file for one pull with `--mapping`. See the
-[command reference](api-reference.md#km-command-line) for all options.
-
-## 11. See the PQL that runs
+## 10. See the PQL that runs
 
 Each read is one query. To see it exactly as sent, enable DEBUG logging for
 `celofast.km`:

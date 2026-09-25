@@ -36,22 +36,22 @@ to augmentation tables.
 | `Plant.fields` | The definition of an object type and its typed fields | `Plant.fields.country.eq("DE")` |
 | `Plant` instance | One loaded, immutable business object | `plant = client.objects(Plant).get("P1")` |
 | `ObjectCollection` / `ObjectPage` | A filterable set of objects / one fetched page | `client.objects(Plant).fetch_page()` |
-| Relationship | A declared link to related objects | `plant.links.materials.fetch_page()` |
+| Relationship | A link to related objects, from a Data Model foreign key | `plant.links.material_master_plants.fetch_page()` |
 | View table handle | A table component whose query comes from View configuration | `cf.view("operations-view")["Orders"]` |
 | Augmentation table handle | A destination for rows in the resolved Data Model | `cf.augmentation_tables("inventory-km").table("PREDICTIONS")` |
 
 The names in these examples are illustrative. Resource selectors use your exact
-IDs or keys; generated class and field names derive from your KM and mapping.
+IDs or keys; generated class and field names derive from your KM.
 
 ## What is local and what is live?
 
 ```text
-Cloud KM definitions + object mapping -- celofast km pull --> generated object classes
+Cloud KM definitions -- celofast km pull --> generated object classes
                                                                      |
                                                             cf.km(inventory)
                                                                      |
                                    client.objects(Plant).fetch_page() --> live Plant objects
-                                   plant.links.materials.fetch_page() --> live related objects
+                                   plant.links.material_master_plants.fetch_page() --> live related objects
 ```
 
 - Importing a generated package and inspecting definitions are offline.

@@ -48,17 +48,15 @@ Source: [core.py](../celofast/core.py), [client.py](../celofast/client.py).
 | `Plant.relations.<event_log>.contains(*a)`, `.excludes(*a)` | `Predicate` (`MATCH_ACTIVITIES` `NODE`, not `NODE_ANY`): the object's history has every / none of the activities. `excludes` also holds without events. |
 | `Plant.relations.<event_log>.starts_with(*a)`, `.ends_with(*a)` | `Predicate` (`STARTING`, `ENDING`): the first / last activity is one of them. Not usable inside `has()`. |
 | `plant.key` | Business key; a tuple for composite keys. |
-| `plant.links.<name>` | `ObjectCollection[Target]` (to-many) or `ToOne[Target]` (to-one), derived from a Data Model foreign key or declared as an override. |
+| `plant.links.<name>` | `ObjectCollection[Target]` (to-many) or `ToOne[Target]` (to-one), derived from a Data Model foreign key. |
 | `SalesOrderScheduleLineActivity` | `Event` (a frozen dataclass like `Plant`): one event of one lead object. Fields `case` (the lead's key), `event_id`, `activity` (the event type table, such as `e_celonis_PostGoodsIssue`), `timestamp`, and the log's other attributes. Key `(case, event_id)`. |
 | `event.links.case` | `ToOne[Lead]`. The lead's `links.activities` (logs named `...Activities`) or `links.events` is an `EventLogRelation`. |
 
-`Plant.relations.<name>` and `plant.links.<name>` are the same declared
-relationship; its `.target`, `.on`, and `.join` describe it. Predicates and
-aggregates need a link verified at pull against a Data Model foreign key
-(joins, `BIND`, `PU_COUNT`) or, for single-column to-one links, joinable with
-`LOOKUP` (`.join` is `"fk"` or `"lookup"`); other links are traversal only. Every read, including nested relations, is one PQL query.
-An event log's links use the join Celonis maintains between the log and its
-lead object, and are `"fk"` links.
+`Plant.relations.<name>` and `plant.links.<name>` are the same relationship;
+its `.target` and `.on` describe it. Every relationship follows a Data Model
+foreign key (or, for event logs, the join Celonis maintains between a log and
+its lead object), so it supports traversal, predicates (`BIND`, `PU_COUNT`),
+and aggregates. Every read, including nested relations, is one PQL query.
 
 Activities are named by event type table (`e_celonis_PostGoodsIssue`) or type
 name (`PostGoodsIssue`), checked against the Data Model's event types at pull;
@@ -148,7 +146,6 @@ uv run celofast km pull --space-id SPACE_ID --package-id PACKAGE_ID --km invento
 | `--space-id`, `--package-id`, `--km` | Explicit source identifiers, overriding configured values. `--km` is the exact KM key. |
 | `--mode` | `draft` or `published`; defaults to `draft` if not configured. |
 | `--output` | Explicit output path, relative to the working directory. Configured output paths are relative to their `pyproject.toml`. |
-| `--mapping` | Optional TOML file of overrides (`exclude` and `objects`); replaces a configured `mapping`. Relative to the working directory. |
 | `--check` | Read cloud definitions and report drift without changing files. |
 
 Pull reads Data Model tables, primary keys, column types, and foreign keys, and
@@ -156,7 +153,7 @@ test-runs calculated attributes against a sample of rows. Progress goes to
 stderr: a progress bar in a terminal, otherwise one line per step.
 
 Exit codes: **0** means success/up to date; **1** means `--check` detected drift;
-**2** means configuration, retrieval, mapping, generation, or installation failed.
+**2** means configuration, retrieval, generation, or installation failed.
 Run `uv run celofast km pull --help` for the installed command's help.
 
 Source: [cli.py](../celofast/cli.py). See
@@ -165,8 +162,8 @@ Source: [cli.py](../celofast/cli.py). See
 ## Exceptions
 
 Most Celofast exceptions are importable from `celofast`. `CeloFastError` is the
-common base; `QueryValidationError`, `AugmentationValidationError`,
-`ObjectMappingError`, and `ObjectValueError` also subclass `ValueError`.
+common base; `QueryValidationError`, `AugmentationValidationError`, and
+`ObjectValueError` also subclass `ValueError`.
 `ObjectNotFoundError` subclasses `ResourceNotFoundError`; `ObjectIdentityError`
 reports null keys and conflicting values. Generated import compatibility errors use
 `celofast.sdk.loading.SDKCompatibilityError`, an `ImportError` subclass.
