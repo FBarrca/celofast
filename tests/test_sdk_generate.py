@@ -8,7 +8,7 @@ import pytest
 
 from celofast.sdk import Field, ObjectModel
 from celofast.sdk.generate import PACKAGE_FILES, generate
-from celofast.sdk.mapping import _names, normalize
+from celofast.sdk.model import _names, normalize
 
 from celofast.sdk import Capture
 

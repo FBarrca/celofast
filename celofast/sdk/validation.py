@@ -27,7 +27,7 @@ from celofast.exceptions import CeloFastError, UnresolvedVariableError
 from celofast.sdk.capture import Capture, Progress
 from celofast.sdk.expressions import bind_inputs
 from celofast.sdk.hydration import ValueType, convert
-from celofast.sdk.mapping import FieldSpec, ObjectSpec, column, normalize
+from celofast.sdk.model import FieldSpec, ObjectSpec, column, normalize
 
 Describe = Callable[[str], "ValueType | None"]
 """Returns the Celonis result type of one expression."""

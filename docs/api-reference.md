@@ -62,8 +62,8 @@ Activities are named by event type table (`e_celonis_PostGoodsIssue`) or type
 name (`PostGoodsIssue`), checked against the Data Model's event types at pull;
 an unknown name raises `ObjectValueError`.
 
-Value types are `str`, `int`, `float`, `bool`, `date`, and `datetime`. Keys are
-`str`, `int`, `date`, or `datetime`. Celonis `DATE` columns are `datetime`
+Value types are `str`, `int`, `float`, `bool`, and `datetime`. Keys are
+`str`, `int`, or `datetime`. Celonis `DATE` values are timestamps, so they are `datetime`
 fields (`DateTimeField`); their filters also accept a `date`, meaning its
 midnight.
 

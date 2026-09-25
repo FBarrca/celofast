@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import pycelonis.pql as pql
@@ -78,16 +78,11 @@ def _literal(value: object) -> str:
         delta = value - datetime(1970, 1, 1)
         milliseconds = (delta.days * 86400 + delta.seconds) * 1000 + delta.microseconds // 1000
         return f"{{t {milliseconds}}}"
-    if isinstance(value, date):
-        return "{d '" + value.isoformat() + "'}"
     raise QueryValidationError(f"Unsupported filter value {type(value).__name__}.")
 
 
 def _table(definition: ObjectDefinition) -> str:
-    if definition._table is None:
-        raise QueryValidationError(
-            f"{definition.object_type} is not a plain Data Model table; it cannot be joined."
-        )
+    # Only types that read a plain Data Model table have relations.
     return f'"{definition._table}"'
 
 

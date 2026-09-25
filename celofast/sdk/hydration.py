@@ -19,8 +19,9 @@ if TYPE_CHECKING:
     from celofast.resources.knowledge_model import KnowledgeModelClient
     from celofast.sdk.objects import Object
 
-ValueType = Literal["str", "int", "float", "bool", "date", "datetime"]
-KEY_TYPES: tuple[ValueType, ...] = ("str", "int", "date", "datetime")
+# Celonis has no date-only type: DATE values are timestamps.
+ValueType = Literal["str", "int", "float", "bool", "datetime"]
+KEY_TYPES: tuple[ValueType, ...] = ("str", "int", "datetime")
 
 O = TypeVar("O", bound="Object")
 
@@ -38,8 +39,6 @@ def _accepts(value_type: ValueType, value: object) -> bool:
         )
     if value_type == "bool":
         return isinstance(value, bool)
-    if value_type == "date":
-        return isinstance(value, date) and not isinstance(value, datetime)
     return isinstance(value, datetime)
 
 
@@ -69,10 +68,6 @@ def convert(value_type: ValueType, raw: object) -> object:
         value = float(raw)
     elif value_type == "bool" and type(raw) is int and raw in (0, 1):
         value = bool(raw)  # PQL has no boolean literal; flags are 0/1.
-    elif value_type == "date" and isinstance(raw, datetime):
-        if raw.timetz().replace(tzinfo=None) != time():
-            raise ValueError(f"is a date but received time {raw.time()}.")
-        value = raw.date()
     if not _accepts(value_type, value):
         raise ValueError(f"expects {value_type}, received {type(raw).__name__} {raw!r}.")
     return value

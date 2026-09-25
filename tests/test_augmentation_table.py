@@ -4,7 +4,6 @@ from unittest.mock import MagicMock
 
 import pandas as pd
 import pytest
-from pycelonis.ems.data_integration.augmentation_table import AugmentationTable
 from pycelonis.ems.data_integration.data_model import DataModel
 
 from celofast import AugmentationValidationError

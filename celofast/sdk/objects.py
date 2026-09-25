@@ -91,14 +91,11 @@ class Event(Object):
 class Links:
     """Declares the relationships of one object type; bound to an object for traversal."""
 
-    _source: ClassVar[type[Object]]
-
     def __init__(self, owner: Object) -> None:
         self._owner = owner
 
     def __init_subclass__(cls, *, source: type[Object], **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        cls._source = source
         source.relations = cls
         for value in vars(cls).values():
             if isinstance(value, Relation):

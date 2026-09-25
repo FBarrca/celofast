@@ -9,7 +9,7 @@ from celofast.exceptions import UnresolvedVariableError
 from celofast.sdk import Capture
 from celofast.sdk.expressions import References, bind_inputs
 from celofast.sdk.generate import generate
-from celofast.sdk.mapping import normalize
+from celofast.sdk.model import normalize
 from celofast.sdk.validation import validate
 
 from objects_fixture import SOURCE, attribute, load

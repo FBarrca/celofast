@@ -176,15 +176,3 @@ def test_foreign_files_block_replacement(tmp_path):
     with pytest.raises(CaptureError, match="unrelated files.*capture.json"):
         write_package(capture("changed"), target)
     assert (target / "capture.json").read_text() == "{}"
-
-
-def test_modules_of_an_earlier_layout_are_replaced(tmp_path):
-    from celofast.sdk.generate import HEADER, stamp
-
-    target = tmp_path / "inventory"
-    target.mkdir()
-    (target / "__init__.py").write_text(HEADER + f"__celofast__ = {stamp(capture())!r}\n")
-    (target / "links.py").write_text(HEADER + "old = True\n")
-    changes = write_package(capture(), target)
-    assert "- files/links.py" in [str(change) for change in changes]
-    assert sorted(files(target)) == PACKAGE

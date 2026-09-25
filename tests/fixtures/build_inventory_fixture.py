@@ -20,7 +20,7 @@ except ImportError:  # Python 3.10
 from celofast import CeloFast
 from celofast.cli import _Progress
 from celofast.sdk.capture import record_table, retrieve
-from celofast.sdk.mapping import normalize
+from celofast.sdk.model import normalize
 from celofast.sdk.validation import resolve_types, validate
 
 USED = {

@@ -133,7 +133,7 @@ line = client.objects(StockLine).get(("PLANT-1", datetime(2024, 1, 31)))
 `get()` raises `ObjectNotFoundError` when no object has that key.
 
 **Loaded objects.** Every object is a frozen dataclass holding every field, as
-plain Python values (`str`, `int`, `float`, `bool`, `date`, `datetime`). Every
+plain Python values (`str`, `int`, `float`, `bool`, `datetime`). Every
 field can be `None` except key fields. Reading a value never contacts Celonis;
 only `get()`, `fetch_page()`, `next_page()`, and `fetch()` on a to-one
 relationship do.

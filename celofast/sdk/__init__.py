@@ -4,7 +4,7 @@ Pull (``celofast km pull``), in order:
 
 * ``capture``: read the KM and its Data Model into a plain ``Capture``.
 * ``validation``: test-run calculated attributes; record types and rejections.
-* ``mapping``: derive object types, keys, fields, and links (``normalize``).
+* ``model``: derive object types, keys, fields, and links (``normalize``).
 * ``expressions``: inline input-dependent references; bind KM inputs (``${name}``).
 * ``generate``: render the Python package; ``package`` installs it.
 

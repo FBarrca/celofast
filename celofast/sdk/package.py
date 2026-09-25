@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from celofast.sdk.capture import Capture, CaptureError
-from celofast.sdk.generate import HEADER, MARKER, PACKAGE_FILES, generate
+from celofast.sdk.generate import MARKER, PACKAGE_FILES, generate
 
 
 @dataclass(frozen=True)
@@ -44,16 +44,6 @@ def _stamp(files: Mapping[str, bytes]) -> dict[str, Any] | None:
     return None
 
 
-def _generated(path: Path) -> bool:
-    """Written by this generator: a package file, or a module with its header."""
-    if not path.is_file():
-        return False
-    if path.name in PACKAGE_FILES:
-        return True
-    with path.open("rb") as stream:
-        return stream.readline().rstrip() == HEADER.rstrip().encode()
-
-
 def _existing(output: Path, capture: Capture) -> dict[str, bytes]:
     """The current generated files; refuses directories this generator does not own."""
     if not output.exists():
@@ -63,7 +53,7 @@ def _existing(output: Path, capture: Capture) -> dict[str, bytes]:
     entries = [entry for entry in output.iterdir() if entry.name != "__pycache__"]
     if not entries:
         return {}
-    unexpected = [entry.name for entry in entries if not _generated(entry)]
+    unexpected = [entry.name for entry in entries if not (entry.is_file() and entry.name in PACKAGE_FILES)]
     if unexpected:
         raise CaptureError(
             f"Refusing to replace unrelated files in {output}: {', '.join(sorted(unexpected))}"
@@ -136,7 +126,4 @@ def write_package(
     target.mkdir(parents=True, exist_ok=True)
     for name, data in expected.items():
         (target / name).write_bytes(data)
-    for change in changes:
-        if change.kind == "-":  # Modules of an earlier package layout.
-            (target / change.path.removeprefix("files/")).unlink()
     return changes

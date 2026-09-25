@@ -15,7 +15,7 @@ from __future__ import annotations
 import importlib
 import json
 import sys
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock

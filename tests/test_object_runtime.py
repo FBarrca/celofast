@@ -15,7 +15,6 @@ from celofast.exceptions import (
 )
 from celofast.resources.knowledge_model import KnowledgeModelClient, KnowledgeModelConnection
 from celofast.sdk import Event, EventLogRelation, ObjectCollection, ObjectPage, ToOne
-from celofast.sdk.hydration import convert
 
 from objects_fixture import load, write
 
@@ -441,9 +440,6 @@ def test_datetime_fields_accept_date_filters_as_midnight(sdk):
         datetime(2024, 5, 1), datetime(2024, 6, 1)
     )
     assert updated.is_in([date(2024, 5, 1)]).operand == (datetime(2024, 5, 1),)
-    # A strict date (a result type Celonis reports as date) rejects a time of day.
-    with pytest.raises(ValueError, match="date but received time"):
-        convert("date", datetime(2020, 1, 1, 8))
 
 
 def event_row(event_id="E1", case="P1", activity="e_celonis_Opening", at="2024-01-04 08:00"):

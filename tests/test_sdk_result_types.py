@@ -11,7 +11,7 @@ import pytest
 from celofast.resources.knowledge_model import KnowledgeModelConnection
 from celofast.sdk import Capture
 from celofast.sdk.generate import generate
-from celofast.sdk.mapping import normalize
+from celofast.sdk.model import normalize
 from celofast.sdk.validation import resolve_types, validate
 
 from objects_fixture import SOURCE, attribute, load
@@ -117,7 +117,7 @@ def test_unresolvable_types_stay_skipped_and_export_failures_are_reported():
 @pytest.mark.parametrize("arrow_type,expected", [
     (pa.float64(), "float"), (pa.int64(), "int"), (pa.string(), "str"),
     (pa.bool_(), "bool"), (pa.timestamp("ms"), "datetime"),
-    (pa.date32(), "date"), (pa.null(), None),
+    (pa.date32(), None), (pa.null(), None),  # Celonis has no date-only type.
 ])
 @pytest.mark.parametrize("values", [[], [None]])
 def test_export_schema_resolves_empty_and_all_null_results(arrow_type, expected, values):

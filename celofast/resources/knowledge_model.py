@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from typing import TypeVar
 
 import pandas as pd
@@ -127,7 +127,7 @@ class KnowledgeModelConnection:
             checks: tuple[tuple[Callable[..., bool], ValueType], ...] = (
                 (pa.types.is_string, "str"), (pa.types.is_integer, "int"),
                 (pa.types.is_floating, "float"), (pa.types.is_boolean, "bool"),
-                (pa.types.is_timestamp, "datetime"), (pa.types.is_date, "date"),
+                (pa.types.is_timestamp, "datetime"),
             )
             return next((value for check, value in checks if check(type_)), None)
         return None

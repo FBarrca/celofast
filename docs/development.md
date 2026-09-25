@@ -30,7 +30,7 @@ uv run pytest tests/test_sdk_generate.py tests/test_object_runtime.py tests/test
 | [client.py](../celofast/client.py) | OAuth client creation and caching. |
 | [core.py](../celofast/core.py), [resolution.py](../celofast/resolution.py) | Package scope, lifecycle selection, lookup and caches. |
 | [sdk/capture.py](../celofast/sdk/capture.py) | KM and Data Model captures and retrieval. |
-| [sdk/mapping.py](../celofast/sdk/mapping.py) | Normalization: object types, event logs, keys, value types, and links. |
+| [sdk/model.py](../celofast/sdk/model.py) | Normalization: object types, event logs, keys, value types, and links. |
 | [sdk/definitions.py](../celofast/sdk/definitions.py), [sdk/objects.py](../celofast/sdk/objects.py) | Offline definitions (`Field`, `ObjectDefinition`); loaded objects, collections, pages, and links. |
 | [sdk/planning.py](../celofast/sdk/planning.py), [sdk/hydration.py](../celofast/sdk/hydration.py) | Private read planning; identity and value validation. |
 | [sdk/generate.py](../celofast/sdk/generate.py), [sdk/package.py](../celofast/sdk/package.py), [sdk/loading.py](../celofast/sdk/loading.py) | Generated packages, safe installation, drift reporting, and runtime compatibility. |

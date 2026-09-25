@@ -13,7 +13,7 @@ except ImportError:  # Python 3.10
     import tomli as tomllib  # type: ignore[no-redef]
 
 from celofast.sdk.capture import retrieve
-from celofast.sdk.mapping import normalize
+from celofast.sdk.model import normalize
 from celofast.sdk.package import write_package
 from celofast.sdk.validation import resolve_types, validate
 

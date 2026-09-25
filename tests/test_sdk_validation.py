@@ -4,7 +4,7 @@ import pytest
 
 from celofast.exceptions import CeloFastError
 from celofast.sdk import Capture
-from celofast.sdk.mapping import normalize
+from celofast.sdk.model import normalize
 from celofast.sdk.validation import SAMPLE_ROWS, validate
 
 from objects_fixture import JOINS, TABLES, attribute, capture
