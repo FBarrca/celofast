@@ -111,7 +111,7 @@ The command shows progress while it reads Data Model columns and test-runs
 calculated attributes, then prints how many object types and links it
 generated. Anything it skipped is listed under `# Not generated:` in the
 generated `objects.py`. To rename classes or links, or change other choices, see
-[Customize what is generated](knowledge-model-sdk.md#9-customize-what-is-generated).
+[Customize what is generated](knowledge-model-sdk.md#10-customize-what-is-generated).
 
 ## 5. Retrieve your first objects
 

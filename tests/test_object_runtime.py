@@ -14,7 +14,7 @@ from celofast.exceptions import (
     UnresolvedVariableError,
 )
 from celofast.resources.knowledge_model import KnowledgeModelClient, KnowledgeModelConnection
-from celofast.sdk import ObjectCollection, ObjectPage, ToOne
+from celofast.sdk import Event, EventLogRelation, ObjectCollection, ObjectPage, ToOne
 
 from objects_fixture import load, write
 
@@ -29,6 +29,8 @@ def eq_filter(expression, literal):
 
 PLANT_COLUMNS = ["id", "country", "plantnumber", "opened", "description"]
 MATERIAL_COLUMNS = ["id", "plant_id", "stock", "active", "updated", "count", "untyped"]
+EVENT_COLUMNS = ["activity", "executed_by", "event_id", "case", "timestamp"]
+LOG = '"el__PlantActivities"'
 
 
 class Transport:
@@ -450,3 +452,78 @@ def test_datetime_fields_accept_date_filters_as_midnight(sdk):
     # A strict date field (types override) still rejects datetimes.
     with pytest.raises(ObjectValueError, match="expects date"):
         sdk.Plant.fields.opened.eq(datetime(2020, 1, 1, 8))
+
+
+def event_row(event_id="E1", case="P1", activity="e_celonis_Opening", at="2024-01-04 08:00"):
+    return [activity, "USER", event_id, case, pd.Timestamp(at)]
+
+
+def test_event_logs_read_in_time_order_and_link_to_their_lead(sdk, client, transport):
+    Activity = sdk.PlantActivity
+    assert issubclass(Activity, Event) and isinstance(sdk.Plant.relations.activities, EventLogRelation)
+
+    transport.reply(plant_row(), columns=PLANT_COLUMNS)
+    plant = client.objects(sdk.Plant).get("P1")
+    transport.reply(
+        event_row("E1"), event_row("E2", activity="e_celonis_Inspection", at="2024-02-01"),
+        columns=EVENT_COLUMNS,
+    )
+    page = plant.links.activities.fetch_page()
+    query = transport.requests[1].query
+    assert [f.query for f in query.filters] == [eq_filter(f'{LOG}."LEAD_OBJECT_ID"', "'P1'")]
+    # Time order; the (case, event) key breaks ties.
+    assert [o.query for o in query.order_by_columns] == [
+        wrapped(f'{LOG}."TIMESTAMP"'), wrapped(f'{LOG}."LEAD_OBJECT_ID"'), wrapped(f'{LOG}."ID"'),
+    ]
+    first, second = page.items
+    assert first.key == ("P1", "E1") and first.timestamp == datetime(2024, 1, 4, 8)
+    assert second.activity == "e_celonis_Inspection"
+
+    transport.reply(plant_row(), columns=PLANT_COLUMNS)
+    assert first.links.case.fetch() == plant
+    assert transport.requests[2].query.filters[0].query == eq_filter('"o_Plant"."ID"', "'P1'")
+
+
+def test_activity_conditions_render_match_activities(sdk, client, transport):
+    Plant, Activity = sdk.Plant, sdk.PlantActivity
+    activities = Plant.relations.activities
+    transport.reply(columns=PLANT_COLUMNS)
+    client.objects(Plant).where(
+        activities.contains("Opening", "e_celonis_Inspection")
+        & activities.starts_with("Opening")
+        & activities.ends_with("Inspection")
+        & activities.excludes("Inspection")
+        & activities.max(Activity.fields.timestamp).gte(date(2024, 1, 1))
+    ).fetch_page()
+    condition = transport.requests[0].query.filters[0].query
+    column = f'{LOG}."ACTIVITY"'
+    opening, inspection = "'e_celonis_Opening'", "'e_celonis_Inspection'"
+
+    def match(specifier, names):
+        return f"CASE WHEN MATCH_ACTIVITIES({column}, {specifier}[{names}]) = 1 THEN 1 ELSE 0 END"
+
+    assert f"{match('NODE', f'{opening}, {inspection}')} = 1" in condition
+    assert f"{match('STARTING', opening)} = 1" in condition
+    assert f"{match('ENDING', inspection)} = 1" in condition
+    # excludes() is the complement of NODE_ANY: it holds without any events.
+    assert f"{match('NODE_ANY', inspection)} = 0" in condition
+    timestamp = wrapped(f'{LOG}."TIMESTAMP"')
+    assert f'PU_MAX("o_Plant", {timestamp}) >= {{t 1704067200000}}' in condition
+
+    transport.reply(columns=PLANT_COLUMNS)
+    client.objects(Plant).where(~activities.excludes("Opening")).fetch_page()
+    assert transport.requests[1].query.filters[0].query == f"FILTER {match('NODE_ANY', opening)} = 1;"
+
+
+def test_activity_conditions_are_validated(sdk, client, transport):
+    activities = sdk.Plant.relations.activities
+    with pytest.raises(ObjectValueError, match="Unknown activity 'Closing'; event types are"):
+        activities.contains("Closing")
+    with pytest.raises(QueryValidationError, match="at least one activity"):
+        activities.ends_with()
+    # Activity conditions describe the lead object; they cannot be pulled
+    # onto another row with has().
+    nested = sdk.PlantActivity.relations.case.has(activities.contains("Opening"))
+    with pytest.raises(QueryValidationError, match="cannot be used inside has"):
+        client.objects(sdk.PlantActivity).where(nested).fetch_page()
+    assert transport.requests == []

@@ -55,6 +55,16 @@ busy: Predicate = materials.count(Material.fields.active.eq(True)).gt(2) & mater
     Material.fields.stock).lt(10.0)
 by_size = plants.where(busy).order_by(materials.count().desc())
 assert_type(by_size, ObjectCollection[Plant])
+from inventory import PlantActivity
+from celofast.sdk import EventLogRelation
+assert_type(Plant.relations.activities, EventLogRelation[PlantActivity])
+history = plant.links.activities.fetch_page().items[0]
+assert_type(history, PlantActivity)
+assert_type(history.key, tuple[str, str])
+assert_type(history.timestamp, datetime | None)
+assert_type(history.links.case, ToOne[Plant])
+opened: Predicate = Plant.relations.activities.contains("Opening") & ~Plant.relations.activities.excludes(
+    "Inspection")
 """
 
 

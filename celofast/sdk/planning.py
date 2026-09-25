@@ -15,7 +15,9 @@ Relationship predicates are rendered in the same query:
 * to-many ``any()`` counts matching related rows with ``PU_COUNT`` on the
   filtered row's table, rendering the nested condition on the related table;
 * aggregates (``count``, ``sum``, ``avg``, ...) render as the matching
-  Pull-Up function and compare or sort like any column.
+  Pull-Up function and compare or sort like any column;
+* activity conditions on an event log (``contains``, ...) render as
+  ``MATCH_ACTIVITIES`` on the log's activity column, a flag per lead object.
 """
 
 from __future__ import annotations
@@ -38,6 +40,7 @@ from celofast.sdk.definitions import (
     Operand,
     Or,
     Predicate,
+    Process,
     Related,
     Sort,
 )
@@ -46,6 +49,9 @@ if TYPE_CHECKING:
     from celofast.sdk.objects import Object
 
 _ORDERING = {"lt": "<", "lte": "<=", "gt": ">", "gte": ">="}
+# MATCH_ACTIVITIES specifiers; ``excludes`` is the complement of NODE_ANY, so
+# it also holds for an object without events.
+_MATCH = {"contains": "NODE", "starts_with": "STARTING", "ends_with": "ENDING", "excludes": "NODE_ANY"}
 
 # Moves an expression of one object type onto the table being filtered.
 Pull = Callable[[str], str]
@@ -116,6 +122,8 @@ class _Renderer:
             indicator, negated = self.comparison(predicate, pull)
         elif isinstance(predicate, Related):
             indicator, negated = self.related(predicate, pull), False
+        elif isinstance(predicate, Process):
+            indicator, negated = self.process(predicate, pull), predicate.mode == "excludes"
         else:
             raise QueryValidationError(f"Unsupported predicate {type(predicate).__name__}.")
         return f"{indicator} = {0 if negate != negated else 1}"
@@ -144,6 +152,16 @@ class _Renderer:
         if op in ("eq", "ne"):
             return _case(f"{left} = {_literal(operand)}"), op == "ne"
         return _case(f"{left} {_ORDERING[op]} {_literal(operand)}"), False
+
+    def process(self, process: Process, pull: Pull) -> str:
+        if pull is not _identity:
+            raise QueryValidationError(
+                f"{process.relation.name}.{process.mode}() is a condition on "
+                f"{process.owner._object_type} itself; it cannot be used inside has()."
+            )
+        activity = self.bind(process.relation.target.fields.activity.expression).strip()
+        names = ", ".join(_literal(name) for name in process.activities)
+        return _case(f"MATCH_ACTIVITIES({activity}, {_MATCH[process.mode]}[{names}]) = 1")
 
     def related(self, related: Related, pull: Pull) -> str:
         relation = related.relation
@@ -178,6 +196,9 @@ def plan_read(
 ) -> pql.PQL:
     """Query every field of ``object_type`` as columns ``f0``, ``f1``, ...
 
+    Rows are ordered by ``order``, then by the type's default order: the key,
+    or for events the timestamp and then the key.
+
     ``bind`` replaces the ``${name}`` input placeholders of each field
     expression. With DISTINCT, Celonis ignores
     ORDER BY expressions that are not selected (verified live), so sort-only
@@ -188,7 +209,7 @@ def plan_read(
     definition = object_type.fields
     columns = [(f"f{i}", renderer.expression(field)) for i, field in enumerate(definition)]
     ordering = [(renderer.expression(sort.field), sort.ascending) for sort in order]
-    ordering += [(renderer.expression(field), True) for field in definition.key_fields]
+    ordering += [(renderer.expression(field), True) for field in definition._default_order]
     selected = {expression for _, expression in columns}
     for expression, _ in ordering:
         if expression not in selected:

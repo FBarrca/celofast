@@ -55,6 +55,8 @@ class Capture(BaseModel):
     """Data Model foreign keys: ``{"one", "many", "columns": [[one, many]]}``."""
     tables: dict[str, Any] | None = None
     """Data Model tables by PQL name: ``{"primary_key": [...], "columns": {name: TYPE}}``."""
+    event_types: list[str] | None = None
+    """Data Model event type tables (``e_...``); event log activities name them."""
     validation: dict[str, dict[str, str]] = {}
     """Calculated attributes rejected at pull: ``{record_id: {attribute_id: reason}}``."""
     types: dict[str, ValueType] = {}
@@ -119,6 +121,14 @@ def data_model_joins(data_model: Any) -> list[dict[str, Any]]:
             "columns": [[c.source_column_name, c.target_column_name] for c in key.columns or ()],
         })
     return joins
+
+
+def data_model_event_types(data_model: Any) -> list[str]:
+    """Names of the object-centric event type tables (``e_<namespace>_<Type>``)."""
+    return sorted(
+        name for table in data_model.get_tables()
+        if (name := table.alias or table.name).startswith("e_")
+    )
 
 
 def input_variables(native: Any) -> dict[str, dict[str, str | None]]:
@@ -190,5 +200,6 @@ def retrieve(
     }
     return capture.model_copy(update={
         "joins": data_model_joins(data_model),
+        "event_types": data_model_event_types(data_model),
         "tables": data_model_tables(data_model, only=read, progress=progress),
     })

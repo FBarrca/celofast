@@ -12,6 +12,10 @@ Each relationship is declared once, on a generated ``Links`` class::
 Read from the class (``Plant.relations.materials``) it builds predicates and
 aggregates; read from an instance (``plant.links.materials``) it fetches the
 related objects of that one object.
+
+An event log is the history of its lead object: ``Event`` rows, reached
+through an ``EventLogRelation`` that also filters lead objects by their
+activities (``Line.relations.activities.contains("PostGoodsIssue")``).
 """
 
 from __future__ import annotations
@@ -30,10 +34,13 @@ from celofast.sdk.capture import Source
 from celofast.sdk.definitions import (
     Aggregate,
     AggregateFunction,
+    EventDefinition,
     Field,
     ObjectDefinition,
     Operand,
     Predicate,
+    Process,
+    ProcessMode,
     Related,
     Sort,
 )
@@ -44,6 +51,7 @@ if TYPE_CHECKING:
     from celofast.resources.knowledge_model import KnowledgeModelClient
 
 O = TypeVar("O", bound="Object")
+E = TypeVar("E", bound="Event")
 T = TypeVar("T")
 MAX_PAGE_SIZE = 10_000
 
@@ -67,6 +75,17 @@ class Object:
     def links(self) -> Links:
         """Relationships of this object; generated classes narrow this type."""
         return type(self).relations(self)
+
+
+@dataclass(frozen=True, kw_only=True)
+class Event(Object):
+    """Base for generated event log rows: one event of one lead object.
+
+    ``case`` is the lead object's key, ``activity`` the event type, and
+    ``timestamp`` when it happened; ``links.case`` fetches the lead object.
+    """
+
+    fields: ClassVar[EventDefinition]
 
 
 class Links:
@@ -234,6 +253,61 @@ class ToManyRelation(Relation[O]):
         if function in ("min", "max") and field.value_type == "bool":
             raise ObjectValueError(f"{function}() needs an ordered field; {field.name} is boolean.")
         return Aggregate(self, function, field, predicate)
+
+
+class EventLogRelation(ToManyRelation[E]):
+    """The event log of a lead object: its events, in time order.
+
+    Besides the to-many predicates and aggregates, it filters lead objects by
+    the activities in their history, with ``MATCH_ACTIVITIES``. Activities are
+    event types, named by table (``e_celonis_PostGoodsIssue``) or by type
+    (``PostGoodsIssue``).
+    """
+
+    def contains(self, *activities: str) -> Predicate:
+        """The history has every one of ``activities``, in any order."""
+        return self._process("contains", activities)
+
+    def excludes(self, *activities: str) -> Predicate:
+        """The history has none of ``activities``; also true for an empty history."""
+        return self._process("excludes", activities)
+
+    def starts_with(self, *activities: str) -> Predicate:
+        """The first activity is one of ``activities``."""
+        return self._process("starts_with", activities)
+
+    def ends_with(self, *activities: str) -> Predicate:
+        """The last activity is one of ``activities``."""
+        return self._process("ends_with", activities)
+
+    def _process(self, mode: ProcessMode, activities: tuple[str, ...]) -> Predicate:
+        if not activities:
+            raise QueryValidationError(f"{mode}() needs at least one activity.")
+        if not all(isinstance(activity, str) and activity for activity in activities):
+            raise ObjectValueError(f"{mode}() activities are event type names.")
+        known = self.target.fields._event_types
+        return Process(self, mode, tuple(_event_type(activity, known) for activity in activities))
+
+
+def _event_type(activity: str, known: tuple[str, ...]) -> str:
+    """The event type table an activity names; unchecked when none are known."""
+    if not known or activity in known:
+        return activity
+    matches = [table for table in known if _type_name(table) == activity]
+    if len(matches) == 1:
+        return matches[0]
+    raise ObjectValueError(
+        f"Unknown activity {activity!r}; event types are {', '.join(known)}."
+        if not matches else f"Activity {activity!r} is ambiguous: {', '.join(matches)}."
+    )
+
+
+def _type_name(table: str) -> str:
+    """``e_celonis_PostGoodsIssue`` -> ``PostGoodsIssue``: drop the lowercase namespace."""
+    parts = table.split("_")
+    while len(parts) > 1 and (parts[0].islower() or not parts[0]):
+        parts.pop(0)
+    return "_".join(parts)
 
 
 @dataclass(frozen=True)

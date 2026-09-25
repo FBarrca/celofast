@@ -21,3 +21,25 @@ def test_live_pull_import_and_object_page(inventory_package):
     if page.items:
         first = page.items[0]
         assert client.objects(module.Plant).get(first.key) == first
+
+
+def test_live_event_log_history_and_activity_conditions(inventory_package):
+    module = inventory_package
+    Line, Activity = module.SalesOrderScheduleLine, module.SalesOrderScheduleLineActivity
+    source = module.km.source
+    client = CeloFast(source.space_id, source.package_id, mode=source.mode).km(module.km)
+    lines = client.objects(Line)
+    activities = Line.relations.activities
+
+    issued = lines.where(activities.contains("PostGoodsIssue")).fetch_page(page_size=10_000)
+    counted = lines.where(activities.count().gt(0)).fetch_page(page_size=10_000)
+    assert {line.key for line in issued} == {line.key for line in counted}
+    if not issued.items:
+        return
+    line = issued.items[0]
+    history = line.links.activities.fetch_page()
+    assert history.items and all(isinstance(event, Activity) for event in history)
+    assert all(event.case == line.key for event in history)
+    times = [event.timestamp for event in history if event.timestamp is not None]
+    assert times == sorted(times)
+    assert history.items[0].links.case.fetch() == line

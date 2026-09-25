@@ -54,9 +54,9 @@ def test_value_classes_and_definitions_are_separate(tmp_path):
     Plant, Material, StockLine = module.Plant, module.Material, module.StockLine
 
     assert isinstance(module.km, ObjectModel)
-    assert list(module.km) == [Material, Plant, StockLine]
+    assert list(module.km) == [module.PlantActivity, Material, Plant, StockLine]
     assert module.km["O_PLANT"] is Plant
-    assert module.__all__ == ["Material", "Plant", "StockLine", "km"]
+    assert module.__all__ == ["PlantActivity", "Material", "Plant", "StockLine", "km"]
 
     # Plant.fields describes the type; its members are typed Field definitions.
     definition = Plant.fields
@@ -155,6 +155,7 @@ def test_generation_is_deterministic():
 def test_records_keys_and_types_are_derived_from_the_data_model():
     model = normalize(capture(), {})
     assert [(o.record_id, o.class_name, o.key) for o in model.objects] == [
+        ("EL_LOG", "PlantActivity", ("case", "event_id")),
         ("O_MATERIAL", "Material", ("id",)),
         ("O_PLANT", "Plant", ("id",)),
         ("O_STOCK", "Stock", ("plant_id", "day")),  # Class name from the table.
@@ -166,20 +167,82 @@ def test_records_keys_and_types_are_derived_from_the_data_model():
         "COUNT": "int", "UNTYPED": "str", "STOCK": "float",
     }
     assert {f.attribute_id: f.value_type for f in spec(model, "O_PLANT").fields}["OPENED"] == "datetime"
-    diagnostics = "\n".join(model.diagnostics)
-    assert "EL_LOG: no primary key or declared identifier; not an object type." in diagnostics
 
 
-def test_records_without_primary_key_or_that_are_event_logs_are_skipped():
+def test_records_without_primary_key_are_skipped():
     tables = {**TABLES, "o_Stock": {**TABLES["o_Stock"], "primary_key": []}}
     model = normalize(rebuild(capture().definition, tables=tables), {})
     assert "O_STOCK" not in {o.record_id for o in model.objects}
     assert "O_STOCK: no primary key or declared identifier; not an object type." in model.diagnostics
 
+
+def test_event_logs_are_the_history_of_their_lead_object():
+    model = normalize(capture(), {})
+    log = spec(model, "EL_LOG")
+    assert (log.class_name, log.table, log.lead, log.key) == (
+        "PlantActivity", "el__PlantActivities", "o_Plant", ("case", "event_id"),
+    )
+    # Role fields have fixed names; KM column types apply (the log is not a
+    # Data Model table), and the constant epoch column is not loaded.
+    assert [(f.name, f.attribute_id, f.value_type) for f in log.fields] == [
+        ("activity", "ACTIVITY", "str"),
+        ("executed_by", "EXECUTEDBY", "str"),
+        ("event_id", "ID", "str"),
+        ("case", "LEAD_OBJECT_ID", "str"),
+        ("timestamp", "TIMESTAMP", "datetime"),
+    ]
+    assert [(l.name, l.target, l.cardinality, l.on, l.join) for l in log.links] == [
+        ("case", "O_PLANT", "one", (("case", "id"),), "fk"),
+    ]
+    assert ("activities", "EL_LOG", "many", (("id", "case"),), "fk") in [
+        (l.name, l.target, l.cardinality, l.on, l.join) for l in spec(model, "O_PLANT").links
+    ]
+    # Typing epoch loads it like any other field.
+    model = normalize(capture(), {"objects": {"EL_LOG": {"types": {"EPOCH": "int"}}}})
+    assert "epoch" in {f.name for f in spec(model, "EL_LOG").fields}
+
+
+def test_event_log_names_avoid_their_lead_and_role_fields():
     layer = capture().definition
-    record(layer, "O_STOCK")["isActivityTable"] = True
+    log = record(layer, "EL_LOG")
+    log["pql"] = '"el_celonis_Plant"'
+    for item in log["attributes"]:
+        item["pql"] = item["pql"].replace("el__PlantActivities", "el_celonis_Plant")
+    # A business attribute spelled like a role field keeps its own name.
+    log["attributes"].append(attribute("Activity", '"el_celonis_Plant"."Activity"'))
     model = normalize(rebuild(layer), {})
-    assert "O_STOCK: event log; not an object type." in model.diagnostics
+    event = spec(model, "EL_LOG")
+    assert event.class_name == "PlantEvent"
+    assert "activity_attribute" in {f.name for f in event.fields}
+    assert "events" in {l.name for l in spec(model, "O_PLANT").links}
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (lambda layer: layer.pop("eventLogsMetadata"), "EL_LOG: event log without a lead object in the KM"),
+        (lambda layer: record(layer, "EL_LOG")["attributes"].pop(4), "EL_LOG: event log with no loaded timestamp"),
+        (lambda layer: record(layer, "EL_LOG").pop("defaultActivityAttributeId"), "with no loaded activity"),
+        (lambda layer: layer["records"].remove(record(layer, "O_PLANT")), "lead o_Plant is not a generated object"),
+    ],
+)
+def test_event_logs_that_cannot_be_generated_are_reported(change, message):
+    layer = capture().definition
+    change(layer)
+    model = normalize(rebuild(layer), {})
+    assert "EL_LOG" not in {o.record_id for o in model.objects}
+    assert any(message in note for note in model.diagnostics), model.diagnostics
+
+
+def test_declared_links_rename_event_log_links_and_keep_their_join():
+    mapping = {"objects": {"O_PLANT": {"links": {"history": {
+        "target": "EL_LOG", "cardinality": "many", "on": {"ID": "LEAD_OBJECT_ID"}}}}}}
+    model = normalize(capture(), mapping)
+    assert ("history", "fk") in [(l.name, l.join) for l in spec(model, "O_PLANT").links]
+    source = generate(capture(), mapping)["objects.py"].decode()
+    assert "    history = _o.EventLogRelation(PlantActivity, on=(('id', 'case'),), join='fk')\n" in source
+    assert "class PlantActivityDefinition(_d.EventDefinition):" in source
+    assert "_event_types = ('e_celonis_Inspection', 'e_celonis_Opening')" in source
 
 
 def test_unknown_types_and_missing_expressions_are_skipped_and_reported():
@@ -209,6 +272,7 @@ def test_attributes_rejected_at_pull_are_skipped_and_reported():
 def test_automatic_links_follow_foreign_keys():
     model = normalize(capture(), {})
     assert [(l.name, l.target, l.cardinality, l.on, l.join) for l in spec(model, "O_PLANT").links] == [
+        ("activities", "EL_LOG", "many", (("id", "case"),), "fk"),
         ("materials", "O_MATERIAL", "many", (("id", "plant_id"),), "fk"),
     ]
     assert [(l.name, l.cardinality) for l in spec(model, "O_MATERIAL").links] == [("plant", "one")]
@@ -222,14 +286,14 @@ def test_automatic_links_follow_foreign_keys():
     joins = [*JOINS, {"one": "o_Plant", "many": "o_Material", "columns": [["ID", "Origin_ID"]]}]
     model = normalize(rebuild(layer, joins=joins, tables=tables), {})
     assert {l.name for l in spec(model, "O_MATERIAL").links} == {"plant", "origin"}
-    assert {l.name for l in spec(model, "O_PLANT").links} == {"materials", "materials_by_plant"}
+    assert {l.name for l in spec(model, "O_PLANT").links} == {"activities", "materials", "materials_by_plant"}
 
 
 def test_declared_links_rename_matching_automatic_links():
     mapping = {"objects": {"O_PLANT": {"links": {"inventory": {
         "target": "O_MATERIAL", "cardinality": "many", "on": {"ID": "PLANT_ID"}}}}}}
     model = normalize(capture(), mapping)
-    assert [(l.name, l.join) for l in spec(model, "O_PLANT").links] == [("inventory", "fk")]
+    assert [(l.name, l.join) for l in spec(model, "O_PLANT").links] == [("activities", "fk"), ("inventory", "fk")]
 
 
 @pytest.mark.parametrize(
@@ -264,7 +328,7 @@ def test_declared_identifier_is_the_key_without_a_primary_key():
     ("link", "message"),
     [
         ({"target": "O_STOCK", "cardinality": "one", "on": {"ID": "PLANT_ID"}}, "must map exactly the target key"),
-        ({"target": "EL_LOG", "cardinality": "many", "on": {"ID": "ID"}}, "not a generated object type"),
+        ({"target": "O_UNKNOWN", "cardinality": "many", "on": {"ID": "ID"}}, "not a generated object type"),
         ({"target": "O_MATERIAL", "cardinality": "many", "on": {"OPENED": "PLANT_ID"}}, "different types"),
         ({"target": "O_MATERIAL", "cardinality": "many", "on": {"ID": "NOPE"}}, "loaded fields"),
     ],

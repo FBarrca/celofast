@@ -64,18 +64,40 @@ def capture(**changes):
                     attribute("QTY", '"o_Stock"."Qty"', "INTEGER"),
                 ],
             },
-            {"id": "EL_LOG", "displayName": "Event log", "attributes": []},
+            {
+                # A Celonis-generated event log: not a Data Model table.
+                "id": "EL_LOG",
+                "displayName": "PlantActivities Event Log",
+                "pql": '"el__PlantActivities"',
+                "isActivityTable": True,
+                "defaultActivityAttributeId": "ACTIVITY",
+                "attributes": [
+                    attribute("ACTIVITY", '"el__PlantActivities"."ACTIVITY"'),
+                    attribute("EXECUTEDBY", '"el__PlantActivities"."ExecutedBy"'),
+                    attribute("ID", '"el__PlantActivities"."ID"'),
+                    attribute("LEAD_OBJECT_ID", '"el__PlantActivities"."LEAD_OBJECT_ID"'),
+                    attribute("TIMESTAMP", '"el__PlantActivities"."TIMESTAMP"', "DATETIME"),
+                    attribute("EPOCH", '"el__PlantActivities"."epoch"', "INTEGER"),
+                ],
+            },
         ],
+        "eventLogsMetadata": {"eventLogs": [{"recordId": "EL_LOG", "caseTableId": "o_Plant"}]},
         "kpis": [{"id": "Value", "pql": "SUM(1)"}],
         **changes,
     }
     # The Data Model joins plants to materials; stock lines have no foreign key,
     # so Plant.links.stock is traversal-only.
-    return Capture(source=SOURCE, definition=layer, input_variables=INPUTS, joins=JOINS, tables=TABLES)
+    return Capture(
+        source=SOURCE, definition=layer, input_variables=INPUTS, joins=JOINS, tables=TABLES,
+        event_types=EVENT_TYPES,
+    )
 
 
 # Material.stock multiplies by this KM input; reads bind its value at query time.
 INPUTS = {"factor": {"dataType": "NUMBER", "value": "1"}}
+
+# Data Model event type tables; the plant log's activities name them.
+EVENT_TYPES = ["e_celonis_Inspection", "e_celonis_Opening"]
 
 JOINS = [{"one": "o_Plant", "many": "o_Material", "columns": [["ID", "Plant_ID"]]}]
 

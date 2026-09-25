@@ -2,9 +2,10 @@
 
 Each object type produces a definition class (``PlantDefinition``, its typed
 fields), a value class (``Plant``, one loaded object), and, when it has
-relationships, a links class (``PlantLinks``). All live in ``objects.py``; the
-package root exports the value classes and ``km``, the registry passed to
-``cf.km(...)``.
+relationships, a links class (``PlantLinks``). An event log produces the same
+three on the event bases (``EventDefinition``, ``Event``), and its lead's link
+to it is an ``EventLogRelation``. All live in ``objects.py``; the package root
+exports the value classes and ``km``, the registry passed to ``cf.km(...)``.
 
 The package is self-contained Python: field expressions, source identity, and
 metadata are written as literals, so a KM change appears as a readable diff of
@@ -40,15 +41,18 @@ def _annotation(value_type: str, key: bool) -> str:
     return type_ if key else f"{type_} | None"
 
 
-def _definition(spec: ObjectSpec) -> list[str]:
+def _definition(spec: ObjectSpec, event_types: tuple[str, ...]) -> list[str]:
     metadata = {"displayName": spec.display_name, "description": spec.record_description}
+    base = "EventDefinition" if spec.lead else "ObjectDefinition"
     lines = [
-        f"\n\nclass {spec.class_name}Definition(_d.ObjectDefinition):\n",
+        f"\n\nclass {spec.class_name}Definition(_d.{base}):\n",
         f"    {spec.description!r}\n\n",
         f"    _object_type = {spec.record_id!r}\n",
         f"    _table = {spec.table!r}\n",
         f"    _key = {spec.key!r}\n",
-        f"    _metadata = {metadata!r}\n\n",
+        f"    _metadata = {metadata!r}\n",
+        *([f"    _event_types = {event_types!r}\n"] if spec.lead else []),
+        "\n",
     ]
     for field in spec.fields:
         kind = "DateTimeField" if field.value_type == "datetime" else "Field"
@@ -69,7 +73,7 @@ def _value(spec: ObjectSpec) -> list[str]:
     keys = [_annotation(types[name], True) for name in spec.key]
     key = keys[0] if len(keys) == 1 else f"tuple[{', '.join(keys)}]"
     lines = [
-        f"\n\n@dataclass(frozen=True, kw_only=True)\nclass {spec.class_name}(_o.Object):\n",
+        f"\n\n@dataclass(frozen=True, kw_only=True)\nclass {spec.class_name}(_o.{'Event' if spec.lead else 'Object'}):\n",
         f"    {spec.description!r}\n\n",
         f"    key: {key}\n",
         *(f"    {field.name}: {_annotation(field.value_type, field.key)}\n" for field in spec.fields),
@@ -85,13 +89,16 @@ def _value(spec: ObjectSpec) -> list[str]:
     return lines
 
 
-def _links(spec: ObjectSpec, classes: dict[str, str]) -> list[str]:
+def _links(spec: ObjectSpec, classes: dict[str, str], events: set[str]) -> list[str]:
     lines = [
         f"\n\nclass {spec.class_name}Links(_o.Links, source={spec.class_name}):\n",
         f"    {f'Relationships of {spec.class_name}.'!r}\n\n",
     ]
     for link in spec.links:
-        kind = "ToOneRelation" if link.cardinality == "one" else "ToManyRelation"
+        kind = (
+            "ToOneRelation" if link.cardinality == "one"
+            else "EventLogRelation" if link.target in events else "ToManyRelation"
+        )
         lines.append(
             f"    {link.name} = _o.{kind}({classes[link.target]}, on={link.on!r}, join={link.join!r})\n"
         )
@@ -115,12 +122,14 @@ def _objects(model: ModelSpec, capture: Capture) -> str:
     if model.diagnostics:
         lines.append("\n# Not generated:\n")
         lines.extend(f"#   {note}\n" for note in model.diagnostics)
+    event_types = tuple(capture.event_types or ())
     for spec in model.objects:
-        lines += _definition(spec) + _value(spec)
+        lines += _definition(spec, event_types) + _value(spec)
     classes = {spec.record_id: spec.class_name for spec in model.objects}
+    events = {spec.record_id for spec in model.objects if spec.lead}
     for spec in model.objects:
         if spec.links:
-            lines += _links(spec, classes)
+            lines += _links(spec, classes, events)
     names = "".join(f"        {spec.class_name},\n" for spec in model.objects)
     lines += [
         "\n\nkm = _o.ObjectModel(\n",

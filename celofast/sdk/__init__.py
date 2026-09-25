@@ -20,12 +20,15 @@ from celofast.sdk.capture import Capture, CaptureError, Source
 from celofast.sdk.definitions import (
     Aggregate,
     DateTimeField,
+    EventDefinition,
     Field,
     ObjectDefinition,
     Predicate,
     Sort,
 )
 from celofast.sdk.objects import (
+    Event,
+    EventLogRelation,
     Links,
     Object,
     ObjectCollection,
@@ -42,6 +45,9 @@ __all__ = [
     "Capture",
     "CaptureError",
     "DateTimeField",
+    "Event",
+    "EventDefinition",
+    "EventLogRelation",
     "Field",
     "Links",
     "Object",

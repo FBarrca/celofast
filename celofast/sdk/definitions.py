@@ -18,11 +18,12 @@ from celofast.exceptions import ObjectValueError, QueryValidationError
 from celofast.sdk.hydration import ValueType, filter_value
 
 if TYPE_CHECKING:
-    from celofast.sdk.objects import Relation, ToManyRelation
+    from celofast.sdk.objects import EventLogRelation, Relation, ToManyRelation
 
 T = TypeVar("T")
 Operator = Literal["eq", "ne", "lt", "lte", "gt", "gte", "in", "between", "like"]
 AggregateFunction = Literal["count", "count_distinct", "sum", "avg", "min", "max", "median"]
+ProcessMode = Literal["contains", "starts_with", "ends_with", "excludes"]
 
 
 class Operand(Generic[T]):
@@ -284,6 +285,23 @@ class Related(Predicate):
         return type(self.relation.source.fields)
 
 
+@dataclass(frozen=True, eq=False)
+class Process(Predicate):
+    """A condition on the activities of an object's event log (``MATCH_ACTIVITIES``).
+
+    Built with ``Type.relations.<log>.contains(...)`` and similar; it holds for
+    the object whose history in that log matches ``mode``.
+    """
+
+    relation: EventLogRelation[Any]
+    mode: ProcessMode
+    activities: tuple[str, ...]
+
+    @property
+    def owner(self) -> type[ObjectDefinition]:
+        return type(self.relation.source.fields)
+
+
 class ObjectDefinition:
     """Describes one object type: its population, key, and fields.
 
@@ -319,6 +337,11 @@ class ObjectDefinition:
         """Fields whose values together form each instance's business key."""
         return tuple(getattr(self, name) for name in self._key)
 
+    @property
+    def _default_order(self) -> tuple[Field[Any], ...]:
+        """Fields that order reads after any requested sort; they must identify rows."""
+        return self.key_fields
+
     def __iter__(self) -> Iterator[Field[Any]]:
         """Iterate all loaded fields in generated order."""
         return (getattr(self, name) for name in self._members)
@@ -332,3 +355,21 @@ class ObjectDefinition:
             if field.id == attribute_id:
                 return field
         raise KeyError(attribute_id)
+
+
+class EventDefinition(ObjectDefinition):
+    """Describes one event log: the events of its lead object, one row per event.
+
+    Generated subclasses always declare the role fields ``case`` (the lead
+    object's key), ``event_id``, ``activity`` (the event type), and
+    ``timestamp``. Rows are identified by ``case`` and ``event_id``, because
+    one event can belong to several lead objects, and read in time order.
+    """
+
+    _event_types: ClassVar[tuple[str, ...]] = ()
+    """The Data Model's event type tables at pull; activities name one of them."""
+
+    @property
+    def _default_order(self) -> tuple[Field[Any], ...]:
+        timestamp: Field[Any] = getattr(self, "timestamp")
+        return (timestamp, *(field for field in self.key_fields if field is not timestamp))

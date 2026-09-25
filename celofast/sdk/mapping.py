@@ -1,7 +1,7 @@
 """Derive object specifications from a KM capture and its Data Model.
 
 A record becomes an object type when it reads a plain Data Model table with a
-primary key (event logs excepted). Its class is named after the table, its key
+primary key. Its class is named after the table, its key
 is the primary key, and its fields are the attributes that have an expression
 and a known type: Data Model column types for plain columns, the captured result
 schema (falling back to the KM's declared type) for calculated attributes. Celonis
@@ -9,6 +9,14 @@ schema (falling back to the KM's declared type) for calculated attributes. Celon
 key between two generated types gives a to-one and a to-many link. Anything that
 cannot be generated is skipped and reported as a diagnostic; nothing is guessed
 from names.
+
+An event log record (``isActivityTable``) becomes an event type: the history of
+the lead object the KM names for it (``eventLogsMetadata``). Celonis generates
+these logs with fixed columns: ``LEAD_OBJECT_ID``, ``ID``, the activity, and
+``TIMESTAMP`` become the role fields ``case``, ``event_id``, ``activity``, and
+``timestamp``; the constant ``epoch`` column is not loaded. The event links to
+its lead as ``case``, and the lead to its events as ``activities`` (logs named
+``...Activities``) or ``events``.
 
 An optional mapping overrides the derived model (TOML, under
 ``[tool.celofast.knowledge-models.<name>.mapping]`` or in a separate file)::
@@ -139,6 +147,8 @@ class ObjectSpec:
     links: tuple[LinkSpec, ...]
     table: str | None = None
     """The Data Model table the record reads, when its expression is a plain table."""
+    lead: str | None = None
+    """For an event log, the table of its lead object."""
 
 
 @dataclass(frozen=True)
@@ -174,6 +184,12 @@ def python_name(value: str) -> str:
 
 def class_name(value: str) -> str:
     return "".join(part[:1].upper() + part[1:] for part in python_name(value).split("_") if part)
+
+
+def event_class_name(table: str) -> str:
+    """``el__LineActivities`` -> ``LineActivity``; ``el_celonis_Line`` -> ``LineEvent``."""
+    name = table_class_name(table)
+    return name[: -len("ies")] + "y" if name.endswith("Activities") else name + "Event"
 
 
 def table_class_name(table: str) -> str:
@@ -307,6 +323,18 @@ class _Draft:
     table: str | None
     fields: list[_Field]
     key: tuple[str, ...]
+    lead: str | None = None
+    """For an event log, the lead object's table."""
+    roles: dict[str, str] = dataclasses.field(default_factory=dict)
+    """For an event log, role field names by attribute ID."""
+
+
+# Columns of Celonis-generated event logs, by role field name.
+_ROLE_COLUMNS = {"case": "LEAD_OBJECT_ID", "event_id": "ID", "timestamp": "TIMESTAMP"}
+_ROLE_TYPES: dict[str, tuple[ValueType, ...]] = {
+    "case": KEY_TYPES, "event_id": KEY_TYPES, "activity": ("str",), "timestamp": ("datetime",),
+}
+_EPOCH = "epoch"
 
 
 class _Normalizer:
@@ -323,6 +351,13 @@ class _Normalizer:
         self.describe = describe
         self.references = References(capture)
         self.tables = {name.lower(): table for name, table in (capture.tables or {}).items()}
+        metadata = capture.definition.get("eventLogsMetadata")
+        logs = metadata.get("eventLogs") if isinstance(metadata, dict) else None
+        self.leads: dict[str, str] = {
+            log["recordId"]: log["caseTableId"] for log in logs or ()
+            if isinstance(log, dict) and isinstance(log.get("recordId"), str)
+            and isinstance(log.get("caseTableId"), str)
+        }
         self.errors: list[str] = []
         self.diagnostics: list[str] = []
 
@@ -464,14 +499,13 @@ class _Normalizer:
         settings = self.config.objects.get(rid, _UNMAPPED)
         table = record_table(record.get("pql"))
         dm_table = self.tables.get(table.lower()) if table else None
-        if record.get("isActivityTable") and rid not in self.config.objects:
-            self.diagnostics.append(f"{rid}: event log; not an object type.")
-            return None
         attributes = self.attributes(rid, record, table)
         referenced = {*settings.exclude_fields, *settings.types}
         for name in sorted(referenced - {a.id for a in attributes}):
             self.errors.append(f"{rid}: mapping refers to unknown attribute {name!r}.")
         attributes = self.distinct(rid, attributes, settings)
+        if record.get("isActivityTable"):
+            return self.event_draft(rid, record, table, settings, attributes)
         fields = [f for a in attributes if (f := self.field(rid, a, settings, dm_table))]
         loaded = {f.attribute.id: f.value_type for f in fields}
         key, problems = self.key(record, settings, dm_table, attributes, loaded)
@@ -483,14 +517,56 @@ class _Normalizer:
             return None
         return _Draft(rid, record, table, fields, key)
 
+    def event_draft(
+        self, rid: str, record: dict[str, Any], table: str | None,
+        settings: ObjectConfig, attributes: list[_Attribute],
+    ) -> _Draft | None:
+        """An event log: its lead, role fields, and a key of (case, event_id) by default."""
+        lead = self.leads.get(rid)
+        if lead is None or table is None:
+            self.diagnostics.append(f"{rid}: event log without a lead object in the KM; not generated.")
+            return None
+        attributes = [
+            a for a in attributes
+            if (a.own_column or "").lower() != _EPOCH or a.id in settings.types
+        ]
+        fields = [f for a in attributes if (f := self.field(rid, a, settings, None))]
+        by_column = {f.attribute.own_column.lower(): f for f in fields if f.attribute.own_column}
+        activity_id = record.get("defaultActivityAttributeId")
+        found = {role: by_column.get(column.lower()) for role, column in _ROLE_COLUMNS.items()}
+        found["activity"] = next((f for f in fields if f.attribute.id == activity_id), None)
+        problems = [
+            f"no loaded {role} attribute" if field is None
+            else f"{role} attribute {field.attribute.id!r} of type {field.value_type}"
+            for role, field in found.items()
+            if field is None or field.value_type not in _ROLE_TYPES[role]
+        ]
+        if problems:
+            self.diagnostics.extend(f"{rid}: event log with {problem}; not generated." for problem in problems)
+            return None
+        roles = {field.attribute.id: role for role, field in found.items() if field is not None}
+        default = [found[role].attribute.id for role in ("case", "event_id")]  # type: ignore[union-attr]
+        loaded = {f.attribute.id: f.value_type for f in fields}
+        key, problems = self.key(
+            record, settings.model_copy(update={"key": settings.key or default}), None, attributes, loaded,
+        )
+        if problems:
+            if settings.key is not None:
+                self.errors.extend(f"{rid}: {problem}." for problem in problems)
+            else:
+                self.diagnostics.extend(f"{rid}: {problem}; not generated." for problem in problems)
+            return None
+        return _Draft(rid, record, table, fields, key, lead=lead, roles=roles)
+
     def spec(self, draft: _Draft, used_classes: dict[str, str]) -> ObjectSpec | None:
         """Name the class and its fields; ``used_classes`` tracks names taken so far."""
         rid, record = draft.record_id, draft.record
         settings = self.config.objects.get(rid, _UNMAPPED)
+        naming = event_class_name if draft.lead else table_class_name
         candidates = (
             [settings.class_name] if settings.class_name
             else [c for c in (
-                table_class_name(draft.table) if draft.table else None,
+                naming(draft.table) if draft.table else None,
                 class_name(str(record.get("displayName") or rid)),
                 class_name(rid),
             ) if c]
@@ -515,12 +591,14 @@ class _Normalizer:
             message = f"{rid}: no free class name among {', '.join(candidates)}"
             (self.errors if settings.class_name else self.diagnostics).append(message + "; set class.")
             return None
+        # Event role fields keep fixed names; other fields avoid them.
+        others = [f for f in draft.fields if f.attribute.id not in draft.roles]
         names = _names(
-            [f.attribute.spelling for f in draft.fields],
-            RESERVED_FIELDS,
-            suffixes=[_COLLECTIONS[f.attribute.collection] for f in draft.fields],
+            [f.attribute.spelling for f in others],
+            RESERVED_FIELDS | set(draft.roles.values()),
+            suffixes=[_COLLECTIONS[f.attribute.collection] for f in others],
         )
-        python = {f.attribute.id: n for f, n in zip(draft.fields, names)}
+        python = {**draft.roles, **{f.attribute.id: n for f, n in zip(others, names)}}
         return ObjectSpec(
             record_id=rid,
             class_name=name,
@@ -528,6 +606,7 @@ class _Normalizer:
             display_name=_text(record.get("displayName")),
             record_description=_text(record.get("description")),
             table=draft.table,
+            lead=draft.lead,
             fields=tuple(
                 FieldSpec(
                     f.attribute.id,
@@ -577,12 +656,23 @@ def normalize(
         draft for rid, record in sorted(records.items())
         if rid not in config.exclude and (draft := run.draft(rid, record))
     ]
+    # An event log needs its lead object, identified by a single key.
+    leads = {d.table.lower(): d for d in drafts if d.table and d.lead is None}
+    for draft in [d for d in drafts if d.lead is not None]:
+        lead = leads.get(str(draft.lead).lower())
+        if lead is None or len(lead.key) != 1:
+            run.diagnostics.append(
+                f"{draft.record_id}: event log whose lead {draft.lead} is not a generated object "
+                "type with a single key; not generated."
+            )
+            drafts.remove(draft)
     # Names are resolved only after every type is known, so links can use them.
     used_classes: dict[str, str] = {}
     specs = {
         spec.record_id: spec for draft in drafts if (spec := run.spec(draft, used_classes))
     }
     links = _automatic_links(capture, specs, run.diagnostics)
+    _event_links(specs, links, run.diagnostics)
     _declared_links(capture, config, specs, links, run.errors, run.diagnostics)
     if run.errors:
         raise ObjectMappingError(
@@ -657,14 +747,7 @@ def _automatic_links(
     links: dict[str, dict[str, LinkSpec]] = {rid: {} for rid in specs}
 
     def add(spec: ObjectSpec, link: LinkSpec, stem: str) -> None:
-        owned = links[spec.record_id]
-        name = link.name
-        if name in owned or name in _RESERVED_LINKS:
-            name = f"{name}_by_{stem or 'id'}"
-        if name in owned:
-            diagnostics.append(f"{spec.record_id}.links.{name}: name already used; not generated.")
-            return
-        owned[name] = dataclasses.replace(link, name=name)
+        _add_link(links, spec, link, stem, diagnostics)
 
     joins = sorted(capture.joins or (), key=lambda j: (j["one"], j["many"], j["columns"]))
     for join in joins:
@@ -690,6 +773,46 @@ def _automatic_links(
         to_many = _plural(python_name(many.class_name))
         add(one, LinkSpec(to_many, many.record_id, "many", tuple((o.name, m.name) for o, m in pairs), "fk"), stem)
     return links
+
+
+def _add_link(
+    links: dict[str, dict[str, LinkSpec]], spec: ObjectSpec, link: LinkSpec, stem: str,
+    diagnostics: list[str],
+) -> None:
+    """Add an automatic link; a taken name gets a ``_by_<stem>`` suffix."""
+    owned = links[spec.record_id]
+    name = link.name
+    if name in owned or name in _RESERVED_LINKS:
+        name = f"{name}_by_{stem or 'id'}"
+    if name in owned:
+        diagnostics.append(f"{spec.record_id}.links.{name}: name already used; not generated.")
+        return
+    owned[name] = dataclasses.replace(link, name=name)
+
+
+def _event_links(
+    specs: dict[str, ObjectSpec], links: dict[str, dict[str, LinkSpec]], diagnostics: list[str]
+) -> None:
+    """Link each event log and its lead object both ways.
+
+    Celonis joins a log to its lead, so both links work in PQL as a foreign
+    key would: ``BIND`` from an event, Pull-Up functions from the lead.
+    """
+    leads = {spec.table.lower(): spec for spec in specs.values() if spec.table and spec.lead is None}
+    for spec in specs.values():
+        if spec.lead is None:
+            continue
+        lead = leads.get(spec.lead.lower())
+        types = {field.name: field.value_type for field in (lead.fields if lead else ())}
+        case = next(field for field in spec.fields if field.name == "case")
+        if lead is None or len(lead.key) != 1 or types[lead.key[0]] != case.value_type:
+            diagnostics.append(f"{spec.record_id}: lead {spec.lead} has no matching single key; no links generated.")
+            continue
+        key = lead.key[0]
+        _add_link(links, spec, LinkSpec("case", lead.record_id, "one", (("case", key),), "fk"), "case", diagnostics)
+        name = "activities" if spec.table and spec.table.endswith("Activities") else "events"
+        stem = python_name(spec.class_name)
+        _add_link(links, lead, LinkSpec(name, spec.record_id, "many", ((key, "case"),), "fk"), stem, diagnostics)
 
 
 def _declared_links(
@@ -731,11 +854,13 @@ def _declared_links(
                 continue
             on = tuple((left.name, right.name) for left, right in pairs)
             owned = links[rid]
-            for automatic in [name for name, existing in owned.items()
-                              if existing.target == link.target and existing.cardinality == link.cardinality
-                              and set(existing.on) == set(on)]:
-                del owned[automatic]  # Renamed by the declaration.
-            join = _join(capture.joins, spec, target, link.cardinality, pairs)
+            renamed = [owned.pop(name) for name, existing in list(owned.items())
+                       if existing.target == link.target and existing.cardinality == link.cardinality
+                       and set(existing.on) == set(on)]
+            # A renamed automatic link keeps its join, such as an event log's lead join.
+            join = next((existing.join for existing in renamed), None) or _join(
+                capture.joins, spec, target, link.cardinality, pairs
+            )
             if join is None:
                 diagnostics.append(
                     f"{where}: no Data Model foreign key or lookup path; traversal only, "
