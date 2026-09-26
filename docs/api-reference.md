@@ -51,6 +51,7 @@ Source: [core.py](../celofast/core.py), [client.py](../celofast/client.py).
 | `plant.links.<name>` | `ObjectCollection[Target]` (to-many) or `ToOne[Target]` (to-one), derived from a Data Model foreign key. |
 | `SalesOrderScheduleLineActivity` | `Event` (a frozen dataclass like `Plant`): one event of one lead object. Fields `case` (the lead's key), `event_id`, `activity` (the event type table, such as `e_celonis_PostGoodsIssue`), `timestamp`, and the log's other attributes. Key `(case, event_id)`. |
 | `event.links.case` | `ToOne[Lead]`. The lead's `links.activities` (logs named `...Activities`) or `links.events` is an `EventLogRelation`. |
+| `Plant.relations.link_targets`, `.link_sources` | `ObjectLinkRelation`, on a type the Data Model's Object Link graph connects (found at pull by test-running `LINK_SOURCE`): objects of the same type it links to / that link to it. Traversal, `any()`, and `count()` only (per-object `LINK_SOURCE`/`LINK_TARGET` counts). |
 
 `Plant.relations.<name>` and `plant.links.<name>` are the same relationship;
 its `.target` and `.on` describe it. Every relationship follows a Data Model

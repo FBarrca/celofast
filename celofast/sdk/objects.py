@@ -13,6 +13,9 @@ Read from the class (``Plant.relations.materials``) it builds predicates and
 aggregates; read from an instance (``plant.links.materials``) it fetches the
 related objects of that one object.
 
+An Object Link relation (``ObjectLinkRelation``) follows the Data Model's
+Object Link graph between objects of one type, such as a bill of materials.
+
 An event log is the history of its lead object: ``Event`` rows, reached
 through an ``EventLogRelation`` that also filters lead objects by their
 activities (``Line.relations.activities.contains("PostGoodsIssue")``).
@@ -36,6 +39,7 @@ from celofast.sdk.definitions import (
     AggregateFunction,
     EventDefinition,
     Field,
+    Linked,
     ObjectDefinition,
     Operand,
     Predicate,
@@ -234,6 +238,39 @@ class ToManyRelation(Relation[O]):
         if function in ("min", "max") and field.value_type == "bool":
             raise ObjectValueError(f"{function}() needs an ordered field; {field.name} is boolean.")
         return Aggregate(self, function, field, predicate)
+
+
+class ObjectLinkRelation(ToManyRelation[O]):
+    """Objects of the same type at the other end of the Data Model's Object Links.
+
+    ``ends="targets"`` reaches the objects this one links to; ``"sources"``
+    the objects that link to it. Traversal, ``any()``, and ``count()`` work;
+    conditions on the linked objects and other aggregates do not.
+    """
+
+    def __init__(self, target: type[O], *, ends: Literal["targets", "sources"]) -> None:
+        super().__init__(target, on=())
+        self.ends = ends
+
+    def _collection(self, links: Links) -> ObjectCollection[O]:
+        session = links._owner._context
+        if session is None:
+            raise QueryValidationError(
+                "This object was not loaded by a client; relationships cannot be fetched."
+            )
+        return session.objects(self.target).where(Linked(self, getattr(links._owner, "key")))
+
+    def _related(self, predicate: Predicate | None) -> Predicate:
+        if predicate is not None:
+            raise QueryValidationError(f"{self.name}.any() takes no condition on the linked objects.")
+        return Related(self, None)
+
+    def _aggregate(
+        self, function: AggregateFunction, field: Field[Any] | None, predicate: Predicate | None
+    ) -> Aggregate[Any]:
+        if function != "count" or predicate is not None:
+            raise QueryValidationError(f"{self.name} supports count() without a condition only.")
+        return Aggregate(self, function, self.target.fields.key_fields[0], None)
 
 
 class EventLogRelation(ToManyRelation[E]):

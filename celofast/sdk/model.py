@@ -17,6 +17,10 @@ these logs with fixed columns: ``LEAD_OBJECT_ID``, ``ID``, the activity, and
 ``timestamp``; the constant ``epoch`` column is not loaded. The event links to
 its lead as ``case``, and the lead to its events as ``activities`` (logs named
 ``...Activities``) or ``events``.
+
+A type whose table the Data Model's Object Link graph connects (found at pull,
+``Capture.object_links``) gets ``link_targets`` and ``link_sources``: the
+objects of the same type it links to, and those linking to it.
 """
 
 from __future__ import annotations
@@ -82,6 +86,8 @@ class LinkSpec:
     target: str
     cardinality: Literal["one", "many"]
     on: tuple[tuple[str, str], ...]
+    graph: Literal["targets", "sources"] | None = None
+    """For an Object Link relation, which end of the links it reaches."""
 
 
 @dataclass(frozen=True)
@@ -578,4 +584,9 @@ def _links(
         add(log, LinkSpec("case", lead.record_id, "one", (("case", key),)), "case")
         name = "activities" if str(log.table).endswith("Activities") else "events"
         add(lead, LinkSpec(name, log.record_id, "many", ((key, "case"),)), python_name(log.class_name))
+
+    graph = {table.lower() for table in capture.object_links or ()}
+    for spec in [s for s in specs.values() if s.table and s.table.lower() in graph and len(s.key) == 1]:
+        add(spec, LinkSpec("link_targets", spec.record_id, "many", (), "targets"), "object_link")
+        add(spec, LinkSpec("link_sources", spec.record_id, "many", (), "sources"), "object_link")
     return links

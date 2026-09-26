@@ -220,6 +220,24 @@ page it as above. A to-one relationship has `fetch()`, which returns the
 related object or `None`. If the object's reference is null, you get an empty
 result without a request.
 
+**Object Link.** When the Data Model links objects of one type with an
+[Object Link](https://docs.celonis.com/en/object-link.html), such as a bill of
+materials between material-plants, pull finds it and adds two relationships to
+that type: `link_targets` (the objects it links to) and `link_sources` (the
+objects that link to it):
+
+```python
+component = client.objects(MaterialMasterPlant).get("SAP_ECC::100::000000000000000084::1000")
+products = component.links.link_targets.fetch_page()      # what this component goes into
+
+links = MaterialMasterPlant.relations
+leaves = client.objects(MaterialMasterPlant).where(~links.link_targets.any() & links.link_sources.any())
+by_fan_out = client.objects(MaterialMasterPlant).order_by(links.link_targets.count().desc())
+```
+
+They support traversal, `any()`, and `count()`, without conditions on the
+linked objects.
+
 ## 6. Filter and sort by related objects
 
 `relations` on the class builds conditions on related objects. The whole

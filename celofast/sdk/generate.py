@@ -95,6 +95,9 @@ def _links(spec: ObjectSpec, classes: dict[str, str], events: set[str]) -> list[
         f"    {f'Relationships of {spec.class_name}.'!r}\n\n",
     ]
     for link in spec.links:
+        if link.graph:
+            lines.append(f"    {link.name} = _o.ObjectLinkRelation({classes[link.target]}, ends={link.graph!r})\n")
+            continue
         kind = (
             "ToOneRelation" if link.cardinality == "one"
             else "EventLogRelation" if link.target in events else "ToManyRelation"

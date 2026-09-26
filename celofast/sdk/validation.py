@@ -12,6 +12,8 @@ function of it:
    sampled value must convert to the field's type.
 
 Both steps run their exports concurrently (``WORKERS`` at a time).
+``object_links`` then finds the object types the Data Model's Object Link
+graph connects: Celonis serves ``LINK_SOURCE`` only on those tables.
 
 Test runs bind KM input placeholders with their values at pull; the
 generated fields keep the placeholders, bound with live values at query time.
@@ -196,3 +198,32 @@ def validate(
         if found:
             rejected.setdefault(spec.record_id, {}).update(found)
     return capture.model_copy(update={"validation": rejected})
+
+
+def object_links(capture: Capture, execute: Execute, *, progress: Progress | None = None) -> Capture:
+    """Record the tables of the Object Link graph.
+
+    PyCelonis cannot read the Object Link configuration, so each object type
+    with a single-column key is test-run with ``LINK_SOURCE``; Celonis rejects
+    tables outside the graph, and every table when none is configured.
+    """
+    candidates = [
+        (spec.table, next(f.expression for f in spec.fields if f.name == spec.key[0]))
+        for spec in normalize(capture).objects
+        if spec.table and not spec.lead and len(spec.key) == 1
+    ]
+    if progress is not None and candidates:
+        progress("Finding Object Link tables", 0, len(candidates))
+    linked = []
+    runs = _concurrently(lambda item: execute([f"LINK_SOURCE({item[1].strip()})"], 1), candidates)
+    for done, (table, _), future in runs:
+        if progress is not None:
+            progress(f"Finding Object Link tables: {table}", done, len(candidates))
+        try:
+            future.result()
+        except CeloFastError:
+            raise
+        except Exception:  # noqa: BLE001 - Celonis rejects tables outside the graph
+            continue
+        linked.append(table)
+    return capture.model_copy(update={"object_links": sorted(linked)})

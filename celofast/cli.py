@@ -15,7 +15,7 @@ except ImportError:  # Python 3.10
 from celofast.sdk.capture import retrieve
 from celofast.sdk.model import normalize
 from celofast.sdk.package import write_package
-from celofast.sdk.validation import resolve_types, validate
+from celofast.sdk.validation import object_links, resolve_types, validate
 
 
 def _configuration(name: str, project: Path | None) -> tuple[dict[str, Any], Path]:
@@ -179,6 +179,7 @@ def main(argv: list[str] | None = None) -> int:
             connection = cf._km_connection(settings["key"])
             capture = resolve_types(capture, connection._type_of, progress=progress)
             capture = validate(capture, connection._probe, progress=progress)
+            capture = object_links(capture, connection._probe, progress=progress)
         finally:
             progress.close()
         changes = write_package(capture, output, check=args.check)

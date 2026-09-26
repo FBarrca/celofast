@@ -47,6 +47,8 @@ output = "generated/inventory"
         probes.append(expressions)
         if any("KPI" in expression for expression in expressions):
             raise RuntimeError("KPI missing does not exist")
+        if any(expression.startswith("LINK_SOURCE") for expression in expressions):
+            raise RuntimeError("Object Link is not configured.")
         return [("P1", "MAIN")]
 
     connection = SimpleNamespace(_probe=probe, _type_of=lambda expression: "str")

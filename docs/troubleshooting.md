@@ -23,7 +23,8 @@ generated packages, object retrieval, Views, or output writes.
 
 | Symptom | Check / next step |
 | --- | --- |
-| A record or field you need is missing | Look under `# Not generated:` at the top of the generated `objects.py` for the reason. A record without a primary key needs `key = ["ID"]`; an untyped attribute needs `types`; an attribute that fails in Celonis must be fixed in the KM, then pulled again. |
+| A record or field you need is missing | Look under `# Not generated:` at the top of the generated `objects.py` for the reason. A record needs a primary key in the Data Model (or a declared identifier in the KM), and an attribute that fails in Celonis must be fixed there; then pull again. |
+| An attribute fails with `Object Link is not configured` (or `does not contain any links`) | Configure Object Link in the data model the KM uses, reload it, and check its load status for warnings (for example, non-unique identifiers). Then pull again: the attributes load, and the linked type gets `link_targets` and `link_sources`. |
 | Pull refuses the output directory | Keep application code outside the managed directory. Use a separate output for a different KM source. |
 | `ModuleNotFoundError` for `generated.inventory` | Run the configured pull and make its output importable from the application's working directory or package. |
 | `SDKCompatibilityError` on import | The package was generated for another runtime (for example the 0.4 query API). Rerun `celofast km pull` and restart Python; keep all generated files together. |

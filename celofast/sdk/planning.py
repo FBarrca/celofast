@@ -16,7 +16,9 @@ Relationship predicates are rendered in the same query:
 * aggregates (``count``, ``sum``, ``avg``, ...) render as the matching
   Pull-Up function and compare or sort like any column;
 * activity conditions on an event log (``contains``, ...) render as
-  ``MATCH_ACTIVITIES`` on the log's activity column, a flag per lead object.
+  ``MATCH_ACTIVITIES`` on the log's activity column, a flag per lead object;
+* Object Link relations count, per object, the links of the Data Model's
+  Object Link graph at one of its ends, with ``LINK_SOURCE`` and ``LINK_TARGET``.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from celofast.sdk.definitions import (
     And,
     Comparison,
     Field,
+    Linked,
     Not,
     ObjectDefinition,
     Operand,
@@ -43,6 +46,7 @@ from celofast.sdk.definitions import (
     Related,
     Sort,
 )
+from celofast.sdk.objects import ObjectLinkRelation
 
 if TYPE_CHECKING:
     from celofast.sdk.objects import Object
@@ -86,6 +90,26 @@ def _table(definition: ObjectDefinition) -> str:
     return f'"{definition._table}"'
 
 
+def _links(
+    definition: ObjectDefinition, bind: Callable[[str], str], *, source: bool, other: object = None,
+) -> str:
+    """Per object: its Object Links as the ``source`` (else target) end.
+
+    With ``other``, only the links whose opposite end is the object keyed
+    ``other``. The links live in an internal edge table; ``PU_FIRST`` and
+    ``BIND`` bring the count back to the object's table, as the Celonis KM
+    attributes on Object Link do.
+    """
+    table, key = _table(definition), bind(definition.key_fields[0].expression).strip()
+    ends = (f"LINK_SOURCE({key})", f"LINK_TARGET({key})")
+    own, opposite = ends if source else ends[::-1]
+    condition = "" if other is None else f", {opposite} = {_literal(other)}"
+    return (
+        f"COALESCE(PU_FIRST({table}, CASE WHEN {own} = {key} THEN BIND(COMMON_TABLE({own}, {key}), "
+        f"PU_COUNT(DOMAIN_TABLE({own}), {own}{condition})) END), 0)"
+    )
+
+
 def _case(test: str) -> str:
     return f"CASE WHEN {test} THEN 1 ELSE 0 END"
 
@@ -95,6 +119,9 @@ class _Renderer:
         self.bind = bind
 
     def expression(self, operand: Operand[Any], pull: Pull = _identity) -> str:
+        if isinstance(operand, Aggregate) and isinstance(operand.relation, ObjectLinkRelation):
+            relation = operand.relation
+            return pull(_links(relation.source.fields, self.bind, source=relation.ends == "targets"))
         if isinstance(operand, Aggregate):
             # A Pull-Up function on the source table; its condition is
             # evaluated on the related table itself.
@@ -116,6 +143,11 @@ class _Renderer:
             indicator, negated = self.comparison(predicate, pull)
         elif isinstance(predicate, Related):
             indicator, negated = self.related(predicate, pull), False
+        elif isinstance(predicate, Linked):
+            # The targets of an object are the target end of its links, and vice versa.
+            relation = predicate.relation
+            count = _links(relation.target.fields, self.bind, source=relation.ends == "sources", other=predicate.key)
+            indicator, negated = _case(f"{pull(count)} > 0"), False
         elif isinstance(predicate, Process):
             indicator, negated = self.process(predicate, pull), predicate.mode == "excludes"
         else:
@@ -159,6 +191,9 @@ class _Renderer:
 
     def related(self, related: Related, pull: Pull) -> str:
         relation = related.relation
+        if isinstance(relation, ObjectLinkRelation):
+            count = _links(relation.source.fields, self.bind, source=relation.ends == "targets")
+            return _case(f"{pull(count)} > 0")
         source, target = relation.source.fields, relation.target.fields
         key = target.key_fields[0]
         if relation.cardinality == "one":

@@ -18,7 +18,7 @@ from celofast.exceptions import ObjectValueError, QueryValidationError
 from celofast.sdk.hydration import ValueType, filter_value
 
 if TYPE_CHECKING:
-    from celofast.sdk.objects import EventLogRelation, Relation, ToManyRelation
+    from celofast.sdk.objects import EventLogRelation, ObjectLinkRelation, Relation, ToManyRelation
 
 T = TypeVar("T")
 Operator = Literal["eq", "ne", "lt", "lte", "gt", "gte", "in", "between", "like"]
@@ -283,6 +283,22 @@ class Related(Predicate):
     @property
     def owner(self) -> type[ObjectDefinition]:
         return type(self.relation.source.fields)
+
+
+@dataclass(frozen=True, eq=False)
+class Linked(Predicate):
+    """The object is at the other end of an Object Link from the object keyed ``key``.
+
+    Built by traversal: ``plant.links.link_targets`` is the set of objects that
+    ``plant`` links to.
+    """
+
+    relation: ObjectLinkRelation[Any]
+    key: object
+
+    @property
+    def owner(self) -> type[ObjectDefinition]:
+        return type(self.relation.target.fields)
 
 
 @dataclass(frozen=True, eq=False)

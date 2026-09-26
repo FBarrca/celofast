@@ -56,6 +56,8 @@ class Capture(BaseModel):
     tables: dict[str, Any] | None = None
     """Data Model tables by PQL name: ``{"primary_key": [...], "columns": {name: TYPE}}``."""
     event_types: list[str] | None = None
+    object_links: list[str] | None = None
+    """Tables connected by the Data Model's Object Link graph, found by test-running at pull."""
     """Data Model event type tables (``e_...``); event log activities name them."""
     validation: dict[str, dict[str, str]] = {}
     """Calculated attributes rejected at pull: ``{record_id: {attribute_id: reason}}``."""
