@@ -14,7 +14,7 @@ from celofast.exceptions import (
     UnresolvedVariableError,
 )
 from celofast.resources.knowledge_model import KnowledgeModelClient, KnowledgeModelConnection
-from celofast.sdk import ObjectCollection, ObjectPage, ToOne
+from celofast.sdk import Event, EventLogRelation, ObjectCollection, ObjectPage, ToOne
 
 from objects_fixture import load, write
 
@@ -29,6 +29,8 @@ def eq_filter(expression, literal):
 
 PLANT_COLUMNS = ["id", "country", "plantnumber", "opened", "description"]
 MATERIAL_COLUMNS = ["id", "plant_id", "stock", "active", "updated", "count", "untyped"]
+EVENT_COLUMNS = ["activity", "executed_by", "event_id", "case", "timestamp"]
+LOG = '"el__PlantActivities"'
 
 
 class Transport:
@@ -81,7 +83,7 @@ def test_get_retrieves_a_typed_object_with_plain_values(sdk, client, transport):
     assert plant.key == "P1" and plant.id == "P1"
     assert plant.country == "DE"
     assert plant.plantnumber is None
-    assert plant.opened == date(2020, 1, 1) and type(plant.opened) is date
+    assert plant.opened == datetime(2020, 1, 1) and type(plant.opened) is datetime
 
     request = transport.requests[0]
     assert (request.limit, request.offset, request.distinct) == (2, 0, True)
@@ -168,7 +170,7 @@ def test_relationships_are_explicit_typed_requests(sdk, client, transport):
 def test_composite_keys(sdk, client, transport):
     transport.reply(["P1", pd.Timestamp("2024-01-31"), 7], columns=["plant_id", "day", "qty"])
     # Celonis DATE columns load as datetimes; a date argument means its midnight.
-    line = client.objects(sdk.StockLine).get(("P1", date(2024, 1, 31)))
+    line = client.objects(sdk.Stock).get(("P1", date(2024, 1, 31)))
     assert line.key == ("P1", datetime(2024, 1, 31)) and line.qty == 7
     filters = [f.query for f in transport.requests[0].query.filters]
     assert filters == [
@@ -176,9 +178,9 @@ def test_composite_keys(sdk, client, transport):
         eq_filter('"o_Stock"."Day"', "{t 1706659200000}"),
     ]
     with pytest.raises(QueryValidationError, match="2 parts"):
-        client.objects(sdk.StockLine).get("P1")
+        client.objects(sdk.Stock).get("P1")
     with pytest.raises(QueryValidationError, match="None"):
-        client.objects(sdk.StockLine).get(("P1", None))
+        client.objects(sdk.Stock).get(("P1", None))
 
 
 def test_missing_objects_and_failed_requests_are_errors(sdk, client, transport):
@@ -196,7 +198,7 @@ def test_missing_objects_and_failed_requests_are_errors(sdk, client, transport):
         ([plant_row("P1", "DE"), plant_row("P1", "FR")], ObjectIdentityError, "conflicting values for country"),
         ([plant_row(None)], ObjectIdentityError, "key value is null"),
         ([["P1", 42, None, None, None]], ObjectValueError, "expects str"),
-        ([["P1", "DE", None, pd.Timestamp("2020-01-01 08:00"), None]], ObjectValueError, "date but received time"),
+        ([["P1", "DE", None, "2020-01-01", None]], ObjectValueError, "expects datetime"),
     ],
 )
 def test_hydration_rejects_invalid_identity_and_values(sdk, client, transport, rows, error, message):
@@ -279,7 +281,7 @@ def test_results_contain_no_analytical_types(sdk, client, transport):
     transport.reply(plant_row(), columns=PLANT_COLUMNS)
     plant = client.objects(sdk.Plant).fetch_page().items[0]
     values = [getattr(plant, name) for name in PLANT_COLUMNS]
-    assert all(type(v) in (str, date, type(None)) for v in values)
+    assert all(type(v) in (str, datetime, type(None)) for v in values)
     for removed in ("select", "execute", "build", "records"):
         assert not hasattr(client, removed)
 
@@ -343,7 +345,7 @@ def test_membership_range_and_pattern_predicates(sdk, client, transport):
     text = wrapped('"o_Plant"."Text"')
     assert f"CASE WHEN {country} IN ('DE', 'FR') THEN 1 ELSE 0 END = 1" in condition
     assert (
-        f"CASE WHEN {opened} BETWEEN {{d '2020-01-01'}} AND {{d '2020-12-31'}} THEN 1 ELSE 0 END = 1"
+        f"CASE WHEN {opened} BETWEEN {{t 1577836800000}} AND {{t 1609372800000}} THEN 1 ELSE 0 END = 1"
         in condition
     )
     assert f"CASE WHEN {text} LIKE 'Old%' THEN 1 ELSE 0 END = 0" in condition
@@ -360,12 +362,6 @@ def test_membership_range_and_pattern_predicates(sdk, client, transport):
         Material.fields.active.between(False, True)
     with pytest.raises(ObjectValueError, match="not a string"):
         Material.fields.count.like("1%")
-
-
-def test_relations_without_a_join_are_not_predicates(sdk):
-    # Plant.stock has no Data Model foreign key; it supports traversal only.
-    with pytest.raises(QueryValidationError, match="no Data Model foreign key or lookup path"):
-        sdk.Plant.relations.stock.any()
 
 
 def test_relation_aggregates_render_pull_up_functions(sdk, client, transport):
@@ -418,7 +414,7 @@ def test_aggregates_compare_with_other_aggregates(sdk, client, transport):
 
 
 def test_aggregate_validation(sdk):
-    Plant, Material, Stock = sdk.Plant, sdk.Material, sdk.StockLine
+    Plant, Material, Stock = sdk.Plant, sdk.Material, sdk.Stock
     materials = Plant.relations.materials
     with pytest.raises(ObjectValueError, match="numeric"):
         materials.sum(Material.fields.untyped)
@@ -434,9 +430,6 @@ def test_aggregate_validation(sdk):
         materials.count().gt(2.5)
     with pytest.raises(QueryValidationError, match="same type"):
         materials.count().gt(Stock.fields.qty)
-    # Plant.stock has no foreign key: no Pull-Up path to aggregate over.
-    with pytest.raises(QueryValidationError, match="Pull-Up aggregates need one"):
-        Plant.relations.stock.count()
 
 
 def test_datetime_fields_accept_date_filters_as_midnight(sdk):
@@ -447,6 +440,78 @@ def test_datetime_fields_accept_date_filters_as_midnight(sdk):
         datetime(2024, 5, 1), datetime(2024, 6, 1)
     )
     assert updated.is_in([date(2024, 5, 1)]).operand == (datetime(2024, 5, 1),)
-    # A strict date field (types override) still rejects datetimes.
-    with pytest.raises(ObjectValueError, match="expects date"):
-        sdk.Plant.fields.opened.eq(datetime(2020, 1, 1, 8))
+
+
+def event_row(event_id="E1", case="P1", activity="e_celonis_Opening", at="2024-01-04 08:00"):
+    return [activity, "USER", event_id, case, pd.Timestamp(at)]
+
+
+def test_event_logs_read_in_time_order_and_link_to_their_lead(sdk, client, transport):
+    Activity = sdk.PlantActivity
+    assert issubclass(Activity, Event) and isinstance(sdk.Plant.relations.activities, EventLogRelation)
+
+    transport.reply(plant_row(), columns=PLANT_COLUMNS)
+    plant = client.objects(sdk.Plant).get("P1")
+    transport.reply(
+        event_row("E1"), event_row("E2", activity="e_celonis_Inspection", at="2024-02-01"),
+        columns=EVENT_COLUMNS,
+    )
+    page = plant.links.activities.fetch_page()
+    query = transport.requests[1].query
+    assert [f.query for f in query.filters] == [eq_filter(f'{LOG}."LEAD_OBJECT_ID"', "'P1'")]
+    # Time order; the (case, event) key breaks ties.
+    assert [o.query for o in query.order_by_columns] == [
+        wrapped(f'{LOG}."TIMESTAMP"'), wrapped(f'{LOG}."LEAD_OBJECT_ID"'), wrapped(f'{LOG}."ID"'),
+    ]
+    first, second = page.items
+    assert first.key == ("P1", "E1") and first.timestamp == datetime(2024, 1, 4, 8)
+    assert second.activity == "e_celonis_Inspection"
+
+    transport.reply(plant_row(), columns=PLANT_COLUMNS)
+    assert first.links.case.fetch() == plant
+    assert transport.requests[2].query.filters[0].query == eq_filter('"o_Plant"."ID"', "'P1'")
+
+
+def test_activity_conditions_render_match_activities(sdk, client, transport):
+    Plant, Activity = sdk.Plant, sdk.PlantActivity
+    activities = Plant.relations.activities
+    transport.reply(columns=PLANT_COLUMNS)
+    client.objects(Plant).where(
+        activities.contains("Opening", "e_celonis_Inspection")
+        & activities.starts_with("Opening")
+        & activities.ends_with("Inspection")
+        & activities.excludes("Inspection")
+        & activities.max(Activity.fields.timestamp).gte(date(2024, 1, 1))
+    ).fetch_page()
+    condition = transport.requests[0].query.filters[0].query
+    column = f'{LOG}."ACTIVITY"'
+    opening, inspection = "'e_celonis_Opening'", "'e_celonis_Inspection'"
+
+    def match(specifier, names):
+        return f"CASE WHEN MATCH_ACTIVITIES({column}, {specifier}[{names}]) = 1 THEN 1 ELSE 0 END"
+
+    assert f"{match('NODE', f'{opening}, {inspection}')} = 1" in condition
+    assert f"{match('STARTING', opening)} = 1" in condition
+    assert f"{match('ENDING', inspection)} = 1" in condition
+    # excludes() is the complement of NODE_ANY: it holds without any events.
+    assert f"{match('NODE_ANY', inspection)} = 0" in condition
+    timestamp = wrapped(f'{LOG}."TIMESTAMP"')
+    assert f'PU_MAX("o_Plant", {timestamp}) >= {{t 1704067200000}}' in condition
+
+    transport.reply(columns=PLANT_COLUMNS)
+    client.objects(Plant).where(~activities.excludes("Opening")).fetch_page()
+    assert transport.requests[1].query.filters[0].query == f"FILTER {match('NODE_ANY', opening)} = 1;"
+
+
+def test_activity_conditions_are_validated(sdk, client, transport):
+    activities = sdk.Plant.relations.activities
+    with pytest.raises(ObjectValueError, match="Unknown activity 'Closing'; event types are"):
+        activities.contains("Closing")
+    with pytest.raises(QueryValidationError, match="at least one activity"):
+        activities.ends_with()
+    # Activity conditions describe the lead object; they cannot be pulled
+    # onto another row with has().
+    nested = sdk.PlantActivity.relations.case.has(activities.contains("Opening"))
+    with pytest.raises(QueryValidationError, match="cannot be used inside has"):
+        client.objects(sdk.PlantActivity).where(nested).fetch_page()
+    assert transport.requests == []

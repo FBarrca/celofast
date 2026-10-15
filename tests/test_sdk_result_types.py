@@ -11,7 +11,7 @@ import pytest
 from celofast.resources.knowledge_model import KnowledgeModelConnection
 from celofast.sdk import Capture
 from celofast.sdk.generate import generate
-from celofast.sdk.mapping import normalize
+from celofast.sdk.model import normalize
 from celofast.sdk.validation import resolve_types, validate
 
 from objects_fixture import SOURCE, attribute, load
@@ -52,8 +52,6 @@ def test_incorrect_declared_type_is_corrected_before_validation_and_generation(t
         (tmp_path / name).write_bytes(content)
     sdk = load(tmp_path, "corrected_type_sdk")
     assert sdk.Line.fields.actual_delivery_timestamp.value_type == "datetime"
-    overridden = normalize(cap, {"objects": {"O_LINE": {"types": {"ActualDeliveryTimestamp": "date"}}}})
-    assert overridden.objects[0].fields[1].value_type == "date"
 
 
 def test_inputs_without_a_default_keep_declared_types_without_schema_queries():
@@ -79,10 +77,12 @@ def test_input_attributes_are_typed_with_pull_values_but_keep_their_placeholders
         return "float"
 
     cap = resolve_types(original, describe)
-    # Total references Planned and stays a reference; Celonis resolves it with
-    # the KM's own values. Planned uses ${months} directly: bound for the run.
-    assert described == ['"o_Plant"."Planned" + "o_Plant"."Purchased"', described[1]]
-    assert "< 3)" in described[1]
+    # Planned uses ${months} directly: bound for the run. Total references
+    # Planned, so Planned is inlined into it and bound the same way.
+    # Types are described concurrently, in no fixed order.
+    described.sort(key=lambda expression: expression.endswith('"o_Plant"."Purchased"'), reverse=True)
+    assert len(described) == 2 and "< 3)" in described[1]
+    assert described[0] == f'({described[1]}\n) + "o_Plant"."Purchased"'
     assert cap.definition == original.definition
     assert original.types == {}
     cap = Capture.model_validate_json(cap.model_dump_json())
@@ -96,25 +96,10 @@ def test_input_attributes_are_typed_with_pull_values_but_keep_their_placeholders
         (tmp_path / name).write_bytes(content)
     sdk = load(tmp_path, "result_type_sdk")
     assert sdk.Plant.fields.total.value_type == "float"
-    assert sdk.Plant.fields.total.expression == described[0]
-    assert "${months}" in sdk.Plant.fields.planned.expression
+    planned = sdk.Plant.fields.planned.expression
+    assert "${months}" in planned
+    assert sdk.Plant.fields.total.expression == f'({planned}\n) + "o_Plant"."Purchased"'
     assert sdk.km.variables == {"months": "NUMBER"}
-
-
-@pytest.mark.parametrize("catalog", [True, False])
-def test_explicit_types_and_exclusions_do_not_query_the_schema(catalog):
-    def unexpected(expression):
-        pytest.fail("No type lookup needed")
-
-    for settings in (
-        {"types": {"Total": "int", "Planned": "float"}},
-        {"exclude-fields": ["Total", "Planned"]},
-    ):
-        original = capture()
-        if not catalog:
-            original = original.model_copy(update={"tables": None})
-        cap = resolve_types(original, unexpected, mapping={"objects": {"O_PLANT": settings}})
-        assert cap.types == {}
 
 
 def test_unresolvable_types_stay_skipped_and_export_failures_are_reported():
@@ -132,7 +117,7 @@ def test_unresolvable_types_stay_skipped_and_export_failures_are_reported():
 @pytest.mark.parametrize("arrow_type,expected", [
     (pa.float64(), "float"), (pa.int64(), "int"), (pa.string(), "str"),
     (pa.bool_(), "bool"), (pa.timestamp("ms"), "datetime"),
-    (pa.date32(), "date"), (pa.null(), None),
+    (pa.date32(), None), (pa.null(), None),  # Celonis has no date-only type.
 ])
 @pytest.mark.parametrize("values", [[], [None]])
 def test_export_schema_resolves_empty_and_all_null_results(arrow_type, expected, values):

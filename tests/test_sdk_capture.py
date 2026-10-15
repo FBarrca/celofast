@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from celofast.sdk import Capture, CaptureError, Source
+from celofast.sdk import Capture, Source
 from celofast.sdk.capture import retrieve
 
 

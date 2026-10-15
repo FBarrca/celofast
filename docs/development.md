@@ -13,8 +13,9 @@ uv run pytest
 
 The lockfile and [pyproject.toml](../pyproject.toml) define the development
 environment, including wheel sources for the pinned Celonis packages. The
-normal test suite uses local fixtures and mocks. It covers mapping validation, generation, typing,
+offline tests use local fixtures and mocks. They cover model derivation, generation, typing,
 object hydration, native connector delegation, validation, Views, controls, and output batching.
+Live tests also run when credentials are configured in `.env` or the environment.
 
 For a targeted KM change:
 
@@ -29,29 +30,25 @@ uv run pytest tests/test_sdk_generate.py tests/test_object_runtime.py tests/test
 | [client.py](../celofast/client.py) | OAuth client creation and caching. |
 | [core.py](../celofast/core.py), [resolution.py](../celofast/resolution.py) | Package scope, lifecycle selection, lookup and caches. |
 | [sdk/capture.py](../celofast/sdk/capture.py) | KM and Data Model captures and retrieval. |
-| [sdk/mapping.py](../celofast/sdk/mapping.py) | Normalization: object mappings, keys, value types, and links. |
+| [sdk/model.py](../celofast/sdk/model.py) | Normalization: object types, event logs, keys, value types, and links. |
 | [sdk/definitions.py](../celofast/sdk/definitions.py), [sdk/objects.py](../celofast/sdk/objects.py) | Offline definitions (`Field`, `ObjectDefinition`); loaded objects, collections, pages, and links. |
 | [sdk/planning.py](../celofast/sdk/planning.py), [sdk/hydration.py](../celofast/sdk/hydration.py) | Private read planning; identity and value validation. |
 | [sdk/generate.py](../celofast/sdk/generate.py), [sdk/package.py](../celofast/sdk/package.py), [sdk/loading.py](../celofast/sdk/loading.py) | Generated packages, safe installation, drift reporting, and runtime compatibility. |
 | [query.py](../celofast/query.py) | View query dictionaries, explicit binding, and native PQL compilation. |
 | [resources](../celofast/resources) | KM client and connection, View, control, and augmentation-table handles. |
 | [cli.py](../celofast/cli.py) | `celofast km pull` and `--check`. |
-| [tests](../tests) | Local tests and opt-in cloud checks. |
+| [tests](../tests) | Local tests and credential-enabled cloud checks. |
 | [docs](.) | Markdown guides and references. |
 
 ## Live integration tests
 
-Live tests are opt-in. They use real credentials and read cloud KM data.
-Configure the usual OAuth environment plus these process environment variables:
-
-```dotenv
-CELOFAST_LIVE_KM=1
-CELOFAST_LIVE_SPACE_ID=SPACE_ID
-CELOFAST_LIVE_PACKAGE_ID=PACKAGE_ID
-CELOFAST_LIVE_KM_KEY=inventory-km
-CELOFAST_LIVE_RECORD_ID=O_CELONIS_PLANT
-CELOFAST_LIVE_KEY_ID=ID
-```
+Live tests use the repository's `.env` for the usual `CELONIS_URL` and `OAUTH_*`
+credentials (see [.env.example](../.env.example)); existing environment variables
+take precedence. They read the `inventory` KM configuration from
+[pyproject.toml](../pyproject.toml), including its mode.
+No separate test environment variables are needed. Both live suites run when
+credentials are available and skip when they are missing. They only read cloud data
+and generate packages in temporary directories.
 
 Then run:
 
@@ -76,16 +73,15 @@ uv run pytest -m "not live"
 [test_inventory_rules.py](../tests/test_inventory_rules.py) runs the same
 questions offline over hand-built objects that cover every branch.
 
-After changing `inventory-objects.toml` or the derivation rules, refresh the
+After changing the derivation rules, refresh the
 offline fixture (this reads the live KM, so it needs credentials) with
 `uv run python tests/fixtures/build_inventory_fixture.py`. It captures exactly
 what `celofast km pull` does (Data Model tables, primary keys, column types,
 foreign keys, and validation results) for the seven object types the offline
 tests use.
 
-The live suite is skipped unless `CELOFAST_LIVE_KM=1` is set when tests are
-collected. Inspect [test_sdk_live.py](../tests/test_sdk_live.py) before selecting
-its resources; these checks do not validate every tenant-specific example.
+[test_sdk_live.py](../tests/test_sdk_live.py) checks package generation, drift,
+import, and a small page of `Plant` objects from the same configured Inventory KM.
 
 ## Maintain the Markdown docs
 
@@ -114,7 +110,7 @@ without removing the original findings.
 
 Application-generated KM packages contain `__init__.py`, `objects.py`, and
 `py.typed`: plain Python with no data files. Change definitions in the source
-KM or the object mapping, pull again, and review the diff rather than editing
+KM, pull again, and review the diff rather than editing
 generated files.
 
 For each object type, `objects.py` holds a definition class of `Field`s

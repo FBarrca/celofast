@@ -20,8 +20,8 @@ except ImportError:  # Python 3.10
 from celofast import CeloFast
 from celofast.cli import _Progress
 from celofast.sdk.capture import record_table, retrieve
-from celofast.sdk.mapping import normalize
-from celofast.sdk.validation import resolve_types, validate
+from celofast.sdk.model import normalize
+from celofast.sdk.validation import object_links, resolve_types, validate
 
 USED = {
     "MaterialMasterPlant",
@@ -34,7 +34,6 @@ USED = {
 }
 
 settings = tomllib.load(open("pyproject.toml", "rb"))["tool"]["celofast"]["knowledge-models"]["inventory"]
-mapping = tomllib.load(open(settings["mapping"], "rb"))
 cf = CeloFast(settings["space-id"], settings["package-id"], mode=settings["mode"])
 native = cf._resolver.knowledge_model(settings["key"])
 progress = _Progress()
@@ -48,13 +47,14 @@ try:
         progress=progress,
     )
     connection = cf._km_connection(settings["key"])
-    capture = resolve_types(capture, connection._type_of, mapping=mapping, progress=progress)
-    capture = validate(capture, connection._probe, mapping=mapping, progress=progress)
+    capture = resolve_types(capture, connection._type_of, progress=progress)
+    capture = validate(capture, connection._probe, progress=progress)
+    capture = object_links(capture, connection._probe, progress=progress)
 finally:
     progress.close()
 
 real = json.loads(capture.model_dump_json())
-specs = [spec for spec in normalize(capture, mapping).objects if spec.class_name in USED]
+specs = [spec for spec in normalize(capture).objects if spec.class_name in USED]
 keep = {spec.record_id for spec in specs}
 expressions = {field.expression for spec in specs for field in spec.fields}
 assert len(keep) == len(USED), keep

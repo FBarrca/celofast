@@ -15,7 +15,7 @@ plant = client.objects(Plant).get("SAP_ECC::100::1000")
 print(plant.plant_name, plant.country)
 
 german_plants = client.objects(Plant).where(Plant.fields.country.eq("DE")).fetch_page()
-materials = plant.links.materials.fetch_page()          # this plant's MaterialMasterPlants
+materials = plant.links.material_master_plants.fetch_page()   # this plant's MaterialMasterPlants
 ```
 
 Your editor autocompletes every class, field, and relationship, and a type
@@ -30,9 +30,9 @@ KM; your names come from your own KM.
 4. [Sort](#4-sort)
 5. [Follow relationships](#5-follow-relationships)
 6. [Filter and sort by related objects](#6-filter-and-sort-by-related-objects)
-7. [KM input variables](#7-km-input-variables)
-8. [Keep the package up to date](#8-keep-the-package-up-to-date)
-9. [Customize what is generated](#9-customize-what-is-generated)
+7. [Event logs](#7-event-logs)
+8. [KM input variables](#8-km-input-variables)
+9. [Keep the package up to date](#9-keep-the-package-up-to-date)
 10. [See the PQL that runs](#10-see-the-pql-that-runs)
 
 ## 1. Generate the package
@@ -68,10 +68,12 @@ Pull reads the KM and its Data Model and writes a plain Python package to
   directions: a purchase document line's `header` (to-one, named after the
   `Header_ID` column) and a purchase document's `purchase_document_lines`
   (to-many).
+- **One event class per event log**, linked to the object whose history it is.
+  See [Event logs](#7-event-logs).
 
 Pull also test-runs every calculated attribute. Anything it can't generate,
-such as an event log, a record without a primary key, or a formula that fails
-in Celonis, is skipped rather than failing the pull. Each skipped item is
+such as a record without a primary key, or a formula that fails in Celonis, is
+skipped rather than failing the pull. Each skipped item is
 listed with its reason at the top of the generated `objects.py`, under
 `# Not generated:`.
 
@@ -131,7 +133,7 @@ line = client.objects(StockLine).get(("PLANT-1", datetime(2024, 1, 31)))
 `get()` raises `ObjectNotFoundError` when no object has that key.
 
 **Loaded objects.** Every object is a frozen dataclass holding every field, as
-plain Python values (`str`, `int`, `float`, `bool`, `date`, `datetime`). Every
+plain Python values (`str`, `int`, `float`, `bool`, `datetime`). Every
 field can be `None` except key fields. Reading a value never contacts Celonis;
 only `get()`, `fetch_page()`, `next_page()`, and `fetch()` on a to-one
 relationship do.
@@ -206,7 +208,7 @@ key order.
 ```python
 plant = client.objects(Plant).get("SAP_ECC::100::1000")
 
-materials = plant.links.materials                 # a collection of MaterialMasterPlant
+materials = plant.links.material_master_plants    # a collection of MaterialMasterPlant
 purchased = materials.where(MaterialMasterPlant.fields.procurement_type.eq("F"))
 page = purchased.fetch_page(page_size=50)
 
@@ -217,6 +219,24 @@ A to-many relationship is an ordinary collection: filter, sort, `get()`, and
 page it as above. A to-one relationship has `fetch()`, which returns the
 related object or `None`. If the object's reference is null, you get an empty
 result without a request.
+
+**Object Link.** When the Data Model links objects of one type with an
+[Object Link](https://docs.celonis.com/en/object-link.html), such as a bill of
+materials between material-plants, pull finds it and adds two relationships to
+that type: `link_targets` (the objects it links to) and `link_sources` (the
+objects that link to it):
+
+```python
+component = client.objects(MaterialMasterPlant).get("SAP_ECC::100::000000000000000084::1000")
+products = component.links.link_targets.fetch_page()      # what this component goes into
+
+links = MaterialMasterPlant.relations
+leaves = client.objects(MaterialMasterPlant).where(~links.link_targets.any() & links.link_sources.any())
+by_fan_out = client.objects(MaterialMasterPlant).order_by(links.link_targets.count().desc())
+```
+
+They support traversal, `any()`, and `count()`, without conditions on the
+linked objects.
 
 ## 6. Filter and sort by related objects
 
@@ -277,12 +297,66 @@ The optional condition limits which related objects count. Every aggregate
 except the two counts is `None` when there is no related value, and
 `.eq(None)` finds those objects.
 
-Relationships are filterable when they follow a Data Model foreign key, or are
-to-one links on a single column (joined by value). Other relationships, such
-as a declared to-many link without a foreign key, can be followed with `links`
-but not used in conditions; their `relations` raise `QueryValidationError`.
+## 7. Event logs
 
-## 7. KM input variables
+In an object-centric Data Model, events are stored by event type
+(`e_celonis_PostGoodsIssue`, ...). A KM event log is Celonis's view of those
+events from one object: the history of each sales order schedule line, say.
+Pull generates one class per event log, named after it
+(`SalesOrderScheduleLineActivities` becomes `SalesOrderScheduleLineActivity`;
+a log named after its object, like `DeliveryLine`, becomes `DeliveryLineEvent`).
+
+Each loaded event is one thing that happened to one object:
+
+| Field | Value |
+| --- | --- |
+| `case` | The key of the object whose history it is. |
+| `event_id` | The event's ID. The same event can appear in the history of several objects. |
+| `activity` | The event type, such as `"e_celonis_PostGoodsIssue"`. |
+| `timestamp` | When it happened. |
+| others | The log's other attributes, such as `executed_by`; `None` for event types that don't have them. |
+
+The object reaches its history through `links.activities` (logs named
+`...Activities`) or `links.events`, in time order:
+
+```python
+from generated.inventory import SalesOrderScheduleLine as Line, SalesOrderScheduleLineActivity
+
+line = client.objects(Line).get("SAP_ECC::100::0001000001::000010::0001")
+for event in line.links.activities.fetch_page():
+    print(event.timestamp, event.activity, event.executed_by)
+
+event.links.case.fetch()                                  # back to the line
+```
+
+**Filter objects by their history.** An event log relationship adds activity
+conditions to the usual `any()` and aggregates:
+
+```python
+activities = Line.relations.activities
+
+client.objects(Line).where(
+    activities.contains("PostGoodsIssue")                  # has every listed activity
+    & activities.max(SalesOrderScheduleLineActivity.fields.timestamp).gte(date(2025, 1, 1))
+).fetch_page()
+```
+
+| Condition | Matches objects whose history |
+| --- | --- |
+| `contains(*activities)` | Has every listed activity, in any order. |
+| `excludes(*activities)` | Has none of them, including an empty history. |
+| `starts_with(*activities)` | Starts with one of them. |
+| `ends_with(*activities)` | Ends with one of them. |
+
+Name activities by event type (`"PostGoodsIssue"`) or table
+(`"e_celonis_PostGoodsIssue"`); an unknown name fails before any query.
+Activity conditions describe the object itself, so they can't be used inside
+`has()`.
+
+Events can also be queried on their own, in time order:
+`client.objects(SalesOrderScheduleLineActivity).where(...)`.
+
+## 8. KM input variables
 
 Attributes that use KM input variables (`${name}`) are generated like any
 other. Each read uses the input's current value in the KM (the assigned value,
@@ -291,10 +365,9 @@ without a pull.
 
 `inventory.variables` lists the inputs the package uses. If an input has
 neither a value nor a default, reading a field that uses it raises
-`UnresolvedVariableError`: set a value in Studio, or
-[exclude the field](#9-customize-what-is-generated).
+`UnresolvedVariableError`: set a value in Studio.
 
-## 8. Keep the package up to date
+## 9. Keep the package up to date
 
 Pull again after the KM or its Data Model changes, then restart Python:
 
@@ -316,58 +389,6 @@ filters, don't count.
 Don't edit generated files; pull replaces them. Keep your own code outside the
 output directory: pull refuses to write into a directory with files it didn't
 generate.
-
-## 9. Customize what is generated
-
-Pull needs no configuration beyond section 1. To change its choices, add a
-`mapping`: inline, or as a TOML file next to `pyproject.toml`:
-
-```toml
-[tool.celofast.knowledge-models.inventory]
-# ...
-mapping = "inventory-objects.toml"
-```
-
-Records and attributes are named by their KM IDs, as shown in Studio:
-
-```toml
-# inventory-objects.toml
-
-# Don't generate these records.
-exclude = ["O_CELONIS_CURRENCYCONVERSION"]
-
-[objects.O_CELONIS_PLANT]
-class = "Site"                          # rename the class
-key = ["ID"]                            # choose the key (default: the primary key)
-exclude-fields = ["NumberNameConcat"]   # don't load these attributes
-types = { OpenedOn = "date" }           # force a type
-```
-
-`types` accepts `str`, `int`, `float`, `bool`, `date`, and `datetime`. Celonis
-dates load as `datetime`; use `"date"` for a plain date.
-
-**Relationships.** Declaring a link with the same target and columns as an
-automatic one renames it. Declaring any other link adds it:
-
-```toml
-# Rename Plant.material_master_plants to Plant.materials.
-[objects.O_CELONIS_PLANT.links.materials]
-target = "O_CELONIS_MATERIALMASTERPLANT"
-cardinality = "many"
-on = { ID = "PLANT_ID" }                # this record's attribute -> target attribute
-
-# Add a link that no foreign key declares.
-[objects.O_CELONIS_PURCHASESCHEDULELINE.links.plant]
-target = "O_CELONIS_PLANT"
-cardinality = "one"                     # a to-one link must map the target's key
-on = { PLANT_ID = "ID" }
-```
-
-A mistake in the mapping, such as an unknown record or attribute, or a key or
-link that doesn't fit, raises `ObjectMappingError` and nothing is written.
-
-Pass a different mapping file for one pull with `--mapping`. See the
-[command reference](api-reference.md#km-command-line) for all options.
 
 ## 10. See the PQL that runs
 

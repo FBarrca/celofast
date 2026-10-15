@@ -98,14 +98,6 @@ class UnresolvedVariableError(QueryValidationError):
     """
 
 
-class ObjectMappingError(CeloFastError, ValueError):
-    """Raised when captured records cannot be generated as identified objects.
-
-    Generation lists every record, key, type, or relationship that needs an
-    explicit mapping or exclusion instead of weakening the object contract.
-    """
-
-
 class ObjectNotFoundError(ResourceNotFoundError):
     """Raised when ``get(key)`` finds no object with that business key."""
 

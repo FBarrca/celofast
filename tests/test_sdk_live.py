@@ -1,83 +1,75 @@
-"""Opt-in read-only integration checks; never author or update cloud KM items.
+"""Read-only integration checks using .env and the inventory KM in pyproject.toml.
 
-Set CELOFAST_LIVE_KM=1, CELOFAST_LIVE_SPACE_ID, CELOFAST_LIVE_PACKAGE_ID,
-CELOFAST_LIVE_KM_KEY, CELOFAST_LIVE_RECORD_ID, and CELOFAST_LIVE_KEY_ID (the
-attribute ID that identifies that record's objects). Every other record is
-excluded. Use normal Celofast OAuth environment configuration.
+Run when normal Celofast OAuth credentials are configured. Exclude with
+``uv run pytest -m "not live"``. Never author or update cloud KM items.
 """
-
-import importlib.util
-import os
-import sys
 
 import pytest
 
 from celofast import CeloFast
-from celofast.sdk.capture import retrieve
-from celofast.sdk.mapping import normalize, parse_mapping
-from celofast.sdk.package import write_package
 
-pytestmark = pytest.mark.skipif(
-    os.environ.get("CELOFAST_LIVE_KM") != "1",
-    reason="Live KM validation is explicitly opt-in",
-)
+pytestmark = pytest.mark.live
 
 
-@pytest.fixture(scope="module")
-def live_context():
-    cf = CeloFast(
-        os.environ["CELOFAST_LIVE_SPACE_ID"], os.environ["CELOFAST_LIVE_PACKAGE_ID"]
-    )
-    native = cf._resolver.knowledge_model(os.environ["CELOFAST_LIVE_KM_KEY"])
-    capture = retrieve(
-        native,
-        space_id=os.environ["CELOFAST_LIVE_SPACE_ID"],
-        package_id=os.environ["CELOFAST_LIVE_PACKAGE_ID"],
-        mode="draft",
-    )
-    record_id = os.environ["CELOFAST_LIVE_RECORD_ID"]
-    record = next(r for r in capture.definition["records"] if r.get("id") == record_id)
-    others = [r["id"] for r in capture.definition["records"] if r.get("id") != record_id]
-    # Load only typed attributes with expressions; the rest are excluded explicitly.
-    loadable = [
-        a["id"] for c in ("attributes", "newAttributes", "augmentedAttributes")
-        for a in record.get(c) or () if a.get("pql") and a.get("columnType")
-    ]
-    all_ids = [
-        a["id"] for c in ("attributes", "newAttributes", "augmentedAttributes")
-        for a in record.get(c) or () if a.get("id")
-    ]
-    mapping = parse_mapping({
-        "exclude": others,
-        "objects": {record_id: {
-            "class": "LiveObject",
-            "key": [os.environ["CELOFAST_LIVE_KEY_ID"]],
-            "exclude-fields": sorted(set(all_ids) - set(loadable)),
-        }},
-    })
-    normalize(capture, mapping)
-    return cf, capture, mapping
+def test_live_pull_import_and_object_page(inventory_package):
+    module = inventory_package
+    source = module.km.source
+    cf = CeloFast(source.space_id, source.package_id, mode=source.mode)
+    client = cf.km(module.km)
+    page = client.objects(module.Plant).fetch_page(page_size=2)
+    assert all(isinstance(item, module.Plant) for item in page.items)
+    if page.items:
+        first = page.items[0]
+        assert client.objects(module.Plant).get(first.key) == first
 
 
-def test_live_pull_import_and_object_page(live_context, tmp_path):
-    cf, capture, mapping = live_context
-    output = tmp_path / "inventory"
-    write_package(capture, output, mapping=mapping)
-    assert not write_package(capture, output, mapping=mapping, check=True)
-    spec = importlib.util.spec_from_file_location(
-        "live_generated_inventory", output / "__init__.py",
-        submodule_search_locations=[str(output)],
-    )
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    try:
-        spec.loader.exec_module(module)
-        client = cf.km(module.km)
-        page = client.objects(module.LiveObject).fetch_page(page_size=2)
-        assert all(isinstance(item, module.LiveObject) for item in page.items)
-        if page.items:
-            first = page.items[0]
-            assert client.objects(module.LiveObject).get(first.key) == first
-    finally:
-        for name in [n for n in sys.modules if n.split(".")[0] == spec.name]:
-            del sys.modules[name]
+def test_live_event_log_history_and_activity_conditions(inventory_package):
+    module = inventory_package
+    Line, Activity = module.SalesOrderScheduleLine, module.SalesOrderScheduleLineActivity
+    source = module.km.source
+    client = CeloFast(source.space_id, source.package_id, mode=source.mode).km(module.km)
+    lines = client.objects(Line)
+    activities = Line.relations.activities
+
+    issued = lines.where(activities.contains("PostGoodsIssue")).fetch_page(page_size=10_000)
+    counted = lines.where(activities.count().gt(0)).fetch_page(page_size=10_000)
+    assert {line.key for line in issued} == {line.key for line in counted}
+    if not issued.items:
+        return
+    line = issued.items[0]
+    history = line.links.activities.fetch_page()
+    assert history.items and all(isinstance(event, Activity) for event in history)
+    assert all(event.case == line.key for event in history)
+    times = [event.timestamp for event in history if event.timestamp is not None]
+    assert times == sorted(times)
+    assert history.items[0].links.case.fetch() == line
+
+
+def test_live_object_link_attributes_are_generated(inventory_package):
+    # The Data Model's Object Link (bill of materials) serves the KM's LINK_ attributes.
+    from pathlib import Path
+
+    objects = (Path(inventory_package.__file__).parent / "objects.py").read_text(encoding="utf-8")
+    assert "Object Link" not in objects.split("\nclass ", 1)[0]  # No such "Not generated" note.
+    fields = inventory_package.MaterialMasterPlant.fields
+    assert fields.is_end_node.value_type == "int"
+    assert fields.num_incoming_bill_of_material_links.value_type == "int"
+
+
+def test_live_object_link_relations_follow_the_bill_of_materials(inventory_package):
+    module = inventory_package
+    MMP, BOM = module.MaterialMasterPlant, module.RelationshipBillOfMaterials
+    source = module.km.source
+    client = CeloFast(source.space_id, source.package_id, mode=source.mode).km(module.km)
+    links = MMP.relations
+    linked = client.objects(MMP).where(links.link_targets.any()).fetch_page(page_size=10_000)
+    counted = client.objects(MMP).where(MMP.fields.num_outgoing_bill_of_material_links.gt(0))
+    assert {m.key for m in linked} == {m.key for m in counted.fetch_page(page_size=10_000)}
+    if not linked.items:
+        return
+    component = linked.items[0]
+    targets = {m.key for m in component.links.link_targets.fetch_page(page_size=10_000)}
+    rows = client.objects(BOM).where(BOM.fields.material_master_plant_component_id.eq(component.key))
+    assert targets == {row.material_master_plant_product_id for row in rows.fetch_page(page_size=10_000)}
+    product = client.objects(MMP).get(next(iter(targets)))
+    assert component.key in {m.key for m in product.links.link_sources.fetch_page(page_size=10_000)}

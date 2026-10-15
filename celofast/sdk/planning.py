@@ -10,19 +10,22 @@ so ``~`` is an exact complement even when values are null.
 Relationship predicates are rendered in the same query:
 
 * to-one ``has()`` pulls the related type's expressions onto the filtered row
-  with ``BIND`` (Data Model foreign key) or ``LOOKUP`` (value join without a
-  join path), so unmatched rows see NULL;
+  with ``BIND``, so unmatched rows see NULL;
 * to-many ``any()`` counts matching related rows with ``PU_COUNT`` on the
   filtered row's table, rendering the nested condition on the related table;
 * aggregates (``count``, ``sum``, ``avg``, ...) render as the matching
-  Pull-Up function and compare or sort like any column.
+  Pull-Up function and compare or sort like any column;
+* activity conditions on an event log (``contains``, ...) render as
+  ``MATCH_ACTIVITIES`` on the log's activity column, a flag per lead object;
+* Object Link relations count, per object, the links of the Data Model's
+  Object Link graph at one of its ends, with ``LINK_SOURCE`` and ``LINK_TARGET``.
 """
 
 from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import pycelonis.pql as pql
@@ -33,19 +36,25 @@ from celofast.sdk.definitions import (
     And,
     Comparison,
     Field,
+    Linked,
     Not,
     ObjectDefinition,
     Operand,
     Or,
     Predicate,
+    Process,
     Related,
     Sort,
 )
+from celofast.sdk.objects import ObjectLinkRelation
 
 if TYPE_CHECKING:
     from celofast.sdk.objects import Object
 
 _ORDERING = {"lt": "<", "lte": "<=", "gt": ">", "gte": ">="}
+# MATCH_ACTIVITIES specifiers; ``excludes`` is the complement of NODE_ANY, so
+# it also holds for an object without events.
+_MATCH = {"contains": "NODE", "starts_with": "STARTING", "ends_with": "ENDING", "excludes": "NODE_ANY"}
 
 # Moves an expression of one object type onto the table being filtered.
 Pull = Callable[[str], str]
@@ -73,17 +82,32 @@ def _literal(value: object) -> str:
         delta = value - datetime(1970, 1, 1)
         milliseconds = (delta.days * 86400 + delta.seconds) * 1000 + delta.microseconds // 1000
         return f"{{t {milliseconds}}}"
-    if isinstance(value, date):
-        return "{d '" + value.isoformat() + "'}"
     raise QueryValidationError(f"Unsupported filter value {type(value).__name__}.")
 
 
 def _table(definition: ObjectDefinition) -> str:
-    if definition._table is None:
-        raise QueryValidationError(
-            f"{definition.object_type} is not a plain Data Model table; it cannot be joined."
-        )
+    # Only types that read a plain Data Model table have relations.
     return f'"{definition._table}"'
+
+
+def _links(
+    definition: ObjectDefinition, bind: Callable[[str], str], *, source: bool, other: object = None,
+) -> str:
+    """Per object: its Object Links as the ``source`` (else target) end.
+
+    With ``other``, only the links whose opposite end is the object keyed
+    ``other``. The links live in an internal edge table; ``PU_FIRST`` and
+    ``BIND`` bring the count back to the object's table, as the Celonis KM
+    attributes on Object Link do.
+    """
+    table, key = _table(definition), bind(definition.key_fields[0].expression).strip()
+    ends = (f"LINK_SOURCE({key})", f"LINK_TARGET({key})")
+    own, opposite = ends if source else ends[::-1]
+    condition = "" if other is None else f", {opposite} = {_literal(other)}"
+    return (
+        f"COALESCE(PU_FIRST({table}, CASE WHEN {own} = {key} THEN BIND(COMMON_TABLE({own}, {key}), "
+        f"PU_COUNT(DOMAIN_TABLE({own}), {own}{condition})) END), 0)"
+    )
 
 
 def _case(test: str) -> str:
@@ -95,6 +119,9 @@ class _Renderer:
         self.bind = bind
 
     def expression(self, operand: Operand[Any], pull: Pull = _identity) -> str:
+        if isinstance(operand, Aggregate) and isinstance(operand.relation, ObjectLinkRelation):
+            relation = operand.relation
+            return pull(_links(relation.source.fields, self.bind, source=relation.ends == "targets"))
         if isinstance(operand, Aggregate):
             # A Pull-Up function on the source table; its condition is
             # evaluated on the related table itself.
@@ -116,6 +143,13 @@ class _Renderer:
             indicator, negated = self.comparison(predicate, pull)
         elif isinstance(predicate, Related):
             indicator, negated = self.related(predicate, pull), False
+        elif isinstance(predicate, Linked):
+            # The targets of an object are the target end of its links, and vice versa.
+            relation = predicate.relation
+            count = _links(relation.target.fields, self.bind, source=relation.ends == "sources", other=predicate.key)
+            indicator, negated = _case(f"{pull(count)} > 0"), False
+        elif isinstance(predicate, Process):
+            indicator, negated = self.process(predicate, pull), predicate.mode == "excludes"
         else:
             raise QueryValidationError(f"Unsupported predicate {type(predicate).__name__}.")
         return f"{indicator} = {0 if negate != negated else 1}"
@@ -145,19 +179,26 @@ class _Renderer:
             return _case(f"{left} = {_literal(operand)}"), op == "ne"
         return _case(f"{left} {_ORDERING[op]} {_literal(operand)}"), False
 
+    def process(self, process: Process, pull: Pull) -> str:
+        if pull is not _identity:
+            raise QueryValidationError(
+                f"{process.relation.name}.{process.mode}() is a condition on "
+                f"{process.owner._object_type} itself; it cannot be used inside has()."
+            )
+        activity = self.bind(process.relation.target.fields.activity.expression).strip()
+        names = ", ".join(_literal(name) for name in process.activities)
+        return _case(f"MATCH_ACTIVITIES({activity}, {_MATCH[process.mode]}[{names}]) = 1")
+
     def related(self, related: Related, pull: Pull) -> str:
         relation = related.relation
+        if isinstance(relation, ObjectLinkRelation):
+            count = _links(relation.source.fields, self.bind, source=relation.ends == "targets")
+            return _case(f"{pull(count)} > 0")
         source, target = relation.source.fields, relation.target.fields
         key = target.key_fields[0]
         if relation.cardinality == "one":
             table = _table(source)
-            if relation.join == "fk":
-                reach: Pull = lambda e: f"BIND({table}, {e})"  # noqa: E731
-            else:
-                (left, right), = relation.on  # Lookup links join on the single target key.
-                on = f"({self.expression(getattr(source, left))}, {self.expression(getattr(target, right))})"
-                reach = lambda e: f"LOOKUP({table}, {e}, {on})"  # noqa: E731
-            to_target: Pull = lambda e: pull(reach(e))  # noqa: E731
+            to_target: Pull = lambda e: pull(f"BIND({table}, {e})")  # noqa: E731
             exists = f"{self.expression(key, to_target)} IS NOT NULL"
             if related.predicate is None:
                 return _case(exists)
@@ -178,6 +219,9 @@ def plan_read(
 ) -> pql.PQL:
     """Query every field of ``object_type`` as columns ``f0``, ``f1``, ...
 
+    Rows are ordered by ``order``, then by the type's default order: the key,
+    or for events the timestamp and then the key.
+
     ``bind`` replaces the ``${name}`` input placeholders of each field
     expression. With DISTINCT, Celonis ignores
     ORDER BY expressions that are not selected (verified live), so sort-only
@@ -188,7 +232,7 @@ def plan_read(
     definition = object_type.fields
     columns = [(f"f{i}", renderer.expression(field)) for i, field in enumerate(definition)]
     ordering = [(renderer.expression(sort.field), sort.ascending) for sort in order]
-    ordering += [(renderer.expression(field), True) for field in definition.key_fields]
+    ordering += [(renderer.expression(field), True) for field in definition._default_order]
     selected = {expression for _, expression in columns}
     for expression, _ in ordering:
         if expression not in selected:

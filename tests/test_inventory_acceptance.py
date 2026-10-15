@@ -1,7 +1,7 @@
 """End-to-end acceptance tests against the Inventory Management KM.
 
 The suite runs the real ``celofast km pull inventory`` (configuration from this
-repository's pyproject.toml and inventory-objects.toml) into a temporary
+repository's pyproject.toml) into a temporary
 directory, imports the generated package, and runs the documented business
 questions exactly as an application writes them. Each test asserts:
 
@@ -18,41 +18,20 @@ configured, and only read data. Without credentials they are skipped;
 
 from __future__ import annotations
 
-import importlib
-import os
-import sys
 from collections import defaultdict
 from datetime import date, datetime, time, timedelta
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
 from celofast import ObjectNotFoundError
-from celofast.cli import main as celofast_cli
 from celofast.sdk import Field, ObjectPage, ToManyRelation, ToOneRelation
 
 from inventory_oracle import select
 
-def _credentials() -> bool:
-    from dotenv import find_dotenv, load_dotenv
+# Run with credentials from .env or the environment; exclude with -m "not live".
+pytestmark = pytest.mark.live
 
-    load_dotenv(find_dotenv(usecwd=True))
-    required = ("CELONIS_URL", "OAUTH_CLIENT_ID", "OAUTH_CLIENT_SECRET", "OAUTH_SCOPES")
-    return all(os.environ.get(name) for name in required)
-
-
-# Online by default: these run whenever Celonis credentials are configured
-# (environment or .env). Deselect with `-m "not live"`.
-pytestmark = [
-    pytest.mark.live,
-    pytest.mark.skipif(
-        not _credentials(),
-        reason="Online acceptance tests need CELONIS_URL and OAUTH_* credentials (.env)",
-    ),
-]
-
-ROOT = Path(__file__).resolve().parents[1]
 SPEC_DATE = date(2026, 9, 23)  # The planning date used in the documented examples.
 PLAIN = (str, int, float, bool, date, datetime, type(None))
 
@@ -70,28 +49,10 @@ USED = (
 )
 
 
-def _purge() -> None:
-    for name in list(sys.modules):
-        if name.split(".")[0] == "generated":
-            del sys.modules[name]
-
-
 @pytest.fixture(scope="module")
-def km(tmp_path_factory):
-    """Pull the KM with the CLI, import it, connect, and load every used object."""
-    root = tmp_path_factory.mktemp("pulled")
-    pull = ["km", "pull", "inventory", "--project", str(ROOT / "pyproject.toml"),
-            "--output", str(root / "generated" / "inventory")]
-    assert celofast_cli(pull) == 0
-    assert celofast_cli([*pull, "--check"]) == 0  # A repeated pull finds no drift.
-
-    _purge()
-    sys.path.insert(0, str(root))
-    try:
-        package = importlib.import_module("generated.inventory")
-    finally:
-        sys.path.remove(str(root))
-    assert Path(package.__file__).parent == root / "generated" / "inventory"
+def km(inventory_package):
+    """Connect to the pulled KM and load every used object."""
+    package = inventory_package
 
     from celofast import CeloFast
 
@@ -110,8 +71,7 @@ def km(tmp_path_factory):
     exports = []
     export = client._connection._export
     client._connection._export = lambda *args, **kwargs: exports.append(1) or export(*args, **kwargs)
-    yield SimpleNamespace(package=package, client=client, all=loaded, exports=exports)
-    _purge()
+    return SimpleNamespace(package=package, client=client, all=loaded, exports=exports)
 
 
 def by_key(items):
@@ -502,7 +462,6 @@ def conformance_cases(sdk):
         "like": (Stock, S.id.like("%::1000"), ()),
         "~like": (Stock, ~S.id.like("%00000001%"), ()),
         "~has": (Stock, ~R.plant.has(P.country.eq("DE")), ()),
-        "lookup has": (Schedule, Schedule.relations.plant.has(P.plant_name.like("B%")), ()),
         "any(has) (BIND in PU)": (Stock, R.purchase_schedule_lines.any(
             sdk.PurchaseScheduleLine.relations.purchase_document_line.has(L.is_canceled.eq(1))), ()),
         "has(any) (PU through BIND)": (Schedule, Schedule.relations.material_master_plant.has(
@@ -525,7 +484,7 @@ def conformance_cases(sdk):
             R.planned_supplies.max(PS.order_quantity)), ()),
         "has(count)": (Schedule, Schedule.relations.material_master_plant.has(
             R.planned_supplies.count().gte(2)), ()),
-        "count(any) (PU in PU)": (sdk.Plant, sdk.Plant.relations.materials.count(
+        "count(any) (PU in PU)": (sdk.Plant, sdk.Plant.relations.material_master_plants.count(
             R.planned_supplies.any(PS.is_firm_order.eq(1))).gte(30), ()),
         "order by count desc": (Stock, R.planned_supplies.count().gt(0),
                                 (R.planned_supplies.count().desc(),)),

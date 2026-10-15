@@ -45,17 +45,26 @@ Source: [core.py](../celofast/core.py), [client.py](../celofast/client.py).
 | `Plant.relations.<to_many>.any(predicate=None)` | `Predicate`: some related object exists and matches. |
 | `Plant.relations.<to_many>.count(p=None)`, `.count_distinct(f, p=None)` | `Aggregate[int]` (`PU_COUNT`, `PU_COUNT_DISTINCT`); 0 without related values. |
 | `Plant.relations.<to_many>.sum(f, p=None)`, `.avg(...)`, `.min(...)`, `.max(...)`, `.median(...)` | `Aggregate` (`PU_SUM`, `PU_AVG`, `PU_MIN`, `PU_MAX`, `PU_MEDIAN` with the upper middle value); NULL without related values. Compares (`eq` … `between`) and sorts like a field. Foreign-key links only. |
+| `Plant.relations.<event_log>.contains(*a)`, `.excludes(*a)` | `Predicate` (`MATCH_ACTIVITIES` `NODE`, not `NODE_ANY`): the object's history has every / none of the activities. `excludes` also holds without events. |
+| `Plant.relations.<event_log>.starts_with(*a)`, `.ends_with(*a)` | `Predicate` (`STARTING`, `ENDING`): the first / last activity is one of them. Not usable inside `has()`. |
 | `plant.key` | Business key; a tuple for composite keys. |
-| `plant.links.<name>` | `ObjectCollection[Target]` (to-many) or `ToOne[Target]` (to-one), derived from a Data Model foreign key or declared as an override. |
+| `plant.links.<name>` | `ObjectCollection[Target]` (to-many) or `ToOne[Target]` (to-one), derived from a Data Model foreign key. |
+| `SalesOrderScheduleLineActivity` | `Event` (a frozen dataclass like `Plant`): one event of one lead object. Fields `case` (the lead's key), `event_id`, `activity` (the event type table, such as `e_celonis_PostGoodsIssue`), `timestamp`, and the log's other attributes. Key `(case, event_id)`. |
+| `event.links.case` | `ToOne[Lead]`. The lead's `links.activities` (logs named `...Activities`) or `links.events` is an `EventLogRelation`. |
+| `Plant.relations.link_targets`, `.link_sources` | `ObjectLinkRelation`, on a type the Data Model's Object Link graph connects (found at pull by test-running `LINK_SOURCE`): objects of the same type it links to / that link to it. Traversal, `any()`, and `count()` only (per-object `LINK_SOURCE`/`LINK_TARGET` counts). |
 
-`Plant.relations.<name>` and `plant.links.<name>` are the same declared
-relationship; its `.target`, `.on`, and `.join` describe it. Predicates and
-aggregates need a link verified at pull against a Data Model foreign key
-(joins, `BIND`, `PU_COUNT`) or, for single-column to-one links, joinable with
-`LOOKUP` (`.join` is `"fk"` or `"lookup"`); other links are traversal only. Every read, including nested relations, is one PQL query.
+`Plant.relations.<name>` and `plant.links.<name>` are the same relationship;
+its `.target` and `.on` describe it. Every relationship follows a Data Model
+foreign key (or, for event logs, the join Celonis maintains between a log and
+its lead object), so it supports traversal, predicates (`BIND`, `PU_COUNT`),
+and aggregates. Every read, including nested relations, is one PQL query.
 
-Value types are `str`, `int`, `float`, `bool`, `date`, and `datetime`. Keys are
-`str`, `int`, `date`, or `datetime`. Celonis `DATE` columns are `datetime`
+Activities are named by event type table (`e_celonis_PostGoodsIssue`) or type
+name (`PostGoodsIssue`), checked against the Data Model's event types at pull;
+an unknown name raises `ObjectValueError`.
+
+Value types are `str`, `int`, `float`, `bool`, and `datetime`. Keys are
+`str`, `int`, or `datetime`. Celonis `DATE` values are timestamps, so they are `datetime`
 fields (`DateTimeField`); their filters also accept a `date`, meaning its
 midnight.
 
@@ -70,7 +79,7 @@ Source: [definitions.py](../celofast/sdk/definitions.py),
 | `collection.where(*predicates)` | New collection; predicates combine with AND and must belong to the collection's type. |
 | `collection.order_by(*sorts)` | New collection ordered by fields or relation aggregates of its type (`Sort`, or ascending when given plainly); the key breaks ties. |
 | `collection.get(key)` | `Plant`; `ObjectNotFoundError` if absent. |
-| `collection.fetch_page(page_size=100, *, offset=0)` | `ObjectPage[Plant]` in `order_by` order, then key order; `page_size` is 1–10,000. |
+| `collection.fetch_page(page_size=100, *, offset=0)` | `ObjectPage[Plant]` in `order_by` order, then key order (events: `timestamp`, then key); `page_size` is 1–10,000. |
 | `page.items`, `.offset`, `.page_size`, `.has_more` | Loaded objects and paging state; pages iterate and have a length. |
 | `page.next_page()` | Following `ObjectPage`, or `None` after the last page. |
 | `to_one.fetch()` | `Target \| None`. |
@@ -138,7 +147,6 @@ uv run celofast km pull --space-id SPACE_ID --package-id PACKAGE_ID --km invento
 | `--space-id`, `--package-id`, `--km` | Explicit source identifiers, overriding configured values. `--km` is the exact KM key. |
 | `--mode` | `draft` or `published`; defaults to `draft` if not configured. |
 | `--output` | Explicit output path, relative to the working directory. Configured output paths are relative to their `pyproject.toml`. |
-| `--mapping` | Optional TOML file of overrides (`exclude` and `objects`); replaces a configured `mapping`. Relative to the working directory. |
 | `--check` | Read cloud definitions and report drift without changing files. |
 
 Pull reads Data Model tables, primary keys, column types, and foreign keys, and
@@ -146,17 +154,17 @@ test-runs calculated attributes against a sample of rows. Progress goes to
 stderr: a progress bar in a terminal, otherwise one line per step.
 
 Exit codes: **0** means success/up to date; **1** means `--check` detected drift;
-**2** means configuration, retrieval, mapping, generation, or installation failed.
+**2** means configuration, retrieval, generation, or installation failed.
 Run `uv run celofast km pull --help` for the installed command's help.
 
 Source: [cli.py](../celofast/cli.py). See
-[reviewing generated changes](knowledge-model-sdk.md#8-keep-the-package-up-to-date).
+[reviewing generated changes](knowledge-model-sdk.md#9-keep-the-package-up-to-date).
 
 ## Exceptions
 
 Most Celofast exceptions are importable from `celofast`. `CeloFastError` is the
-common base; `QueryValidationError`, `AugmentationValidationError`,
-`ObjectMappingError`, and `ObjectValueError` also subclass `ValueError`.
+common base; `QueryValidationError`, `AugmentationValidationError`, and
+`ObjectValueError` also subclass `ValueError`.
 `ObjectNotFoundError` subclasses `ResourceNotFoundError`; `ObjectIdentityError`
 reports null keys and conflicting values. Generated import compatibility errors use
 `celofast.sdk.loading.SDKCompatibilityError`, an `ImportError` subclass.

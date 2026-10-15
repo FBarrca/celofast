@@ -102,7 +102,7 @@ plant = client.objects(Plant).get("PLANT-1000")
 print(plant.country)                                      # a loaded value
 
 german = client.objects(Plant).where(Plant.fields.country.eq("DE")).fetch_page()
-materials = plant.links.materials.fetch_page()            # related objects
+materials = plant.links.material_master_plants.fetch_page()   # related objects
 ```
 
 Continue with the [Knowledge Model guide](docs/knowledge-model-sdk.md) for

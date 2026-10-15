@@ -7,11 +7,18 @@ client that loaded the instance.
 Each relationship is declared once, on a generated ``Links`` class::
 
     class PlantLinks(Links, source=Plant):
-        materials = ToManyRelation(Material, on=(("id", "plant_id"),), join="fk")
+        materials = ToManyRelation(Material, on=(("id", "plant_id"),))
 
 Read from the class (``Plant.relations.materials``) it builds predicates and
 aggregates; read from an instance (``plant.links.materials``) it fetches the
 related objects of that one object.
+
+An Object Link relation (``ObjectLinkRelation``) follows the Data Model's
+Object Link graph between objects of one type, such as a bill of materials.
+
+An event log is the history of its lead object: ``Event`` rows, reached
+through an ``EventLogRelation`` that also filters lead objects by their
+activities (``Line.relations.activities.contains("PostGoodsIssue")``).
 """
 
 from __future__ import annotations
@@ -30,10 +37,14 @@ from celofast.sdk.capture import Source
 from celofast.sdk.definitions import (
     Aggregate,
     AggregateFunction,
+    EventDefinition,
     Field,
+    Linked,
     ObjectDefinition,
     Operand,
     Predicate,
+    Process,
+    ProcessMode,
     Related,
     Sort,
 )
@@ -44,6 +55,7 @@ if TYPE_CHECKING:
     from celofast.resources.knowledge_model import KnowledgeModelClient
 
 O = TypeVar("O", bound="Object")
+E = TypeVar("E", bound="Event")
 T = TypeVar("T")
 MAX_PAGE_SIZE = 10_000
 
@@ -69,17 +81,25 @@ class Object:
         return type(self).relations(self)
 
 
+@dataclass(frozen=True, kw_only=True)
+class Event(Object):
+    """Base for generated event log rows: one event of one lead object.
+
+    ``case`` is the lead object's key, ``activity`` the event type, and
+    ``timestamp`` when it happened; ``links.case`` fetches the lead object.
+    """
+
+    fields: ClassVar[EventDefinition]
+
+
 class Links:
     """Declares the relationships of one object type; bound to an object for traversal."""
-
-    _source: ClassVar[type[Object]]
 
     def __init__(self, owner: Object) -> None:
         self._owner = owner
 
     def __init_subclass__(cls, *, source: type[Object], **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        cls._source = source
         source.relations = cls
         for value in vars(cls).values():
             if isinstance(value, Relation):
@@ -90,25 +110,18 @@ Object.relations = Links
 
 
 class Relation(Generic[O]):
-    """A declared relationship from ``source`` objects to ``target`` objects.
+    """A relationship from ``source`` objects to ``target`` objects along a
+    Data Model foreign key (or an event log's join to its lead object).
 
-    ``on`` pairs (source field name, target field name). ``join`` says how
-    predicates reach the target in PQL: a Data Model foreign key, a ``LOOKUP``
-    by value, or None when the link only supports traversal.
+    ``on`` pairs (source field name, target field name).
     """
 
     cardinality: ClassVar[Literal["one", "many"]]
     name: str
     source: type[Object]
 
-    def __init__(
-        self,
-        target: type[O],
-        *,
-        on: tuple[tuple[str, str], ...],
-        join: Literal["fk", "lookup"] | None = None,
-    ) -> None:
-        self.target, self.on, self.join = target, on, join
+    def __init__(self, target: type[O], *, on: tuple[tuple[str, str], ...]) -> None:
+        self.target, self.on = target, on
 
     def __set_name__(self, owner: type[Links], name: str) -> None:
         self.name = name
@@ -117,11 +130,6 @@ class Relation(Generic[O]):
         return f"{type(self).__name__}({self.name!r} -> {self.target.fields.object_type})"
 
     def _related(self, predicate: Predicate | None) -> Predicate:
-        if self.join is None:
-            raise QueryValidationError(
-                f"Relation {self.name!r} has no Data Model foreign key or lookup path; "
-                "use links for traversal instead."
-            )
         self._check_target(predicate)
         return Related(self, predicate)
 
@@ -217,10 +225,6 @@ class ToManyRelation(Relation[O]):
     def _aggregate(
         self, function: AggregateFunction, field: Field[Any] | None, predicate: Predicate | None
     ) -> Aggregate[Any]:
-        if self.join != "fk":
-            raise QueryValidationError(
-                f"Relation {self.name!r} has no Data Model foreign key; Pull-Up aggregates need one."
-            )
         self._check_target(predicate)
         target = self.target.fields
         if field is None:
@@ -234,6 +238,94 @@ class ToManyRelation(Relation[O]):
         if function in ("min", "max") and field.value_type == "bool":
             raise ObjectValueError(f"{function}() needs an ordered field; {field.name} is boolean.")
         return Aggregate(self, function, field, predicate)
+
+
+class ObjectLinkRelation(ToManyRelation[O]):
+    """Objects of the same type at the other end of the Data Model's Object Links.
+
+    ``ends="targets"`` reaches the objects this one links to; ``"sources"``
+    the objects that link to it. Traversal, ``any()``, and ``count()`` work;
+    conditions on the linked objects and other aggregates do not.
+    """
+
+    def __init__(self, target: type[O], *, ends: Literal["targets", "sources"]) -> None:
+        super().__init__(target, on=())
+        self.ends = ends
+
+    def _collection(self, links: Links) -> ObjectCollection[O]:
+        session = links._owner._context
+        if session is None:
+            raise QueryValidationError(
+                "This object was not loaded by a client; relationships cannot be fetched."
+            )
+        return session.objects(self.target).where(Linked(self, getattr(links._owner, "key")))
+
+    def _related(self, predicate: Predicate | None) -> Predicate:
+        if predicate is not None:
+            raise QueryValidationError(f"{self.name}.any() takes no condition on the linked objects.")
+        return Related(self, None)
+
+    def _aggregate(
+        self, function: AggregateFunction, field: Field[Any] | None, predicate: Predicate | None
+    ) -> Aggregate[Any]:
+        if function != "count" or predicate is not None:
+            raise QueryValidationError(f"{self.name} supports count() without a condition only.")
+        return Aggregate(self, function, self.target.fields.key_fields[0], None)
+
+
+class EventLogRelation(ToManyRelation[E]):
+    """The event log of a lead object: its events, in time order.
+
+    Besides the to-many predicates and aggregates, it filters lead objects by
+    the activities in their history, with ``MATCH_ACTIVITIES``. Activities are
+    event types, named by table (``e_celonis_PostGoodsIssue``) or by type
+    (``PostGoodsIssue``).
+    """
+
+    def contains(self, *activities: str) -> Predicate:
+        """The history has every one of ``activities``, in any order."""
+        return self._process("contains", activities)
+
+    def excludes(self, *activities: str) -> Predicate:
+        """The history has none of ``activities``; also true for an empty history."""
+        return self._process("excludes", activities)
+
+    def starts_with(self, *activities: str) -> Predicate:
+        """The first activity is one of ``activities``."""
+        return self._process("starts_with", activities)
+
+    def ends_with(self, *activities: str) -> Predicate:
+        """The last activity is one of ``activities``."""
+        return self._process("ends_with", activities)
+
+    def _process(self, mode: ProcessMode, activities: tuple[str, ...]) -> Predicate:
+        if not activities:
+            raise QueryValidationError(f"{mode}() needs at least one activity.")
+        if not all(isinstance(activity, str) and activity for activity in activities):
+            raise ObjectValueError(f"{mode}() activities are event type names.")
+        known = self.target.fields._event_types
+        return Process(self, mode, tuple(_event_type(activity, known) for activity in activities))
+
+
+def _event_type(activity: str, known: tuple[str, ...]) -> str:
+    """The event type table an activity names; unchecked when none are known."""
+    if not known or activity in known:
+        return activity
+    matches = [table for table in known if _type_name(table) == activity]
+    if len(matches) == 1:
+        return matches[0]
+    raise ObjectValueError(
+        f"Unknown activity {activity!r}; event types are {', '.join(known)}."
+        if not matches else f"Activity {activity!r} is ambiguous: {', '.join(matches)}."
+    )
+
+
+def _type_name(table: str) -> str:
+    """``e_celonis_PostGoodsIssue`` -> ``PostGoodsIssue``: drop the lowercase namespace."""
+    parts = table.split("_")
+    while len(parts) > 1 and (parts[0].islower() or not parts[0]):
+        parts.pop(0)
+    return "_".join(parts)
 
 
 @dataclass(frozen=True)

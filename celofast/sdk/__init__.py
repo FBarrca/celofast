@@ -4,8 +4,8 @@ Pull (``celofast km pull``), in order:
 
 * ``capture``: read the KM and its Data Model into a plain ``Capture``.
 * ``validation``: test-run calculated attributes; record types and rejections.
-* ``mapping``: derive object types, keys, fields, and links (``normalize``).
-* ``expressions``: inline input-dependent references for ``mapping``.
+* ``model``: derive object types, keys, fields, and links (``normalize``).
+* ``expressions``: inline input-dependent references; bind KM inputs (``${name}``).
 * ``generate``: render the Python package; ``package`` installs it.
 
 Runtime (imported by generated packages):
@@ -20,15 +20,19 @@ from celofast.sdk.capture import Capture, CaptureError, Source
 from celofast.sdk.definitions import (
     Aggregate,
     DateTimeField,
+    EventDefinition,
     Field,
     ObjectDefinition,
     Predicate,
     Sort,
 )
 from celofast.sdk.objects import (
+    Event,
+    EventLogRelation,
     Links,
     Object,
     ObjectCollection,
+    ObjectLinkRelation,
     ObjectModel,
     ObjectPage,
     Relation,
@@ -42,11 +46,15 @@ __all__ = [
     "Capture",
     "CaptureError",
     "DateTimeField",
+    "Event",
+    "EventDefinition",
+    "EventLogRelation",
     "Field",
     "Links",
     "Object",
     "ObjectCollection",
     "ObjectDefinition",
+    "ObjectLinkRelation",
     "ObjectModel",
     "ObjectPage",
     "Predicate",

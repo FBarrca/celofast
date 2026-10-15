@@ -1,6 +1,5 @@
 import pytest
 
-from celofast.exceptions import ObjectMappingError
 from celofast.sdk import Capture, CaptureError, Source
 from celofast.sdk.package import write_package
 
@@ -71,8 +70,9 @@ def test_changes_outside_generated_types_are_not_drift(tmp_path):
 def test_renamed_symbols_show_in_the_diff(tmp_path):
     target = tmp_path / "inventory"
     write_package(capture(), target)
-    changes = write_package(capture(), target, mapping={"objects": {"Plant": {"class": "Site"}}},
-                            check=True)
+    renamed = capture()
+    renamed.definition["records"][0]["displayName"] = "Site"  # Names the class of a record without a table.
+    changes = write_package(renamed, target, check=True)
     diff = "".join(change.diff for change in changes)
     assert "-class Plant(_o.Object):" in diff and "+class Site(_o.Object):" in diff
 
@@ -167,16 +167,6 @@ def test_directory_disguised_as_generated_file_is_protected(tmp_path):
     assert kept.read_text() == "keep this"
 
 
-def test_invalid_mappings_write_nothing(tmp_path):
-    target = tmp_path / "inventory"
-    write_package(capture(), target)
-    before = files(target)
-    first = capture().definition["records"][0]["id"]
-    with pytest.raises(ObjectMappingError, match="not a loaded field"):
-        write_package(capture(), target, mapping={"objects": {first: {"key": ["MISSING"]}}})
-    assert files(target) == before
-
-
 def test_foreign_files_block_replacement(tmp_path):
     # Anything the generator does not write, including sidecars from older
     # layouts, is left alone; delete the directory to regenerate it.
@@ -186,15 +176,3 @@ def test_foreign_files_block_replacement(tmp_path):
     with pytest.raises(CaptureError, match="unrelated files.*capture.json"):
         write_package(capture("changed"), target)
     assert (target / "capture.json").read_text() == "{}"
-
-
-def test_modules_of_an_earlier_layout_are_replaced(tmp_path):
-    from celofast.sdk.generate import HEADER, stamp
-
-    target = tmp_path / "inventory"
-    target.mkdir()
-    (target / "__init__.py").write_text(HEADER + f"__celofast__ = {stamp(capture())!r}\n")
-    (target / "links.py").write_text(HEADER + "old = True\n")
-    changes = write_package(capture(), target)
-    assert "- files/links.py" in [str(change) for change in changes]
-    assert sorted(files(target)) == PACKAGE

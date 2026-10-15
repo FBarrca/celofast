@@ -4,7 +4,7 @@ import pytest
 
 from celofast.sdk import Capture
 from celofast.sdk.generate import generate
-from celofast.sdk.mapping import normalize
+from celofast.sdk.model import normalize
 
 from objects_fixture import SOURCE, attribute
 
