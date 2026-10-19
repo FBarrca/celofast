@@ -27,10 +27,13 @@ def get_celonis(base_url: str | None = None) -> Celonis:
         compatibility settings.  Calls with the same ``base_url`` reuse the
         same client instance.
 
+    When none of ``OAUTH_CLIENT_ID``, ``OAUTH_CLIENT_SECRET`` and
+    ``OAUTH_SCOPES`` are set, PyCelonis' own auto-detection is used, which
+    works inside the Machine Learning Workbench (MLWB).
+
     Raises:
-        RuntimeError: If ``base_url``/``CELONIS_URL`` or any of
-            ``OAUTH_CLIENT_ID``, ``OAUTH_CLIENT_SECRET``, and
-            ``OAUTH_SCOPES`` is missing.
+        RuntimeError: If OAuth is only partially configured, or configured
+            without ``base_url``/``CELONIS_URL``.
 
     Notes:
         CeloFast does not read Space, Package, KM, or View identifiers from
@@ -42,14 +45,27 @@ def get_celonis(base_url: str | None = None) -> Celonis:
 
     load_dotenv(find_dotenv(usecwd=True))
     resolved_base_url = (base_url or os.environ.get("CELONIS_URL", "")).rstrip("/")
-    if not resolved_base_url:
-        raise RuntimeError("CELONIS_URL must be provided to use the PyCelonis client.")
 
     oauth_values = {
         "OAUTH_CLIENT_ID": os.environ.get("OAUTH_CLIENT_ID", ""),
         "OAUTH_CLIENT_SECRET": os.environ.get("OAUTH_CLIENT_SECRET", ""),
         "OAUTH_SCOPES": os.environ.get("OAUTH_SCOPES", ""),
     }
+
+    if not any(oauth_values.values()):
+        # No OAuth configured: let PyCelonis auto-detect its own credentials
+        # (e.g. inside the Machine Learning Workbench, which injects them).
+        kwargs = {"base_url": resolved_base_url} if resolved_base_url else {}
+        return pycelonis_get_celonis(
+            **kwargs,
+            user_agent="celofast",
+            check_if_outdated=False,
+            permissions=False,
+        )
+
+    if not resolved_base_url:
+        raise RuntimeError("CELONIS_URL must be provided to use the PyCelonis client.")
+
     missing = [name for name, value in oauth_values.items() if not value]
     if missing:
         raise RuntimeError(

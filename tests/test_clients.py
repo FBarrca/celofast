@@ -44,11 +44,30 @@ def test_get_celonis_uses_oauth_credentials(monkeypatch):
     client.get_celonis.cache_clear()
 
 
-def test_get_celonis_reports_missing_oauth_configuration(monkeypatch):
+def test_get_celonis_uses_pycelonis_autodetect_without_oauth(monkeypatch):
+    calls = []
     monkeypatch.setattr(client, "load_dotenv", lambda _: False)
-    monkeypatch.setenv("CELONIS_URL", "https://example.celonis.cloud")
+    monkeypatch.setattr(
+        client, "pycelonis_get_celonis", lambda **kwargs: calls.append(kwargs) or "c"
+    )
+    monkeypatch.delenv("CELONIS_URL", raising=False)
     monkeypatch.delenv("OAUTH_CLIENT_ID", raising=False)
     monkeypatch.delenv("OAUTH_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("OAUTH_SCOPES", raising=False)
+    client.get_celonis.cache_clear()
+
+    assert client.get_celonis() == "c"
+    assert calls == [
+        {"user_agent": "celofast", "check_if_outdated": False, "permissions": False}
+    ]
+    client.get_celonis.cache_clear()
+
+
+def test_get_celonis_reports_partial_oauth_configuration(monkeypatch):
+    monkeypatch.setattr(client, "load_dotenv", lambda _: False)
+    monkeypatch.setenv("CELONIS_URL", "https://example.celonis.cloud")
+    monkeypatch.setenv("OAUTH_CLIENT_SECRET", "secret")
+    monkeypatch.delenv("OAUTH_CLIENT_ID", raising=False)
     monkeypatch.delenv("OAUTH_SCOPES", raising=False)
     client.get_celonis.cache_clear()
 
