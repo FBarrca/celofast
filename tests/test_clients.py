@@ -53,7 +53,7 @@ def test_get_celonis_uses_pycelonis_autodetect_without_oauth(monkeypatch):
     monkeypatch.delenv("CELONIS_URL", raising=False)
     monkeypatch.delenv("OAUTH_CLIENT_ID", raising=False)
     monkeypatch.delenv("OAUTH_CLIENT_SECRET", raising=False)
-    monkeypatch.delenv("OAUTH_SCOPES", raising=False)
+    monkeypatch.setenv("OAUTH_SCOPES", "studio")  # scopes alone must not force OAuth
     client.get_celonis.cache_clear()
 
     assert client.get_celonis() == "c"

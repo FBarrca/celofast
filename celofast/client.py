@@ -27,8 +27,8 @@ def get_celonis(base_url: str | None = None) -> Celonis:
         compatibility settings.  Calls with the same ``base_url`` reuse the
         same client instance.
 
-    When none of ``OAUTH_CLIENT_ID``, ``OAUTH_CLIENT_SECRET`` and
-    ``OAUTH_SCOPES`` are set, PyCelonis' own auto-detection is used, which
+    When neither ``OAUTH_CLIENT_ID`` nor ``OAUTH_CLIENT_SECRET`` is set
+    (``OAUTH_SCOPES`` alone is ignored), PyCelonis' own auto-detection is used, which
     works inside the Machine Learning Workbench (MLWB).
 
     Raises:
@@ -52,7 +52,7 @@ def get_celonis(base_url: str | None = None) -> Celonis:
         "OAUTH_SCOPES": os.environ.get("OAUTH_SCOPES", ""),
     }
 
-    if not any(oauth_values.values()):
+    if not (oauth_values["OAUTH_CLIENT_ID"] or oauth_values["OAUTH_CLIENT_SECRET"]):
         # No OAuth configured: let PyCelonis auto-detect its own credentials
         # (e.g. inside the Machine Learning Workbench, which injects them).
         kwargs = {"base_url": resolved_base_url} if resolved_base_url else {}
